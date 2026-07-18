@@ -2,6 +2,8 @@
 // docs/plan.md milestones. M1 adds the collector layer (tokscale).
 
 pub mod collector;
+pub mod config;
+pub mod credentials;
 pub mod paths;
 pub mod query;
 pub mod storage;
