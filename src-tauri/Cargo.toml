@@ -30,6 +30,7 @@ ureq = "2"
 flate2 = "1"
 tar = "0.4"
 notify = "6"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.dev]
 incremental = true
