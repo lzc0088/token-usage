@@ -1,5 +1,8 @@
-// T0.2 scaffold entry point. Real backend modules (collector/storage/query/
-// commands) are added in M1–M2 per docs/plan.md.
+// Entry point. Backend modules (collector/storage/query/commands) grow per
+// docs/plan.md milestones. M1 adds the collector layer (tokscale).
+
+pub mod collector;
+pub mod paths;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
