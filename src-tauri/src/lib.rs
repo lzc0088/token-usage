@@ -6,6 +6,7 @@ pub mod config;
 pub mod credentials;
 pub mod paths;
 pub mod query;
+pub mod quota;
 pub mod storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
