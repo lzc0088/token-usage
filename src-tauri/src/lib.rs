@@ -1,5 +1,4 @@
-// Entry point. Backend modules grow per docs/plan.md milestones.
-// M6 adds system-tray integration + auto-hide on blur.
+// Entry point. M6: Tauri-native system tray + auto-hide on blur.
 
 pub mod collector;
 pub mod commands;
@@ -13,8 +12,8 @@ pub mod storage;
 pub mod tray;
 
 use state::AppState;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
-use tray_icon::{TrayIconBuilder, TrayIconEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -26,37 +25,34 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
 
-            // ── system tray ─────────────────────────────────────────────────
-            let tray_icon = {
-                // tiny amber square — no file dep, cross-platform safe
-                let s = 32usize;
-                let mut rgba = vec![0u8; s * s * 4];
-                for i in 0..s * s {
-                    rgba[i * 4] = 232;
-                    rgba[i * 4 + 1] = 176;
-                    rgba[i * 4 + 2] = 75;
-                    rgba[i * 4 + 3] = 255;
-                }
-                tray_icon::Icon::from_rgba(rgba, s as u32, s as u32)?
-            };
-            let w = window.clone();
-            let tray = TrayIconBuilder::new()
-                .with_id("main")
-                .with_title("—")
-                .with_icon(tray_icon)
-                .build()?;
-            TrayIconEvent::set_event_handler(Some(move |event| {
-                if let TrayIconEvent::Click { .. } = event {
-                    if w.is_visible().unwrap_or(false) {
-                        let _ = w.hide();
-                    } else {
-                        let _ = w.show();
-                        let _ = w.set_focus();
+            // ── system tray (Tauri-native, integrated with the event loop) ──
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .expect("no default window icon");
+            TrayIconBuilder::with_id("main")
+                .icon(icon)
+                .tooltip("Token Usage")
+                .on_tray_icon_event(|tray, event| {
+                    // Left-click toggles popover visibility.
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            if w.is_visible().unwrap_or(false) {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
                     }
-                }
-            }));
-
-            tray::init(tray);
+                })
+                .build(app)?;
 
             // ── auto-hide popover on blur ──────────────────────────────────
             let auto_close = app
@@ -65,15 +61,15 @@ pub fn run() {
                 .map(|c| c.auto_close_on_blur)
                 .unwrap_or(true);
             if auto_close {
-                let w2 = window.clone();
+                let w = window.clone();
                 window.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
-                        let _ = w2.hide();
+                        let _ = w.hide();
                     }
                 });
             }
 
-            // ── collector ──────────────────────────────────────────────────
+            // ── collector (watcher + scheduler + consumer) ──────────────────
             let h = app.handle().clone();
             let db = app.state::<AppState>().db.clone();
             tauri::async_runtime::spawn(collector::runtime::start(h, db));
