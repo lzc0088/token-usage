@@ -1,7 +1,7 @@
 <script lang="ts">
-  // 7-segment nav bar. V1 (T3.2) is visual + selection only; the segment views
-  // (Overview/Tools/…) are built in M4.
-  let active = $state("ov");
+  // 7-segment nav bar. Writes the global segment store; App renders the
+  // matching view. Only 总览 is built in T4.1; others fall back to a placeholder.
+  import { getSegment, setSegment } from "../../stores/segment.svelte";
 
   const segments: { key: string; label: string }[] = [
     { key: "ov", label: "总览" },
@@ -12,11 +12,13 @@
     { key: "sess", label: "会话" },
     { key: "limit", label: "额度" },
   ];
+
+  let active = $derived(getSegment());
 </script>
 
 <nav class="segbar">
   {#each segments as s (s.key)}
-    <button class:active={active === s.key} onclick={() => (active = s.key)}>{s.label}</button>
+    <button class:active={active === s.key} onclick={() => setSegment(s.key)}>{s.label}</button>
   {/each}
 </nav>
 

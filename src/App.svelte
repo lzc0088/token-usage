@@ -1,21 +1,20 @@
 <script lang="ts">
-  // Popover shell (M3): Hero + global period switcher + SegBar.
-  // - Summary re-loads whenever the period changes ($effect deps on it).
-  // - Listens to the `today:updated` event for real-time DAY refresh.
+  // Popover shell (M3/M4): Hero + period switcher + SegBar + active segment.
   import { listen } from "@tauri-apps/api/event";
   import Hero from "./components/popover/Hero.svelte";
   import PeriodSwitcher from "./components/popover/PeriodSwitcher.svelte";
   import SegBar from "./components/popover/SegBar.svelte";
+  import Overview from "./components/segments/Overview.svelte";
   import { api, type Config, type Summary } from "./lib/api";
   import { periodValue } from "./stores/period.svelte";
+  import { segmentValue } from "./stores/segment.svelte";
 
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
 
-  // (Re)load summary + config whenever the period changes.
   $effect(() => {
-    const period = periodValue(); // tracked → effect re-runs on change
+    const period = periodValue();
     let cancelled = false;
     (async () => {
       try {
@@ -33,8 +32,6 @@
     };
   });
 
-  // Real-time: collector emits `today:updated` (a Summary) after each scan.
-  // Only adopt it while viewing DAY (month/total come from the DB on a timer).
   $effect(() => {
     const unlisten_promise = listen<Summary>("today:updated", (e) => {
       if (periodValue() === "day") summary = e.payload;
@@ -43,6 +40,8 @@
       unlisten_promise.then((un) => un());
     };
   });
+
+  let segment = $derived(segmentValue());
 </script>
 
 <div class="popover">
@@ -53,19 +52,13 @@
 
   <SegBar />
 
-  <main class="pop-body">
-    {#if loadError}
-      <p class="err">加载失败：{loadError}</p>
-    {:else if !summary}
-      <p class="muted">加载中…</p>
-    {:else}
-      <p class="muted">M3 骨架就绪 · 分段视图见 M4</p>
-      <p class="hint">
-        {summary.input.toLocaleString()} 入 / {summary.output.toLocaleString()} 出 ·
-        {summary.cache_read.toLocaleString()} 缓存读
-      </p>
-    {/if}
-  </main>
+  {#if loadError}
+    <p class="err">加载失败：{loadError}</p>
+  {:else if segment === "ov"}
+    <Overview {summary} currency={config.currency} />
+  {:else}
+    <p class="placeholder">「{segment}」分段 · M4 待实装</p>
+  {/if}
 </div>
 
 <style>
@@ -80,24 +73,14 @@
     padding: 18px 16px 14px;
     gap: 12px;
   }
-  .pop-body {
-    padding: 14px 16px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .muted {
-    margin: 0;
-    color: var(--text-dim);
-  }
-  .hint {
-    margin: 0;
-    font-size: 11px;
-    color: var(--text-faint);
-  }
   .err {
-    margin: 0;
+    margin: 16px;
     color: var(--coral);
+    font-size: 12px;
+  }
+  .placeholder {
+    margin: 24px 16px;
+    color: var(--text-faint);
     font-size: 12px;
   }
 </style>
