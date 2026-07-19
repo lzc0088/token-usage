@@ -5,6 +5,8 @@
   import PeriodSwitcher from "./components/popover/PeriodSwitcher.svelte";
   import SegBar from "./components/popover/SegBar.svelte";
   import Overview from "./components/segments/Overview.svelte";
+  import Tools from "./components/segments/Tools.svelte";
+  import Models from "./components/segments/Models.svelte";
   import { api, type Config, type Summary } from "./lib/api";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
@@ -24,7 +26,11 @@
         config = c;
         loadError = null;
       } catch (e) {
-        if (!cancelled) loadError = String(e);
+        // Don't surface raw error text (may leak paths / internals). Log to console.
+        if (!cancelled) {
+          console.error("summary/config load failed", e);
+          loadError = "加载失败，请稍后重试";
+        }
       }
     })();
     return () => {
@@ -53,9 +59,13 @@
   <SegBar />
 
   {#if loadError}
-    <p class="err">加载失败：{loadError}</p>
+    <p class="err">{loadError}</p>
   {:else if segment === "ov"}
     <Overview {summary} currency={config.currency} />
+  {:else if segment === "tools"}
+    <Tools currency={config.currency} />
+  {:else if segment === "models"}
+    <Models currency={config.currency} />
   {:else}
     <p class="placeholder">「{segment}」分段 · M4 待实装</p>
   {/if}

@@ -26,6 +26,11 @@ function trim(v: number): string {
 
 /** Format cost in the chosen currency. USD/CNY/双显. */
 export function formatCost(usd: number, currency: Currency, cnyRate = 7.2): string {
+  // Guard non-finite (NaN/Infinity) the same way formatTokens does.
+  if (!Number.isFinite(usd) || !Number.isFinite(cnyRate)) {
+    usd = 0;
+    cnyRate = Number.isFinite(cnyRate) ? cnyRate : 7.2;
+  }
   if (currency === "usd") return `$${usd.toFixed(2)}`;
   if (currency === "cny") return `¥${(usd * cnyRate).toFixed(2)}`;
   return `$${usd.toFixed(2)} · ¥${(usd * cnyRate).toFixed(2)}`;
