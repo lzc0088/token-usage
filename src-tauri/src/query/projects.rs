@@ -7,7 +7,7 @@ use rusqlite::Connection;
 
 use super::QueryError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ProjectVm {
     pub path: String,
     pub tokens: i64,

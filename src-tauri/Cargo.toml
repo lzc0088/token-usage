@@ -32,6 +32,7 @@ tar = "0.4"
 notify = "6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [profile.dev]
 incremental = true

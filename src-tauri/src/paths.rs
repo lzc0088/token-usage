@@ -38,6 +38,8 @@ pub struct ClientInfo {
     pub additional_paths: Vec<PathEntry>,
     #[serde(default)]
     pub headless_paths: Vec<PathEntry>,
+    #[serde(default)]
+    pub message_count: i64,
 }
 
 /// A secondary path with its existence flag.
@@ -196,6 +198,7 @@ mod tests {
                     exists: true,
                 }],
                 headless_paths: vec![],
+                message_count: 0,
             }],
         };
         assert_eq!(watch_paths(&r), vec![PathBuf::from("/dup")]);

@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use super::{pct, pct_f, DateRange, Dimension, QueryError};
 
 /// One row of the breakdown (a tool or a model).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BreakdownEntry {
     pub key: String,
     pub tokens: i64,
@@ -19,7 +19,7 @@ pub struct BreakdownEntry {
     pub messages: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Breakdown {
     pub dimension: Dimension,
     pub entries: Vec<BreakdownEntry>,

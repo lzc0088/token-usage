@@ -63,6 +63,25 @@ pub enum VendorError {
     Empty,
 }
 
+/// Reject control chars (CRLF → HTTP header injection) and enforce sane length
+/// before a credential is placed in a request header. Defense-in-depth: the
+/// credential comes from keyring, but a corrupt/hostile value must not smuggle
+/// extra headers.
+pub fn validate_header_safe(s: &str) -> Result<(), VendorError> {
+    if s.is_empty() {
+        return Err(VendorError::Parse("empty credential".into()));
+    }
+    if s.len() > 4096 {
+        return Err(VendorError::Parse("credential too long".into()));
+    }
+    if s.chars().any(|c| c.is_control()) {
+        return Err(VendorError::Parse(
+            "credential contains control characters".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Fetch a vendor's quota. `credential` comes from the keyring (caller's job).
 pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorError> {
     match vendor {

@@ -21,7 +21,7 @@ pub enum Period {
 }
 
 /// Breakdown dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Dimension {
     Tool,
     Model,

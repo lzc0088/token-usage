@@ -6,7 +6,7 @@ use rusqlite::Connection;
 
 use super::QueryError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct SessionVm {
     pub tool: String,
     pub session_id: String,

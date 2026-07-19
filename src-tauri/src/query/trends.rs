@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use super::{DateRange, QueryError};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TrendPoint {
     pub date: String,
     pub tokens: i64,
@@ -13,7 +13,7 @@ pub struct TrendPoint {
     pub messages: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Trends {
     pub points: Vec<TrendPoint>,
 }

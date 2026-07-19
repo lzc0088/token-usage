@@ -70,6 +70,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
 
 /// Fetch via `http`. Returns the normalized quota.
 pub fn fetch_with(http: &dyn Http, api_key: &str) -> Result<Quota, VendorError> {
+    super::validate_header_safe(api_key)?;
     let body = http.get(URL, api_key)?;
     parse(&body)
 }
@@ -158,5 +159,18 @@ mod tests {
         }
         let q = fetch_with(&Mock, "sk-test").unwrap();
         assert!((q.value.unwrap() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rejects_crlf_and_empty_credentials() {
+        struct Mock;
+        impl Http for Mock {
+            fn get(&self, _: &str, _: &str) -> Result<String, VendorError> {
+                unreachable!("must not call http for invalid credential")
+            }
+        }
+        assert!(fetch_with(&Mock, "").is_err());
+        assert!(fetch_with(&Mock, "sk-bad\r\nX-Injected: yes").is_err());
+        assert!(fetch_with(&Mock, "sk-bad\n").is_err());
     }
 }

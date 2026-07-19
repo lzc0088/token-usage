@@ -3639,6 +3639,7 @@ name = "token-usage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs",
  "flate2",
  "keyring",
