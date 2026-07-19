@@ -16,7 +16,7 @@
         "label": "main",
         "title": "Token Usage",
         "width": 392,
-        "height": 240,
+        "height": 360,
         "resizable": false,
         "decorations": false,
         "transparent": true,

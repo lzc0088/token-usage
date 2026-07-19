@@ -1,17 +1,57 @@
 <script lang="ts">
-  // T0.2 scaffold placeholder. Real popover (Hero/SegBar/segments) lands in M3/M4
-  // per docs/plan.md. This verifies the Tauri+Svelte+Vite pipeline end-to-end.
-  let appVersion = "0.1.0-scaffold";
+  // Popover shell (M3 T3.2): Hero + global period switcher + SegBar.
+  // Summary re-loads whenever the period changes (the $effect deps on it).
+  import Hero from "./components/popover/Hero.svelte";
+  import PeriodSwitcher from "./components/popover/PeriodSwitcher.svelte";
+  import SegBar from "./components/popover/SegBar.svelte";
+  import { api, type Config, type Summary } from "./lib/api";
+  import { periodValue } from "./stores/period.svelte";
+
+  let summary = $state<Summary | null>(null);
+  let config = $state<Config>({ currency: "both" });
+  let loadError = $state<string | null>(null);
+
+  // (Re)load summary + config on mount and whenever the period changes.
+  $effect(() => {
+    const period = periodValue(); // tracked → effect re-runs on change
+    let cancelled = false;
+    (async () => {
+      try {
+        const [s, c] = await Promise.all([api.getSummary(period), api.getConfig()]);
+        if (cancelled) return;
+        summary = s;
+        config = c;
+        loadError = null;
+      } catch (e) {
+        if (!cancelled) loadError = String(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <div class="popover">
-  <header class="hero">
-    <span class="label">Token Usage</span>
-    <span class="version">{appVersion}</span>
+  <header class="pop-hero">
+    <Hero {summary} currency={config.currency} />
+    <PeriodSwitcher />
   </header>
-  <main class="body">
-    <p class="muted">脚手架就绪 · M0</p>
-    <p class="hint">后续：tokscale 采集 → SQLite → popover 分段（M1–M4）</p>
+
+  <SegBar />
+
+  <main class="pop-body">
+    {#if loadError}
+      <p class="err">加载失败：{loadError}</p>
+    {:else if !summary}
+      <p class="muted">加载中…</p>
+    {:else}
+      <p class="muted">M3 骨架就绪 · 分段视图见 M4</p>
+      <p class="hint">
+        {summary.input.toLocaleString()} 入 / {summary.output.toLocaleString()} 出 ·
+        {summary.cache_read.toLocaleString()} 缓存读
+      </p>
+    {/if}
   </main>
 </div>
 
@@ -19,25 +59,16 @@
   .popover {
     display: flex;
     flex-direction: column;
-    padding: 16px;
+  }
+  .pop-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 18px 16px 14px;
     gap: 12px;
   }
-  .hero {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-  }
-  .label {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .version {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--amber);
-  }
-  .body {
+  .pop-body {
+    padding: 14px 16px 18px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -50,5 +81,10 @@
     margin: 0;
     font-size: 11px;
     color: var(--text-faint);
+  }
+  .err {
+    margin: 0;
+    color: var(--coral);
+    font-size: 12px;
   }
 </style>
