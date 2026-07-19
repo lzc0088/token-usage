@@ -7,6 +7,8 @@
   import Overview from "./components/segments/Overview.svelte";
   import Tools from "./components/segments/Tools.svelte";
   import Models from "./components/segments/Models.svelte";
+  import Projects from "./components/segments/Projects.svelte";
+  import Sessions from "./components/segments/Sessions.svelte";
   import { api, type Config, type Summary } from "./lib/api";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
@@ -58,23 +60,30 @@
 
   <SegBar />
 
-  {#if loadError}
-    <p class="err">{loadError}</p>
-  {:else if segment === "ov"}
-    <Overview {summary} currency={config.currency} />
-  {:else if segment === "tools"}
-    <Tools currency={config.currency} />
-  {:else if segment === "models"}
-    <Models currency={config.currency} />
-  {:else}
-    <p class="placeholder">「{segment}」分段 · M4 待实装</p>
-  {/if}
+  <main class="seg-scroll">
+    {#if loadError}
+      <p class="err">{loadError}</p>
+    {:else if segment === "ov"}
+      <Overview {summary} currency={config.currency} />
+    {:else if segment === "tools"}
+      <Tools currency={config.currency} />
+    {:else if segment === "models"}
+      <Models currency={config.currency} />
+    {:else if segment === "projects"}
+      <Projects currency={config.currency} />
+    {:else if segment === "sess"}
+      <Sessions currency={config.currency} />
+    {:else}
+      <p class="placeholder">「{segment}」分段 · M4 待实装</p>
+    {/if}
+  </main>
 </div>
 
 <style>
   .popover {
     display: flex;
     flex-direction: column;
+    height: 100%;
   }
   .pop-hero {
     display: flex;
@@ -82,6 +91,20 @@
     align-items: flex-start;
     padding: 18px 16px 14px;
     gap: 12px;
+    flex-shrink: 0;
+  }
+  .seg-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+  }
+  .seg-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .seg-scroll::-webkit-scrollbar-thumb {
+    background: var(--glass-3);
+    border-radius: 3px;
   }
   .err {
     margin: 16px;

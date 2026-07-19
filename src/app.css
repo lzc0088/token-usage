@@ -32,6 +32,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: transparent;
   color: var(--text);
   font-family: var(--font-ui);
@@ -43,8 +44,10 @@ body {
 #app {
   /* popover is 392px wide per docs/design.md §F1 */
   width: 392px;
-  min-height: 200px;
+  height: 100vh;
   background: var(--glass);
   border-radius: var(--radius);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }

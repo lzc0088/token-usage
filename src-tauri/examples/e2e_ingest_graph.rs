@@ -4,11 +4,11 @@
 //   cargo run --example e2e_ingest_graph
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use rusqlite::Connection;
     use token_usage_lib::{
         collector::tokscale,
         storage::{daily_usage, schema},
     };
-    use rusqlite::Connection;
 
     let data = tokscale::app_bin_dir().ok_or("no data dir")?;
     let bin = tokscale::resolve_bin(None, &data)?;

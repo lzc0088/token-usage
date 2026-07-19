@@ -30,6 +30,7 @@
     padding: 0 16px;
     overflow-x: auto;
     scrollbar-width: none;
+    flex-shrink: 0;
   }
   .segbar::-webkit-scrollbar {
     display: none;
