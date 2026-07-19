@@ -74,6 +74,11 @@ export interface ClientStatus {
   message_count: number;
 }
 
+export interface TokscaleStatus {
+  installed: boolean;
+  version: string | null;
+}
+
 export type Currency = "usd" | "cny" | "both";
 
 export type QuotaKind = "balance" | "plan";
@@ -115,6 +120,14 @@ export const api = {
   getToolsStatus: () => invoke<ClientStatus[]>("get_tools_status"),
 
   getQuotas: () => invoke<Quota[]>("get_quotas"),
+
+  getCredentialStatus: (vendor: string) => invoke<boolean>("get_credential_status", { vendor }),
+
+  setCredential: (vendor: string, secret: string) => invoke<void>("set_credential", { vendor, secret }),
+
+  deleteCredential: (vendor: string) => invoke<void>("delete_credential", { vendor }),
+
+  getTokscaleStatus: () => invoke<TokscaleStatus>("get_tokscale_status"),
 
   getConfig: () => invoke<Config>("get_config"),
 

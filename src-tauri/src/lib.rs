@@ -39,6 +39,10 @@ pub fn run() {
             commands::quota::get_quotas,
             commands::settings::get_config,
             commands::settings::set_config,
+            commands::settings::get_credential_status,
+            commands::settings::set_credential,
+            commands::settings::delete_credential,
+            commands::status::get_tokscale_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

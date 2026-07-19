@@ -42,3 +42,51 @@ pub async fn get_tools_status() -> Result<Vec<ClientStatus>, String> {
         })
         .collect())
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TokscaleStatus {
+    pub installed: bool,
+    pub version: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_tokscale_status() -> Result<TokscaleStatus, String> {
+    let data = match tokscale::app_bin_dir() {
+        Some(d) => d,
+        None => {
+            return Ok(TokscaleStatus {
+                installed: false,
+                version: None,
+            })
+        }
+    };
+    let bin = match tokscale::resolve_bin(None, &data) {
+        Ok(b) => b,
+        Err(_) => {
+            return Ok(TokscaleStatus {
+                installed: false,
+                version: None,
+            })
+        }
+    };
+    let out = tokio::process::Command::new(&bin)
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    let version = out
+        .status
+        .success()
+        .then(|| {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .split_whitespace()
+                .last()
+                .map(|v| v.to_string())
+        })
+        .flatten();
+    Ok(TokscaleStatus {
+        installed: true,
+        version,
+    })
+}
