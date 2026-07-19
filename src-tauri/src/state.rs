@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
+use crate::config::Config;
 use crate::storage;
 
 pub struct AppState {
@@ -23,5 +24,11 @@ impl AppState {
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    /// Load config from the DB (helper for callers with a shared DB handle).
+    pub fn load_config(&self) -> Result<Config, storage::StorageError> {
+        let conn = self.db.lock().expect("db poisoned");
+        crate::config::load(&conn)
     }
 }

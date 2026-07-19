@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 
 use super::{scheduler, tokscale, watcher};
 use crate::query::summary;
+use crate::tray;
 use crate::{paths, storage};
 
 /// Start the collector pipeline. Best-effort: any setup failure (no tokscale,
@@ -59,7 +60,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     };
     tauri::async_runtime::spawn(scheduler::run(scanner, cfg, tick_rx, ev_tx));
 
-    // 4. consumer: persist graph, emit today:updated.
+    // 4. consumer: persist graph, emit today:updated, update tray title.
     tauri::async_runtime::spawn(async move {
         let _watch_guard = watch_guard; // keep the watcher alive for the app's lifetime
         while let Some(ev) = ev_rx.recv().await {
@@ -70,6 +71,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     }
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {
+                    tray::update_from_json(&app, &v);
                     if let Some(s) = summary::from_today_json(&v) {
                         let _ = app.emit("today:updated", s);
                     }

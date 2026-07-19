@@ -37,6 +37,9 @@ pub struct Config {
     /// Default period in the popover — "day" | "month" | "total".
     #[serde(default = "default_period")]
     pub default_period: String,
+    /// Auto-hide popover when window loses focus.
+    #[serde(default = "default_true")]
+    pub auto_close_on_blur: bool,
 }
 
 fn default_language() -> String {
@@ -44,6 +47,9 @@ fn default_language() -> String {
 }
 fn default_period() -> String {
     "day".into()
+}
+fn default_true() -> bool {
+    true
 }
 
 // Stable config keys.

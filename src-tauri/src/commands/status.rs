@@ -79,7 +79,6 @@ pub async fn get_tokscale_status() -> Result<TokscaleStatus, String> {
         .success()
         .then(|| {
             String::from_utf8_lossy(&out.stdout)
-                .trim()
                 .split_whitespace()
                 .last()
                 .map(|v| v.to_string())

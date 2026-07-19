@@ -17,6 +17,7 @@
         "title": "Token Usage",
         "width": 392,
         "height": 540,
+        "visible": false,
         "resizable": false,
         "decorations": false,
         "transparent": true,
