@@ -3,6 +3,7 @@
 //! `tokscale` is the single source of token statistics. This module resolves
 //! the binary (three-tier strategy), spawns it, and tolerantly parses its JSON.
 
+pub mod runtime;
 pub mod scheduler;
 pub mod tokscale;
 pub mod watcher;

@@ -1,6 +1,8 @@
 <script lang="ts">
-  // Popover shell (M3 T3.2): Hero + global period switcher + SegBar.
-  // Summary re-loads whenever the period changes (the $effect deps on it).
+  // Popover shell (M3): Hero + global period switcher + SegBar.
+  // - Summary re-loads whenever the period changes ($effect deps on it).
+  // - Listens to the `today:updated` event for real-time DAY refresh.
+  import { listen } from "@tauri-apps/api/event";
   import Hero from "./components/popover/Hero.svelte";
   import PeriodSwitcher from "./components/popover/PeriodSwitcher.svelte";
   import SegBar from "./components/popover/SegBar.svelte";
@@ -11,7 +13,7 @@
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
 
-  // (Re)load summary + config on mount and whenever the period changes.
+  // (Re)load summary + config whenever the period changes.
   $effect(() => {
     const period = periodValue(); // tracked → effect re-runs on change
     let cancelled = false;
@@ -28,6 +30,17 @@
     })();
     return () => {
       cancelled = true;
+    };
+  });
+
+  // Real-time: collector emits `today:updated` (a Summary) after each scan.
+  // Only adopt it while viewing DAY (month/total come from the DB on a timer).
+  $effect(() => {
+    const unlisten_promise = listen<Summary>("today:updated", (e) => {
+      if (periodValue() === "day") summary = e.payload;
+    });
+    return () => {
+      unlisten_promise.then((un) => un());
     };
   });
 </script>

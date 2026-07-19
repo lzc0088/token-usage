@@ -4,6 +4,7 @@
 pub mod breakdown;
 pub mod projects;
 pub mod sessions;
+pub mod summary;
 pub mod trends;
 
 #[derive(Debug, thiserror::Error)]

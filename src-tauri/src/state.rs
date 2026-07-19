@@ -1,15 +1,15 @@
-//! Managed application state (M3). Holds the open DB connection behind a Mutex
-//! (rusqlite `Connection` is `Send` but not `Sync`); Tauri commands borrow it via
-//! `State<AppState>`. The collector scheduler (T3.3) attaches here too.
+//! Managed application state (M3). The DB connection sits behind an
+//! `Arc<Mutex<Connection>>` so Tauri commands (via `State<AppState>`) and the
+//! background collector consumer (Graph → upsert) can share it.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
 use crate::storage;
 
 pub struct AppState {
-    pub db: Mutex<Connection>,
+    pub db: Arc<Mutex<Connection>>,
 }
 
 impl AppState {
@@ -21,7 +21,7 @@ impl AppState {
         )))?;
         let conn = storage::open_db(&path)?;
         Ok(Self {
-            db: Mutex::new(conn),
+            db: Arc::new(Mutex::new(conn)),
         })
     }
 }
