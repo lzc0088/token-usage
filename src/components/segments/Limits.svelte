@@ -12,7 +12,7 @@
         const q = await api.getQuotas();
         if (!cancelled) quotas = q;
       } catch (e) {
-        console.error("quotas failed", e);
+        console.error("quotas failed", e instanceof Error ? e.message : String(e));
         if (!cancelled) quotas = null;
       }
     })();

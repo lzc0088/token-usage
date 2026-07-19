@@ -93,6 +93,9 @@ export interface Quota {
 export interface Config {
   currency: Currency;
   tokscale_path?: string | null;
+  auto_start?: boolean;
+  language?: "zh" | "en";
+  default_period?: "day" | "month" | "total";
 }
 
 // ── command wrappers ────────────────────────────────────────────────────────

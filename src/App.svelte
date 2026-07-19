@@ -11,9 +11,11 @@
   import Sessions from "./components/segments/Sessions.svelte";
   import Trend from "./components/segments/Trend.svelte";
   import Limits from "./components/segments/Limits.svelte";
+  import SettingsModal from "./views/SettingsModal.svelte";
   import { api, type Config, type Summary } from "./lib/api";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
+  import { isSettingsOpen, openSettings } from "./stores/settings.svelte";
 
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
@@ -57,7 +59,10 @@
 <div class="popover">
   <header class="pop-hero">
     <Hero {summary} currency={config.currency} />
-    <PeriodSwitcher />
+    <div class="hero-right">
+      <button class="gear" onclick={openSettings} title="设置">⚙</button>
+      <PeriodSwitcher />
+    </div>
   </header>
 
   <SegBar />
@@ -85,6 +90,10 @@
   </main>
 </div>
 
+{#if isSettingsOpen()}
+  <SettingsModal />
+{/if}
+
 <style>
   .popover {
     display: flex;
@@ -96,9 +105,26 @@
     justify-content: space-between;
     align-items: flex-start;
     padding: 18px 16px 14px;
-    gap: 12px;
+    gap: 8px;
     flex-shrink: 0;
   }
+  .hero-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+  }
+  .gear {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 6px;
+    transition: 0.15s;
+  }
+  .gear:hover { color: var(--amber); background: rgba(232,176,75,0.08); }
   .seg-scroll {
     flex: 1;
     overflow-y: auto;

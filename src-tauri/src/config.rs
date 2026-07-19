@@ -28,6 +28,22 @@ pub struct Config {
     /// Absolute path to a user-supplied tokscale binary (None = auto resolve).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokscale_path: Option<String>,
+    /// Start the app on system boot (macOS LaunchAgent / Win registry / Linux autostart).
+    #[serde(default)]
+    pub auto_start: bool,
+    /// UI language — "zh" | "en".
+    #[serde(default = "default_language")]
+    pub language: String,
+    /// Default period in the popover — "day" | "month" | "total".
+    #[serde(default = "default_period")]
+    pub default_period: String,
+}
+
+fn default_language() -> String {
+    "zh".into()
+}
+fn default_period() -> String {
+    "day".into()
 }
 
 // Stable config keys.
@@ -125,6 +141,7 @@ mod tests {
         let cfg = Config {
             currency: Currency::Cny,
             tokscale_path: Some("/usr/local/bin/tokscale".into()),
+            ..Default::default()
         };
         save(&c, &cfg).unwrap();
         let loaded = load(&c).unwrap();
