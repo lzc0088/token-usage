@@ -3,6 +3,7 @@
 //! tested there. Commands only (de)serialize + borrow [`AppState`].
 
 pub mod query;
+pub mod quota;
 pub mod settings;
 pub mod status;
 

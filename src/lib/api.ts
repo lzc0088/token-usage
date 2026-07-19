@@ -76,6 +76,20 @@ export interface ClientStatus {
 
 export type Currency = "usd" | "cny" | "both";
 
+export type QuotaKind = "balance" | "plan";
+export type QuotaStatus = "ok" | "low" | "danger";
+
+export interface Quota {
+  vendor: string;
+  kind: QuotaKind;
+  status: QuotaStatus;
+  value: number | null;
+  display: string;
+  reset_in_secs: number | null;
+  used_pct: number | null;
+  currency: string | null;
+}
+
 export interface Config {
   currency: Currency;
   tokscale_path?: string | null;
@@ -96,6 +110,8 @@ export const api = {
   getProjects: () => invoke<ProjectVm[]>("get_projects"),
 
   getToolsStatus: () => invoke<ClientStatus[]>("get_tools_status"),
+
+  getQuotas: () => invoke<Quota[]>("get_quotas"),
 
   getConfig: () => invoke<Config>("get_config"),
 

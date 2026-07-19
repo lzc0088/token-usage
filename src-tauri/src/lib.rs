@@ -36,6 +36,7 @@ pub fn run() {
             commands::query::get_sessions,
             commands::query::get_projects,
             commands::status::get_tools_status,
+            commands::quota::get_quotas,
             commands::settings::get_config,
             commands::settings::set_config,
         ])

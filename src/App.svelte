@@ -10,6 +10,7 @@
   import Projects from "./components/segments/Projects.svelte";
   import Sessions from "./components/segments/Sessions.svelte";
   import Trend from "./components/segments/Trend.svelte";
+  import Limits from "./components/segments/Limits.svelte";
   import { api, type Config, type Summary } from "./lib/api";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
@@ -76,6 +77,8 @@
       <Sessions currency={config.currency} />
     {:else if segment === "trend"}
       <Trend />
+    {:else if segment === "limit"}
+      <Limits />
     {:else}
       <p class="placeholder">「{segment}」分段 · M4 待实装</p>
     {/if}
