@@ -1,11 +1,9 @@
 //! Read-only query commands (M3 T3.1/T3.3). Sync; read from `daily_usage` /
 //! `sessions` via the `query` layer.
 
-use std::collections::HashSet;
-
 use tauri::State;
 
-use crate::collector::workspace::{parse_workspace_report, ProjectAgg, scan_claude_projects};
+use crate::collector::workspace::{build_projects_from_sessions, ProjectAgg};
 use crate::commands::{db, parse_period, today};
 use crate::query::summary::Summary;
 use crate::query::{self, breakdown::Breakdown, sessions::SessionVm, trends::Trends, Dimension};
@@ -109,11 +107,13 @@ pub async fn get_session_rounds(
     .map_err(|e| e.to_string())
 }
 
-/// Per-project usage, sourced live from `tokscale report --group-by
-/// workspace,model` with the global period applied. Projects aren't persisted
-/// (the `daily_usage` table has no project dimension), so this is an on-demand
-/// query — like a breakdown, not a DB read. Returns an empty list when tokscale
-/// isn't available yet (e.g. still installing on first launch).
+/// Build the project list from tokscale's `--group-by session,model` report.
+///
+/// Unlike the old workspace-key approach, this reads each Claude session's
+/// JSONL `cwd` field to determine the project — so subdirectories like
+/// `bee_miniprogram/uniapp-field` appear as independent projects rather than
+/// being merged into `bee_miniprogram`. Token/cost data stays precise
+/// (from tokscale), project names come from the JSONL files (authoritative).
 #[tauri::command]
 pub async fn get_projects(period: String) -> Result<Vec<ProjectAgg>, String> {
     let p = parse_period(&period);
@@ -132,39 +132,15 @@ pub async fn get_projects(period: String) -> Result<Vec<ProjectAgg>, String> {
         Err(_) => return Ok(Vec::new()),
     };
 
-    let args = crate::collector::tokscale::report_args(tp, &[], "workspace,model");
+    // Query session-level (NOT workspace-level) data so we can re-group by
+    // per-session cwd rather than by tokscale's workspaceKey.
+    let args = crate::collector::tokscale::report_args(tp, &[], "session,model");
     let json = crate::collector::tokscale::run_json(&bin, &args)
         .await
         .map_err(|e| e.to_string())?;
 
     let claude_dir = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
-    let mut projects = parse_workspace_report(&json, claude_dir.as_deref());
-
-    // Supplement with filesystem-scan: include ALL Claude Code projects
-    // that have session JSONL files, even if tokscale didn't report them
-    // (no activity in the selected period). This matches token-monitor's
-    // approach — always show every project, not just active ones.
-    if let Some(ref dir) = claude_dir {
-        let existing: HashSet<Option<String>> = projects.iter().map(|p| p.full_path.clone()).collect();
-        for ws in scan_claude_projects(dir) {
-            if !existing.contains(&ws.full_path) {
-                projects.push(ProjectAgg {
-                    name: ws.name,
-                    full_path: ws.full_path.clone(),
-                    latest_date: ws.latest_date,
-                    tokens: 0,
-                    cost_usd: 0.0,
-                    messages: 0,
-                    models: Vec::new(),
-                    tools: Vec::new(),
-                });
-            }
-        }
-        // Re-sort so zero-activity projects sink to bottom
-        projects.sort_by_key(|y| std::cmp::Reverse(y.tokens));
-    }
-
-    Ok(projects)
+    Ok(build_projects_from_sessions(&json, claude_dir.as_deref()))
 }
 
 #[cfg(test)]

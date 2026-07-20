@@ -436,6 +436,204 @@ pub fn session_project_map(
     map
 }
 
+/// Build a precise session→project map by reading each session JSONL's `cwd`.
+/// Unlike [`session_project_map`], this reads cwd per-session so it captures
+/// subdirectory-level projects (e.g. `bee_miniprogram/uniapp-field` instead of
+/// lumping everything under `bee_miniprogram`).
+///
+/// Returns `session_id → (project_name, tilde_path, latest_mtime)`.
+pub fn build_precise_session_map(
+    claude_projects_dir: &Path,
+) -> HashMap<String, (String, String, Option<String>)> {
+    let mut map = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(claude_projects_dir) else {
+        return map;
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let key = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        if !is_safe_workspace_key(&key) {
+            continue;
+        }
+        // Pre-compute fallback (directory-level) project info for sessions
+        // without cwd data. This uses the same logic as the old session_project_map.
+        let dir_fallback = read_project_root(&dir).map(|(root, _date)| {
+            (last_segment(&root), tilde_prefix(&root))
+        });
+        let Ok(sessions) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for s in sessions.flatten() {
+            let p = s.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let sid = p
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if map.contains_key(&sid) {
+                continue;
+            }
+            // Try per-session cwd first (captures subdirectory projects)
+            let cwds = read_cwds(&p);
+            let root = project_root(&cwds);
+            let (name, path) = match &root {
+                Some(r) => (last_segment(r), tilde_prefix(r)),
+                None => match &dir_fallback {
+                    Some((n, fp)) => (n.clone(), fp.clone()),
+                    None => continue,
+                },
+            };
+            let mtime_str = std::fs::metadata(&p)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|m| mtime_to_hhmm(m).ok());
+            map.insert(sid, (name, path, mtime_str));
+        }
+    }
+    map
+}
+
+/// Build a `Vec<ProjectAgg>` from tokscale's `--group-by session,model` JSON.
+///
+/// For each Claude Code session it reads the JSONL `cwd` to determine the
+/// project — this preserves subdirectory-level projects (e.g. `uniapp-field`
+/// appears as a separate project rather than being merged into `bee_miniprogram`).
+/// Non-Claude sessions fall back to their workspace key for grouping.
+///
+/// Token/cost data comes from tokscale (precise); project names/paths come
+/// from the session JSONL files (authoritative).
+pub fn build_projects_from_sessions(
+    json: &Value,
+    claude_projects_dir: Option<&Path>,
+) -> Vec<ProjectAgg> {
+    let Some(entries) = json.get("entries").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    // Build precise session → project map (one-time O(all-sessions) scan)
+    let session_map = claude_projects_dir
+        .map(build_precise_session_map)
+        .unwrap_or_default();
+
+    // ── Pass 1: aggregate entries by (client, sessionId) ─────────────────
+    struct SessionAcc {
+        tokens: i64,
+        cost: f64,
+        messages: i64,
+        models: HashMap<String, i64>,
+    }
+    let mut sess_acc: HashMap<(String, String), SessionAcc> = HashMap::new();
+
+    for e in entries {
+        let client = e.get("client").and_then(|v| v.as_str()).unwrap_or("?");
+        let session_id = e
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let model = e.get("model").and_then(|v| v.as_str()).unwrap_or("?");
+        let tokens = token_total(e);
+        let cost = e.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let messages = e
+            .get("messageCount")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        let acc = sess_acc
+            .entry((client.to_string(), session_id.to_string()))
+            .or_insert(SessionAcc {
+                tokens: 0,
+                cost: 0.0,
+                messages: 0,
+                models: HashMap::new(),
+            });
+        acc.tokens += tokens;
+        acc.cost += cost;
+        acc.messages += messages;
+        *acc.models.entry(model.to_string()).or_insert(0) += tokens;
+    }
+
+    // ── Pass 2: group sessions into projects ────────────────────────────
+    struct ProjectAcc {
+        name: String,
+        full_path: Option<String>,
+        latest_date: Option<String>,
+        tokens: i64,
+        cost: f64,
+        messages: i64,
+        models: HashMap<String, i64>,
+        tools: HashMap<String, i64>,
+    }
+    let mut proj_acc: HashMap<String, ProjectAcc> = HashMap::new();
+
+    for ((client, session_id), sess) in sess_acc {
+        // Determine project key: for Claude use the precise path from JSONL,
+        // for other tools fall back to client name.
+        let (proj_key, proj_name, proj_path, proj_date) =
+            if client == "claude" {
+                match session_map.get(&session_id) {
+                    Some((name, path, date)) => {
+                        (path.clone(), name.clone(), Some(path.clone()), date.clone())
+                    }
+                    None => {
+                        // No JSONL found — skip this session
+                        continue;
+                    }
+                }
+            } else {
+                // Non-Claude tool: use client as project key
+                (client.clone(), client.clone(), None, None)
+            };
+
+        let acc = proj_acc.entry(proj_key).or_insert(ProjectAcc {
+            name: proj_name,
+            full_path: proj_path,
+            latest_date: proj_date,
+            tokens: 0,
+            cost: 0.0,
+            messages: 0,
+            models: HashMap::new(),
+            tools: HashMap::new(),
+        });
+        acc.tokens += sess.tokens;
+        acc.cost += sess.cost;
+        acc.messages += sess.messages;
+        for (m, t) in sess.models {
+            *acc.models.entry(m).or_insert(0) += t;
+        }
+        *acc.tools.entry(client).or_insert(0) += sess.tokens;
+    }
+
+    // ── Pass 3: finalize into ProjectAgg ────────────────────────────────
+    let mut out: Vec<ProjectAgg> = proj_acc
+        .into_values()
+        .map(|a| {
+            let total = a.tokens;
+            ProjectAgg {
+                name: a.name,
+                full_path: a.full_path,
+                latest_date: a.latest_date,
+                tokens: a.tokens,
+                cost_usd: a.cost,
+                messages: a.messages,
+                models: detail_rows(a.models, total),
+                tools: detail_rows(a.tools, total),
+            }
+        })
+        .collect();
+    out.sort_by_key(|y| std::cmp::Reverse(y.tokens));
+    out
+}
+
 /// In-flight accumulator for one workspace while iterating report entries.
 struct Acc {
     key: String,
