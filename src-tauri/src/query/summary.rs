@@ -19,6 +19,12 @@ pub struct Summary {
     pub total_tokens: i64,
     pub cost_usd: f64,
     pub messages: i64,
+    /// Token change vs previous period (percent), e.g. +12.3 or -5.0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_pct: Option<f64>,
+    /// Label for the comparison, e.g. "较昨日" / "较上月".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_label: Option<String>,
 }
 
 /// Aggregate `daily_usage` over `range` into a [`Summary`].
@@ -57,6 +63,8 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
         total_tokens: input + output + cache_read + cache_write,
         cost_usd: cost,
         messages,
+        delta_pct: None,
+        delta_label: None,
     })
 }
 
@@ -81,6 +89,8 @@ pub fn from_today_json(v: &Value) -> Option<Summary> {
         total_tokens: input + output + cache_read + cache_write,
         cost_usd: cost,
         messages,
+        delta_pct: None,
+        delta_label: None,
     })
 }
 

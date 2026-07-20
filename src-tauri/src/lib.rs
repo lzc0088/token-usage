@@ -23,6 +23,14 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .setup(|app| {
+            // Initialize positioner plugin for tray-relative window positioning
+            #[cfg(desktop)]
+            {
+                if let Err(e) = app.handle().plugin(tauri_plugin_positioner::init()) {
+                    eprintln!("Failed to initialize positioner plugin: {e}");
+                }
+            }
+
             let window = app.get_webview_window("main").expect("main window");
 
             // ── system tray (Tauri-native, integrated with the event loop) ──
@@ -34,6 +42,10 @@ pub fn run() {
                 .icon(icon)
                 .tooltip("Token Usage")
                 .on_tray_icon_event(|tray, event| {
+                    // Use positioner plugin to handle tray-relative positioning
+                    #[cfg(desktop)]
+                    tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+
                     // Left-click toggles popover visibility.
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -46,6 +58,14 @@ pub fn run() {
                             if w.is_visible().unwrap_or(false) {
                                 let _ = w.hide();
                             } else {
+                                // Position window so its top edge sits just below
+                                // the menu bar, horizontally centered under the tray icon.
+                                #[cfg(desktop)]
+                                {
+                                    use tauri_plugin_positioner::{Position, WindowExt};
+                                    let _ =
+                                        w.as_ref().window().move_window(Position::TrayBottomCenter);
+                                }
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }
@@ -55,12 +75,10 @@ pub fn run() {
                 .build(app)?;
 
             // ── auto-hide popover on blur ──────────────────────────────────
-            let auto_close = app
-                .state::<AppState>()
-                .load_config()
-                .map(|c| c.auto_close_on_blur)
-                .unwrap_or(true);
-            if auto_close {
+            // Always hide when the popover loses focus — standard menu bar behaviour.
+            // Using a simple clone-based listener (no Mutex lock in the event callback)
+            // ensures Focused(false) triggers reliably on macOS.
+            {
                 let w = window.clone();
                 window.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
@@ -79,9 +97,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::query::get_summary,
             commands::query::get_breakdown,
+            commands::query::get_detail_breakdown,
             commands::query::get_trends,
             commands::query::get_sessions,
-            commands::query::get_projects,
+            commands::query::get_session_detail,
+            commands::query::get_session_rounds,
+            commands::query::get_projects, // accepts period arg
             commands::status::get_tools_status,
             commands::status::get_tokscale_status,
             commands::quota::get_quotas,

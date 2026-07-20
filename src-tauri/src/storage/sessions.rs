@@ -6,6 +6,7 @@
 //! the report shape, so V1 leaves them NULL and the sessions view falls back
 //! to token/cost/model attribution only.
 
+use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::Deserialize;
 
@@ -22,6 +23,8 @@ pub struct SessionRow {
     pub cache_read: i64,
     pub cache_write: i64,
     pub cost_usd: f64,
+    pub message_count: i64,
+    pub last_used_at: i64,
 }
 
 // ── `tokscale --group-by session,model` JSON shape ──────────────────────────
@@ -48,10 +51,13 @@ pub struct SessionEntry {
     pub cache_write: i64,
     #[serde(default)]
     pub cost: f64,
+    #[serde(default)]
+    pub message_count: i64,
 }
 
 /// Pure: flatten `entries[]` → session rows.
 pub fn rows_from_report(r: &SessionsReport) -> Vec<SessionRow> {
+    let now = Utc::now().timestamp_millis();
     r.entries
         .iter()
         .map(|e| SessionRow {
@@ -63,6 +69,8 @@ pub fn rows_from_report(r: &SessionsReport) -> Vec<SessionRow> {
             cache_read: e.cache_read,
             cache_write: e.cache_write,
             cost_usd: e.cost,
+            message_count: e.message_count,
+            last_used_at: now,
         })
         .collect()
 }
@@ -78,14 +86,19 @@ pub fn upsert_rows(conn: &mut Connection, rows: &[SessionRow]) -> Result<usize, 
         let mut stmt = tx.prepare(
             "INSERT INTO sessions
                (tool, session_id, model, input_tokens, output_tokens,
-                cache_read_tokens, cache_write_tokens, cost_usd)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                cache_read_tokens, cache_write_tokens, cost_usd,
+                message_count, last_used_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(tool, session_id, model) DO UPDATE SET
                input_tokens       = excluded.input_tokens,
                output_tokens      = excluded.output_tokens,
                cache_read_tokens  = excluded.cache_read_tokens,
                cache_write_tokens = excluded.cache_write_tokens,
-               cost_usd           = excluded.cost_usd",
+               cost_usd           = excluded.cost_usd,
+               message_count      = excluded.message_count",
+            // NOTE: last_used_at is deliberately NOT updated on conflict —
+            // it records first-seen time; real last-interaction time comes from
+            // the session file mtime (see workspace::session_project_map).
         )?;
         for r in rows {
             stmt.execute(params![
@@ -97,6 +110,8 @@ pub fn upsert_rows(conn: &mut Connection, rows: &[SessionRow]) -> Result<usize, 
                 r.cache_read,
                 r.cache_write,
                 r.cost_usd,
+                r.message_count,
+                r.last_used_at,
             ])?;
             n += 1;
         }

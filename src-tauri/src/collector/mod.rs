@@ -7,5 +7,6 @@ pub mod runtime;
 pub mod scheduler;
 pub mod tokscale;
 pub mod watcher;
+pub mod workspace;
 
 pub use tokscale::{Period, TokscaleError};

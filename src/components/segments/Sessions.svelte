@@ -1,12 +1,52 @@
 <script lang="ts">
-  // 会话 segment (T4.3). Loads get_sessions() (ordered by tokens desc).
-  // session_id is shown truncated; full id on hover via title.
-  import { api, type Currency, type SessionVm } from "../../lib/api";
-  import { formatCost, formatTokens } from "../../lib/format";
+  import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
+  import { formatCost, splitTokens } from "../../lib/format";
+  import { toolMeta } from "../../lib/toolMeta";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
   let sessions = $state<SessionVm[] | null>(null);
+  let expanded = $state<string | null>(null);
+  let detail = $state<SessionDetailRow[] | null>(null);
+
+  let viewing = $state<SessionVm | null>(null);
+  let viewRounds = $state<SessionRoundVm[] | null>(null);
+
+  // Detail-page sort: "time" (newest first) | "token" (most tokens first).
+  type RoundSort = "time" | "token";
+  let roundSort = $state<RoundSort>("time");
+
+  const sortedRounds = $derived.by(() => {
+    // Rust already returns the most recent 300 rounds (time desc). The TOKEN
+    // toggle just re-orders that set; time toggle keeps the Rust order.
+    const arr = viewRounds ? [...viewRounds] : [];
+    if (roundSort === "token") {
+      arr.sort((a, b) => b.total_tokens - a.total_tokens);
+    }
+    return arr;
+  });
+
+  type SortKey = "token" | "latest" | "proj" | "tool";
+  let sort = $state<SortKey>("latest");
+
+  function toggleExpand(tool: string, sid: string): void {
+    const key = `${tool}:${sid}`;
+    if (expanded === key) { expanded = null; detail = null; return; }
+    expanded = key;
+    detail = null;
+    api.getSessionDetail(tool, sid).then(d => { detail = d; }).catch(() => { detail = null; });
+  }
+
+  function openDetail(s: SessionVm, e: MouseEvent): void {
+    e.stopPropagation();
+    viewing = s;
+    viewRounds = null;
+    api.getSessionRounds(s.tool, s.session_id)
+      .then(d => { viewRounds = d; })
+      .catch(() => { viewRounds = null; });
+  }
+
+  function closeDetail(): void { viewing = null; viewRounds = null; }
 
   $effect(() => {
     let cancelled = false;
@@ -14,113 +54,274 @@
       try {
         const s = await api.getSessions();
         if (!cancelled) sessions = s;
-      } catch (e) {
-        console.error("sessions failed", e);
-        if (!cancelled) sessions = null;
-      }
+      } catch { if (!cancelled) sessions = null; }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   });
 
-  function short(id: string): string {
-    return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+  const sorted = $derived.by(() => {
+    const arr = sessions ? [...sessions] : [];
+    arr.sort((a, b) => {
+      if (sort === "latest") {
+        const at = a.last_used_at ?? "9999-99-99 99:99";
+        const bt = b.last_used_at ?? "9999-99-99 99:99";
+        return bt.localeCompare(at);
+      }
+      if (sort === "proj") return (projectLabel(a)).localeCompare(projectLabel(b));
+      if (sort === "tool") return a.tool.localeCompare(b.tool) || b.tokens - a.tokens;
+      return b.tokens - a.tokens;
+    });
+    return arr;
+  });
+
+  function modelLabel(count: number, models: string): string {
+    if (count <= 1) return models || "—";
+    return `${count} models`;
+  }
+
+  function projectLabel(s: SessionVm): string {
+    return s.project_name ?? toolMeta(s.tool).label;
+  }
+
+  const palette = ["var(--amber)", "var(--lime)", "var(--cyan)", "var(--violet)", "var(--coral)"];
+
+  function composeDetail(dr: SessionDetailRow): { label: string; tokens: number; pct: number; color: string }[] {
+    const t = dr.tokens || 1;
+    return [
+      { label: "输入", tokens: dr.input, pct: (dr.input / t) * 100, color: palette[0] },
+      { label: "输出", tokens: dr.output, pct: (dr.output / t) * 100, color: palette[1] },
+      { label: "缓存", tokens: dr.cache_read, pct: (dr.cache_read / t) * 100, color: palette[2] },
+    ];
   }
 </script>
 
 <div class="seg-body">
-  {#if sessions === null}
-    <p class="loading">加载中…</p>
-  {:else if sessions.length === 0}
-    <p class="empty">暂无会话数据</p>
-  {:else}
-    {#each sessions as s, i (`${s.tool}:${s.session_id}:${s.model}`)}
-      <div class="srow">
-        <span class="rk">{i + 1}</span>
-        <div class="s-main">
-          <div class="s-top">
-            <span class="s-tool">{s.tool}</span>
-            <span class="s-id" title={s.session_id}>{short(s.session_id)}</span>
-          </div>
-          <div class="s-model">{s.model}</div>
-        </div>
-        <div class="s-meta">
-          <span class="s-cost">{formatCost(s.cost_usd, currency, cnyRate)}</span>
-          <span class="s-tokens">{formatTokens(s.tokens)}</span>
-        </div>
+  {#if viewing}
+    <!-- ── session detail page ── -->
+    <div class="view-header">
+      <button class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
+      <span class="view-title">会话详情<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
+      <div class="rd-sort">
+        {#each [["time", "时间"], ["token", "TOKEN"]] as [k, label] (k)}
+          <button class:on={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
+        {/each}
       </div>
-    {/each}
+    </div>
+    <!-- round list (one row per user input) -->
+    <div class="view-body">
+      {#if viewRounds === null}
+        <p class="det-loading">加载中…</p>
+      {:else if viewRounds.length === 0}
+        <p class="det-empty">暂无对话数据</p>
+      {:else}
+        {#each sortedRounds as r, ri (ri)}
+          {@const ts = splitTokens(r.total_tokens)}
+          <div class="rd-row">
+            <div class="rd-main">
+              <div class="rd-line1">
+                <span class="rd-user">👤</span>
+                <span class="rd-text">{r.user_text || "(无文本输入)"}</span>
+              </div>
+              <div class="rd-line2">
+                <span class="rd-time">{r.timestamp ?? ""}</span>
+                <span class="rd-sep">·</span>
+                <span class="rd-turns">{r.turns} turns</span>
+                {#if r.tools > 0}
+                  <span class="rd-sep">·</span>
+                  <span class="rd-tools">{r.tools} tools</span>
+                {/if}
+              </div>
+            </div>
+            <div class="rd-right">
+              <span class="rd-cost">{formatCost(r.cost_usd, currency, cnyRate)}</span>
+              <span class="rd-tokens">{ts.value}<span class="tku">{ts.unit}</span></span>
+            </div>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <!-- ── session list ── -->
+    <div class="bd-header">
+      <span class="bd-title">会话历史<span class="bd-count">{sorted.length}</span></span>
+      <div class="bd-sort">
+        {#each [["latest", "最近"], ["token", "TOKEN"], ["proj", "项目"], ["tool", "工具"]] as [k, label] (k)}
+          <button class:on={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
+        {/each}
+      </div>
+    </div>
+
+    {#if sessions === null}
+      <p class="loading">加载中…</p>
+    {:else if sessions.length === 0}
+      <p class="empty">暂无会话数据</p>
+    {:else}
+      {#each sorted as s (s.tool + s.session_id)}
+        {@const meta = toolMeta(s.tool)}
+        {@const st = splitTokens(s.tokens)}
+        {@const open = expanded === `${s.tool}:${s.session_id}`}
+        <div
+          class="srow"
+          role="button"
+          tabindex="0"
+          onclick={() => toggleExpand(s.tool, s.session_id)}
+          onkeydown={(e: KeyboardEvent) => e.key === "Enter" && toggleExpand(s.tool, s.session_id)}
+        >
+          <div class="s-main">
+            <div class="s-line s-l1"><span class="s-proj">{projectLabel(s)}</span></div>
+            <div class="s-line s-l2"><span class="s-id">{s.session_id}</span></div>
+            <div class="s-line s-l3">
+              <span class="s-tool-tag" style="color:{meta.color}">{meta.label}</span>
+              <span class="s-model">{modelLabel(s.model_count, s.models)}</span>
+            </div>
+            <div class="s-line s-l4">
+              <span class="s-time">{s.last_used_at ?? "—"}</span>
+              <span class="s-msgs">{s.messages} 条</span>
+            </div>
+          </div>
+          <div class="s-right">
+            <div class="s-meta">
+              <span class="s-cost">{formatCost(s.cost_usd, currency, cnyRate)}</span>
+              <span class="s-tokens">{st.value}<span class="tku">{st.unit}</span></span>
+            </div>
+            {#if s.tool === "claude"}
+              <button
+                class="s-arr"
+                title="查看详情"
+                aria-label="查看详情"
+                onclick={(e: MouseEvent) => openDetail(s, e)}
+              >→</button>
+            {/if}
+          </div>
+        </div>
+        {#if open}
+          <div class="s-detail">
+            {#if detail === null}
+              <p class="det-loading">加载中…</p>
+            {:else if detail.length === 0}
+              <p class="det-empty">暂无详情</p>
+            {:else}
+              {#each detail as dr, di (dr.model)}
+                {@const dm = toolMeta(dr.model)}
+                <div class="det-entry">
+                  <div class="det-model-row">
+                    <span class="det-dot" style="background:{palette[di % palette.length]}"></span>
+                    <span class="det-model-name">{dm.label}</span>
+                    <span class="det-model-tokens">{splitTokens(dr.tokens).value}<span class="tku">{splitTokens(dr.tokens).unit}</span></span>
+                    <span class="det-model-cost">{formatCost(dr.cost_usd, currency, cnyRate)}</span>
+                  </div>
+                  {#each composeDetail(dr) as cd (`${dr.model}-${cd.label}`)}
+                    {@const cds = splitTokens(cd.tokens)}
+                    <div class="det-comp-row">
+                      <span class="det-bar-label">{cd.label}</span>
+                      <div class="det-bar"><i style="width:{Math.max(2, cd.pct).toFixed(1)}%;background:{cd.color}"></i></div>
+                      <span class="det-pct">{cd.pct.toFixed(1)}<span class="pct-u">%</span></span>
+                      <span class="det-tok">{cds.value}<span class="tku">{cds.unit}</span></span>
+                    </div>
+                  {/each}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      {/each}
+    {/if}
   {/if}
 </div>
 
 <style>
-  .seg-body {
-    display: flex;
-    flex-direction: column;
-  }
-  .loading,
-  .empty {
-    padding: 24px 16px;
-    color: var(--text-faint);
-    font-size: 12px;
-    text-align: center;
-  }
-  .srow {
-    display: grid;
-    grid-template-columns: 18px 1fr auto;
-    align-items: center;
-    gap: 9px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border-dim);
-  }
-  .srow:last-child {
-    border-bottom: none;
-  }
-  .rk {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-faint);
-  }
-  .s-main {
-    min-width: 0;
-  }
-  .s-top {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-  }
-  .s-tool {
-    font-size: 12px;
-    color: var(--text);
-  }
-  .s-id {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-faint);
-  }
-  .s-model {
-    font-size: 10px;
-    color: var(--text-faint);
-    margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .s-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 1px;
+  .seg-body { display: flex; flex-direction: column; }
+  .loading, .empty, .det-loading, .det-empty { padding: 16px 24px; color: var(--text-faint); font-size: 11px; }
+
+  .bd-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 12px; }
+  .bd-title { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }
+  .bd-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: rgba(232,176,75,.12); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
+  .bd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
+  .bd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .bd-sort button:hover { color: var(--text-dim); }
+  .bd-sort button.on { background: var(--amber); color: #1a1408; }
+
+  /* ── list row ── */
+  .srow { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; padding: 10px 16px; border-bottom: 1px dashed var(--border-dim); cursor: pointer; }
+  .srow:hover { background: rgba(232,176,75,.04); }
+  .s-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .s-line { display: flex; align-items: baseline; gap: 6px; }
+  .s-l1 .s-proj { font-size: 13px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); word-break: break-all; line-height: 1.3; }
+  .s-l3 .s-tool-tag {
+    display: inline-block;
+    font-family: var(--font-ui);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--glass-3);
+    padding: 1px 7px;
+    border-radius: 4px;
+    line-height: 1.5;
     flex-shrink: 0;
   }
-  .s-cost {
-    font-size: 11px;
-    color: var(--amber);
+  .s-l3 .s-model { font-size: 10px; color: var(--text-faint); }
+  .s-l3 { margin-bottom: -1px; }
+  .s-l4 { font-size: 10px; color: var(--text-faint); gap: 10px; }
+  .s-time { font-family: var(--font-mono); }
+
+  /* right side */
+  .s-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 2px; flex-shrink: 0; min-height: 100%; padding-top: 4px; }
+
+  /* right side */
+  .s-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 2px; flex-shrink: 0; min-height: 100%; padding-top: 4px; }
+  .s-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .s-cost { font-size: 11px; color: var(--amber); }
+  .s-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+  .tku { font-size: 8px; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
+  .s-arr {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 18px; line-height: 1; cursor: pointer;
+    padding: 2px 4px; font-family: var(--font-mono); flex-shrink: 0;
+    transition: color .15s;
   }
-  .s-tokens {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-dim);
-  }
+  .s-arr:hover { color: var(--amber); }
+
+  /* ── inline expand ── */
+  .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: rgba(0,0,0,.08); }
+  .det-entry { margin-bottom: 8px; }
+  .det-entry:last-child { margin-bottom: 0; }
+  .det-model-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+  .det-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .det-model-name { font-size: 12px; color: var(--text); flex: 1; }
+  .det-model-tokens { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-right: 8px; }
+  .det-model-cost { font-family: var(--font-mono); font-size: 10px; color: var(--amber); }
+  .det-comp-row { display: grid; grid-template-columns: 38px 1fr 42px 56px; align-items: center; gap: 8px; padding: 2px 0 2px 14px; }
+  .det-bar-label { font-size: 10px; color: var(--text-faint); text-align: left; }
+  .det-bar { height: 3px; background: var(--glass-3); border-radius: 1.5px; overflow: hidden; }
+  .det-bar i { display: block; height: 100%; border-radius: 1.5px; }
+  .det-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
+  .det-tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
+  .pct-u { font-size: 7px; margin-left: 1px; }
+
+  /* ── detail page ── */
+  .view-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-dim); }
+  .view-title { font-size: 13px; color: var(--text-dim); flex: 1; display: flex; align-items: center; gap: 7px; }
+  .rounds-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: rgba(232,176,75,.12); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
+  .rd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
+  .rd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .rd-sort button:hover { color: var(--text-dim); }
+  .rd-sort button.on { background: var(--amber); color: #1a1408; }
+  .back-btn { background: none; border: none; color: var(--amber); font-size: 16px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+  .back-btn:hover { color: var(--text); }
+  .view-body { flex: 1; overflow-y: auto; }
+  .rd-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px dashed var(--border-dim); }
+  .rd-row:hover { background: rgba(232,176,75,.04); }
+  .rd-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .rd-line1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .rd-user { font-size: 12px; flex-shrink: 0; }
+  .rd-text { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .rd-line2 { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--text-faint); }
+  .rd-time { font-family: var(--font-mono); }
+  .rd-sep { color: var(--text-faint); }
+  .rd-turns { color: var(--text-dim); }
+  .rd-tools { color: var(--lime); }
+  .rd-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
+  .rd-cost { font-size: 11px; color: var(--amber); font-family: var(--font-mono); }
+  .rd-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
 </style>

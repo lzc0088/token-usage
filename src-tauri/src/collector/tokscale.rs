@@ -187,9 +187,18 @@ pub fn resolve_bin(custom: Option<&Path>, data_dir: &Path) -> Result<PathBuf, To
 
 /// Spawn the resolved tokscale binary, return parsed JSON (tolerant).
 /// stdout is parsed; on non-zero exit the stderr is surfaced.
+///
+/// `TOKSCALE_PRICING_CACHE_ONLY=1` is forced so tokscale never fetches the
+/// LiteLLM pricing table over the network. That fetch (from
+/// `raw.githubusercontent.com`) routinely times out for ~50s on CN networks and
+/// dominates every invocation — with the cache it drops to ~1–2s. The cache
+/// lives at `{config_dir}/cache/pricing-*.json` and is warmed by
+/// [`ensure_pricing_cache`]; token counts are unaffected, only cost estimates
+/// degrade (to $0) if the cache is empty.
 pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleError> {
     let output = tokio::process::Command::new(bin)
         .args(args)
+        .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -205,6 +214,66 @@ pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleErro
 }
 
 // ── install (auto-tier): tarball download, no node dependency ─────────────
+
+// ── pricing cache ──────────────────────────────────────────────────────────
+
+/// Re-warm the pricing cache when it's older than this.
+const PRICING_CACHE_MAX_AGE_SECS: u64 = 7 * 24 * 3600;
+
+/// tokscale config dir: `$TOKSCALE_CONFIG_DIR` if set, else `~/.config/tokscale`
+/// (tokscale uses XDG-style paths even on macOS — verified on this machine).
+pub fn config_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("TOKSCALE_CONFIG_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    dirs::home_dir().map(|h| h.join(".config").join("tokscale"))
+}
+
+/// Path to the cached LiteLLM pricing table, when the config dir is resolvable.
+pub fn pricing_cache_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("cache").join("pricing-litellm.json"))
+}
+
+/// Pure: a cache file is stale when missing or older than the threshold.
+fn cache_file_stale(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return true;
+    };
+    let Ok(m) = meta.modified() else {
+        return true;
+    };
+    let Ok(age) = m.elapsed() else {
+        return true;
+    };
+    age > std::time::Duration::from_secs(PRICING_CACHE_MAX_AGE_SECS)
+}
+
+/// Whether the pricing cache is missing or too old.
+pub fn pricing_cache_stale() -> bool {
+    pricing_cache_path()
+        .map(|p| cache_file_stale(&p))
+        .unwrap_or(true)
+}
+
+/// Fire-and-forget background warm of the pricing cache. Runs one tokscale
+/// report **without** `TOKSCALE_PRICING_CACHE_ONLY` so it fetches + caches the
+/// table; no-op when the cache is fresh. Returns immediately; failures only
+/// mean cost estimates stay $0 until the next successful warm.
+pub fn ensure_pricing_cache(bin: &Path) {
+    if !pricing_cache_stale() {
+        return;
+    }
+    let bin = bin.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        // Any cost-bearing report fetches+caches pricing as a side effect;
+        // --today keeps the scan small. Result ignored.
+        let _ = std::process::Command::new(&bin)
+            .args(["--json", "--no-spinner", "--today"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    });
+}
 
 /// Default npm registry. Override with the `TOKSCALE_REGISTRY` env var
 /// (e.g. `https://registry.npmmirror.com` on CN networks where npmjs.org is slow).
@@ -281,7 +350,57 @@ pub async fn install(data_dir: &Path) -> Result<PathBuf, TokscaleError> {
 mod tests {
     use super::*;
 
-    // ── json_start ───────────────────────────────────────────────────────
+    // ── pricing cache ─────────────────────────────────────────────────────
+    #[test]
+    fn cache_file_stale_when_missing() {
+        assert!(cache_file_stale(Path::new(
+            "/no/such/path/here/pricing.json"
+        )));
+    }
+
+    #[test]
+    fn cache_file_not_stale_when_fresh() {
+        let tmp = std::env::temp_dir().join("tu_pricing_fresh.json");
+        let _ = std::fs::remove_file(&tmp);
+        std::fs::write(&tmp, b"{}").unwrap();
+        // Just created → mtime is now → well within the 7-day threshold.
+        assert!(!cache_file_stale(&tmp));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn config_dir_respects_env_override() {
+        // env var wins over the default ~/.config/tokscale.
+        let saved = std::env::var_os("TOKSCALE_CONFIG_DIR");
+        std::env::set_var("TOKSCALE_CONFIG_DIR", "/custom/dir");
+        assert_eq!(
+            config_dir().as_deref(),
+            Some(std::path::Path::new("/custom/dir"))
+        );
+        // restore
+        match saved {
+            Some(v) => std::env::set_var("TOKSCALE_CONFIG_DIR", v),
+            None => std::env::remove_var("TOKSCALE_CONFIG_DIR"),
+        }
+    }
+
+    #[test]
+    fn pricing_cache_path_under_config_dir() {
+        let saved = std::env::var_os("TOKSCALE_CONFIG_DIR");
+        std::env::set_var("TOKSCALE_CONFIG_DIR", "/custom/dir");
+        assert_eq!(
+            pricing_cache_path().as_deref(),
+            Some(std::path::Path::new(
+                "/custom/dir/cache/pricing-litellm.json"
+            ))
+        );
+        match saved {
+            Some(v) => std::env::set_var("TOKSCALE_CONFIG_DIR", v),
+            None => std::env::remove_var("TOKSCALE_CONFIG_DIR"),
+        }
+    }
+
+    // ── json_start ─────────────────────────────────────────────────────────
     #[test]
     fn json_start_prefers_object_over_array() {
         // A tokscale log line starts with '['; the object must win.

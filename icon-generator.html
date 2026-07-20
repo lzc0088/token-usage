@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Icon Generator - Token Usage</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        h1 { color: #e8b04b; }
+        .preview {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .preview-item {
+            text-align: center;
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #3a3a3a;
+        }
+        .preview-item img {
+            display: block;
+            margin: 10px auto;
+        }
+        button {
+            background: #e8b04b;
+            color: #1a1a1a;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+        }
+        button:hover { background: #c9923a; }
+        .status { margin: 20px 0; padding: 10px; border-radius: 5px; }
+        .status.success { background: rgba(180, 227, 76, 0.1); border: 1px solid #b4e34c; }
+        .status.error { background: rgba(240, 142, 106, 0.1); border: 1px solid #f08e6a; }
+        .status.info { background: rgba(127, 209, 211, 0.1); border: 1px solid #7fd1d3; }
+        .instructions {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid #3a3a3a;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎨 Icon Generator - Token Usage</h1>
+
+    <div class="instructions">
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Click the buttons below to download icons in different sizes</li>
+            <li>Place the downloaded files in <code>src-tauri/icons/</code> directory</li>
+            <li>Replace existing files with the same names</li>
+            <li>Run <code>npm run tauri dev</code> to test</li>
+        </ol>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="preview">
+        <div class="preview-item">
+            <div>32×32 (Menu Bar)</div>
+            <canvas id="canvas-32" width="32" height="32"></canvas>
+            <button onclick="downloadIcon(32)">Download 32×32</button>
+        </div>
+        <div class="preview-item">
+            <div>64×64</div>
+            <canvas id="canvas-64" width="64" height="64"></canvas>
+            <button onclick="downloadIcon(64)">Download 64×64</button>
+        </div>
+        <div class="preview-item">
+            <div>128×128 (App Icon)</div>
+            <canvas id="canvas-128" width="128" height="128"></canvas>
+            <button onclick="downloadIcon(128)">Download 128×128</button>
+        </div>
+        <div class="preview-item">
+            <div>256×256</div>
+            <canvas id="canvas-256" width="256" height="256"></canvas>
+            <button onclick="downloadIcon(256)">Download 256×256</button>
+        </div>
+        <div class="preview-item">
+            <div>512×512 (Main)</div>
+            <canvas id="canvas-512" width="512" height="512"></canvas>
+            <button onclick="downloadIcon(512)">Download 512×512</button>
+        </div>
+    </div>
+
+    <div style="margin-top: 30px; padding: 20px; background: #2a2a2a; border-radius: 10px; border: 1px solid #3a3a3a;">
+        <h3>Batch Download:</h3>
+        <button onclick="downloadAll()">Download All Sizes</button>
+        <button onclick="downloadForTauri()">Download for Tauri (All Required Files)</button>
+    </div>
+
+    <script>
+        const SVG_SOURCE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <defs>
+                <linearGradient id="tGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#0066FF"/>
+                    <stop offset="100%" style="stop-color:#00D4FF"/>
+                </linearGradient>
+                <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0066FF" flood-opacity="0.2"/>
+                </filter>
+            </defs>
+            <rect x="0" y="0" width="512" height="512" rx="115" fill="#ffffff"/>
+            <rect x="56" y="56" width="400" height="400" rx="80" fill="none" stroke="#E5E7EB" stroke-width="32"/>
+            <text x="256" y="285" font-family="SF Pro Display, -apple-system, sans-serif" font-size="280" font-weight="700" fill="url(#tGradient)" text-anchor="middle" dominant-baseline="middle" filter="url(#softShadow)">T</text>
+        </svg>`;
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => {
+                if (statusDiv.innerHTML.includes(message)) {
+                    statusDiv.innerHTML = '';
+                }
+            }, 5000);
+        }
+
+        function renderIcon(size) {
+            return new Promise((resolve) => {
+                const canvas = document.getElementById(`canvas-${size}`);
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+
+                img.onload = function() {
+                    ctx.clearRect(0, 0, size, size);
+                    ctx.drawImage(img, 0, 0, size, size);
+                    resolve(canvas);
+                };
+
+                img.onerror = function() {
+                    showStatus(`Failed to load ${size}×${size} icon`, 'error');
+                    resolve(null);
+                };
+
+                img.src = 'data:image/svg+xml;base64,' + btoa(SVG_SOURCE);
+            });
+        }
+
+        async function downloadIcon(size) {
+            const canvas = await renderIcon(size);
+            if (!canvas) return;
+
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${size}x${size}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showStatus(`Downloaded ${size}×${size}.png`, 'success');
+            }, 'image/png');
+        }
+
+        async function downloadAll() {
+            const sizes = [32, 64, 128, 256, 512];
+            for (const size of sizes) {
+                await downloadIcon(size);
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            showStatus('All sizes downloaded!', 'success');
+        }
+
+        async function downloadForTauri() {
+            const files = [
+                { size: 32, name: '32x32.png' },
+                { size: 64, name: '64x64.png' },
+                { size: 128, name: '128x128.png' },
+                { size: 128, name: '128x128@2x.png' },
+                { size: 512, name: 'icon.png' }
+            ];
+
+            for (const file of files) {
+                const canvas = await renderIcon(file.size);
+                if (!canvas) continue;
+
+                canvas.toBlob(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = file.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 'image/png');
+
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            showStatus('Tauri icons downloaded! Place them in src-tauri/icons/', 'success');
+        }
+
+        // Render all icons on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            [32, 64, 128, 256, 512].forEach(size => {
+                renderIcon(size);
+            });
+            showStatus('Icons rendered successfully! Click buttons to download.', 'success');
+        });
+    </script>
+</body>
+</html>

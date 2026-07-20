@@ -16,7 +16,9 @@ pub fn format_title(s: &Summary) -> String {
 
 fn compact_tokens(n: i64) -> String {
     let abs = n.unsigned_abs();
-    if abs >= 1_000_000 {
+    if abs >= 1_000_000_000 {
+        format!("{:.2}B", n as f64 / 1_000_000_000.0)
+    } else if abs >= 1_000_000 {
         format!("{:.2}M", n as f64 / 1_000_000.0)
     } else if abs >= 1_000 {
         format!("{:.1}K", n as f64 / 1_000.0)
@@ -52,6 +54,8 @@ mod tests {
             cache_write: 0,
             reasoning: 0,
             messages: 0,
+            delta_pct: None,
+            delta_label: None,
         };
         assert_eq!(format_title(&s), "2.84M · $4.21");
     }

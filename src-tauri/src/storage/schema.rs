@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use super::StorageError;
 
 /// Current schema version. Bump + add a migration step on schema change.
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 /// v1: initial tables + indexes.
 const V1: &str = r#"
@@ -69,6 +69,12 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 "#;
 
+/// v2: add `message_count` to sessions so the query layer can surface message
+/// counts without another tokscale round-trip.
+const V2: &str = r#"
+ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// Apply all pending migrations to `conn`. Idempotent.
 pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     // WAL: collection writes vs query reads (design §11).
@@ -80,6 +86,10 @@ pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     if current < 1 {
         conn.execute_batch(V1)?;
         conn.pragma_update(None, "user_version", 1)?;
+    }
+    if current < 2 {
+        conn.execute_batch(V2)?;
+        conn.pragma_update(None, "user_version", 2)?;
     }
     Ok(())
 }

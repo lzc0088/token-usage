@@ -2,7 +2,6 @@
 //! (design.md §6); the frontend only renders. See T2.3.
 
 pub mod breakdown;
-pub mod projects;
 pub mod sessions;
 pub mod summary;
 pub mod trends;
@@ -78,6 +77,58 @@ pub(crate) fn range_clause(range: &DateRange) -> (String, Vec<String>) {
         (None, Some(e)) => ("date <= ?".to_string(), vec![e.clone()]),
         (None, None) => ("1=1".to_string(), Vec::new()),
     }
+}
+
+/// Return the previous period's date range and a Chinese label (e.g. "较昨日").
+/// Total period has no comparison (returns `None`).
+pub fn prev_range_for_period(period: Period, today: &str) -> Option<(DateRange, &'static str)> {
+    use chrono::{Datelike, NaiveDate};
+    let d = NaiveDate::parse_from_str(today, "%Y-%m-%d").ok()?;
+    match period {
+        Period::Total => None,
+        Period::Day => {
+            let y = d.pred_opt()?;
+            let s = y.to_string();
+            Some((
+                DateRange {
+                    start: Some(s.clone()),
+                    end: Some(s),
+                },
+                "较昨日",
+            ))
+        }
+        Period::Month => {
+            let prev_month = if d.month() == 1 { 12 } else { d.month() - 1 };
+            let prev_year = if d.month() == 1 {
+                d.year() - 1
+            } else {
+                d.year()
+            };
+            let start = chrono::NaiveDate::from_ymd_opt(prev_year, prev_month, 1)?;
+            let end_day = d.day().min(days_in_month(prev_year, prev_month));
+            let end = chrono::NaiveDate::from_ymd_opt(prev_year, prev_month, end_day)?;
+            Some((
+                DateRange {
+                    start: Some(start.to_string()),
+                    end: Some(end.to_string()),
+                },
+                "较上月",
+            ))
+        }
+    }
+}
+
+/// Days in a month (1–31). Uses chrono to handle leap years correctly.
+fn days_in_month(year: i32, month: u32) -> u32 {
+    use chrono::Datelike;
+    if month == 12 {
+        chrono::NaiveDate::from_ymd_opt(year + 1, 1, 1)
+    } else {
+        chrono::NaiveDate::from_ymd_opt(year, month + 1, 1)
+    }
+    .and_then(|d| d.pred_opt())
+    .map(|d| d.day())
+    .unwrap_or(30)
 }
 
 /// `part / whole * 100`, 0 when whole is 0.

@@ -27,14 +27,15 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 4px;
+    gap: 5px;
   }
   .period-lbl {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     letter-spacing: 0.12em;
-    color: var(--text-faint);
+    color: var(--text-dim);
     text-transform: uppercase;
+    font-weight: 600;
   }
   .seg {
     display: inline-flex;
@@ -46,20 +47,23 @@
   .seg button {
     background: transparent;
     border: none;
-    color: var(--text-faint);
+    color: var(--text-dim);
     font-family: var(--font-mono);
     font-size: 11px;
+    font-weight: 600;
     padding: 4px 9px;
     border-radius: 6px;
     cursor: pointer;
     transition: 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
   .seg button:hover {
-    color: var(--text-dim);
+    color: var(--text);
   }
   .seg button.active {
     background: var(--amber);
     color: #1a1408;
-    font-weight: 600;
+    font-weight: 700;
   }
 </style>

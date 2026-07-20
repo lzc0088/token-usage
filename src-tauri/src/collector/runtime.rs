@@ -32,6 +32,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
         },
     };
 
+    // Warm the pricing cache in the background if missing/stale so the
+    // cache-only env var forced in `run_json` has fresh data to read. The cache
+    // is what keeps every tokscale call ~2s instead of ~50s (network fetch).
+    tokscale::ensure_pricing_cache(&bin);
+
     // 2. discover watch dirs + installed clients.
     let report = match paths::fetch_clients(&bin).await {
         Ok(r) => r,
@@ -68,6 +73,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                 scheduler::CollectionEvent::Graph(v) => {
                     if let Ok(mut conn) = db.lock() {
                         let _ = storage::daily_usage::ingest_graph(&mut conn, &v);
+                    }
+                }
+                scheduler::CollectionEvent::Sessions(v) => {
+                    if let Ok(mut conn) = db.lock() {
+                        let _ = storage::sessions::ingest_sessions(&mut conn, &v);
                     }
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {

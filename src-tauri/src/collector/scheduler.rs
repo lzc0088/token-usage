@@ -52,6 +52,8 @@ pub enum CollectionEvent {
     TodaySummary(Value),
     /// Historical contribution graph from `tokscale graph` (→ daily_usage upsert).
     Graph(Value),
+    /// Per-session,model data from `tokscale --group-by session,model` (→ sessions upsert).
+    Sessions(Value),
     /// A scan failed; surfaced so the UI can show a degraded state.
     ScanError(String),
 }
@@ -75,6 +77,8 @@ pub trait Scanner: Send + Sync {
     fn today(&self) -> impl std::future::Future<Output = Result<Value, TokscaleError>> + Send;
     /// `tokscale graph` (history).
     fn graph(&self) -> impl std::future::Future<Output = Result<Value, TokscaleError>> + Send;
+    /// `tokscale --group-by session,model` (session-level per-model data).
+    fn sessions(&self) -> impl std::future::Future<Output = Result<Value, TokscaleError>> + Send;
 }
 
 /// Real scanner backed by the resolved tokscale binary.
@@ -104,6 +108,11 @@ impl Scanner for TokscaleScanner {
         }
         tokscale::run_json(&self.bin, &args).await
     }
+
+    async fn sessions(&self) -> Result<Value, TokscaleError> {
+        let args = tokscale::report_args(Period::All, &self.clients, "session,model");
+        tokscale::run_json(&self.bin, &args).await
+    }
 }
 
 async fn emit_today<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>) {
@@ -128,6 +137,17 @@ async fn emit_graph<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>)
     }
 }
 
+async fn emit_sessions<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>) {
+    match scanner.sessions().await {
+        Ok(v) => {
+            let _ = tx.send(CollectionEvent::Sessions(v)).await;
+        }
+        Err(e) => {
+            let _ = tx.send(CollectionEvent::ScanError(e.to_string())).await;
+        }
+    }
+}
+
 /// Run the scheduler until `tick_rx` closes. Consumes ticks (file-change events)
 /// and emits [`CollectionEvent`]s on `event_tx`.
 ///
@@ -139,7 +159,9 @@ pub async fn run<S: Scanner>(
     mut tick_rx: mpsc::Receiver<()>,
     event_tx: mpsc::Sender<CollectionEvent>,
 ) {
-    let mut next_graph_at = tokio::time::Instant::now() + cfg.history_interval;
+    // Fire the first history (graph + sessions) scan immediately so the DB is
+    // not empty for the first 15 min after startup.
+    let mut next_graph_at = tokio::time::Instant::now();
 
     loop {
         tokio::select! {
@@ -158,6 +180,7 @@ pub async fn run<S: Scanner>(
             // History graph timer — always armed; fires every history_interval.
             _ = tokio::time::sleep_until(next_graph_at) => {
                 emit_graph(&scanner, &event_tx).await;
+                emit_sessions(&scanner, &event_tx).await;
                 next_graph_at = tokio::time::Instant::now() + cfg.history_interval;
             }
         }
@@ -217,6 +240,9 @@ mod tests {
         async fn graph(&self) -> Result<Value, TokscaleError> {
             self.graph.fetch_add(1, Ordering::SeqCst);
             Ok(serde_json::json!({"contributions": []}))
+        }
+        async fn sessions(&self) -> Result<Value, TokscaleError> {
+            Ok(serde_json::json!({"entries": []}))
         }
     }
 

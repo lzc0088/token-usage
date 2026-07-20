@@ -53,8 +53,14 @@ pub struct PathEntry {
 
 impl ClientInfo {
     /// Is this tool installed (its primary sessions dir exists)?
+    ///
+    /// Some tools (e.g. zcode) use a different storage layout: the primary
+    /// sessions path doesn't exist, but there is an existing additional path
+    /// (e.g. `~/.zcode/cli/db/db.sqlite`) and tokscale reports a non-zero
+    /// message count. We include those too so their data gets collected.
     pub fn is_installed(&self) -> bool {
         self.sessions_path_exists
+            || self.message_count > 0
     }
 }
 
@@ -156,13 +162,16 @@ mod tests {
     }
 
     #[test]
-    fn installed_clients_filters_by_existence() {
+    fn installed_clients_includes_those_with_data() {
         let r = fixture();
         let installed: Vec<&str> = installed_clients(&r)
             .into_iter()
             .map(|c| c.client.as_str())
             .collect();
-        assert_eq!(installed, vec!["claude", "codex"]);
+        // opencode has sessionsPathExists=false but messageCount=268 → still included
+        assert!(installed.contains(&"claude"));
+        assert!(installed.contains(&"codex"));
+        assert!(installed.contains(&"opencode"));
     }
 
     #[test]

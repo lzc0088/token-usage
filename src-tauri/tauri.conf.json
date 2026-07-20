@@ -15,14 +15,14 @@
       {
         "label": "main",
         "title": "Token Usage",
-        "width": 392,
-        "height": 540,
+        "width": 432,
+        "height": 792,
         "visible": false,
-        "resizable": false,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "shadow": true,
-        "center": true
+        "center": false
       }
     ],
     "security": {

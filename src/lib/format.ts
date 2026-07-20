@@ -13,7 +13,8 @@ export function formatTokens(n: number, style: TokenStyle = "compact"): string {
     if (n >= 10_000) return `${(n / 10_000).toFixed(n >= 100_000 ? 0 : 1)}万`;
     return n.toLocaleString("en-US");
   }
-  // compact (default): K/M
+  // compact (default): B/M/K
+  if (n >= 1_000_000_000) return `${trim(n / 1_000_000_000)}B`;
   if (n >= 1_000_000) return `${trim(n / 1_000_000)}M`;
   if (n >= 1_000) return `${trim(n / 1_000)}K`;
   return String(Math.round(n));
@@ -24,16 +25,43 @@ function trim(v: number): string {
   return Number(v.toFixed(2)).toString();
 }
 
-/** Format cost in the chosen currency. USD/CNY/双显. */
+/** Format cost in the chosen currency. USD/CNY/双显 (CNY first per user preference). */
 export function formatCost(usd: number, currency: Currency, cnyRate = 7.2): string {
   // Guard non-finite (NaN/Infinity) the same way formatTokens does.
   if (!Number.isFinite(usd) || !Number.isFinite(cnyRate)) {
     usd = 0;
     cnyRate = Number.isFinite(cnyRate) ? cnyRate : 7.2;
   }
-  if (currency === "usd") return `$${usd.toFixed(2)}`;
-  if (currency === "cny") return `¥${(usd * cnyRate).toFixed(2)}`;
-  return `$${usd.toFixed(2)} · ¥${(usd * cnyRate).toFixed(2)}`;
+  if (currency === "usd") return `$ ${usd.toFixed(2)}`;
+  if (currency === "cny") return `¥ ${(usd * cnyRate).toFixed(2)}`;
+  // CNY first
+  return `¥ ${(usd * cnyRate).toFixed(2)} / $ ${usd.toFixed(2)}`;
+}
+
+/** Split a token count into numeric value and compact unit（B / M / K / ""）.
+ *  Designed so the unit can be rendered in a smaller font at baseline-shift. */
+export function splitTokens(n: number): { value: string; unit: string } {
+  if (!Number.isFinite(n)) return { value: "0", unit: "" };
+  if (n >= 1_000_000_000) return { value: trim(n / 1_000_000_000), unit: "B" };
+  if (n >= 1_000_000) return { value: trim(n / 1_000_000), unit: "M" };
+  if (n >= 1_000) return { value: trim(n / 1_000), unit: "K" };
+  return { value: String(Math.round(n)), unit: "" };
+}
+
+/** Chinese-unit variant for Hero top area only.
+ *  Thresholds: ≥百亿 → 十亿 → 亿 → 千万 → 百万 → 十万 → 万 → 千. */
+export function splitTokensCN(n: number): { value: string; unit: string } {
+  if (!Number.isFinite(n)) return { value: "0", unit: "" };
+  const abs = Math.abs(n);
+  if (abs >= 10_000_000_000) return { value: trim(n / 10_000_000_000), unit: "百亿" };
+  if (abs >=  1_000_000_000) return { value: trim(n /  1_000_000_000), unit: "十亿" };
+  if (abs >=    100_000_000) return { value: trim(n /    100_000_000), unit: "亿" };
+  if (abs >=     10_000_000) return { value: trim(n /     10_000_000), unit: "千万" };
+  if (abs >=      1_000_000) return { value: trim(n /      1_000_000), unit: "百万" };
+  if (abs >=        100_000) return { value: trim(n /        100_000), unit: "十万" };
+  if (abs >=         10_000) return { value: trim(n /         10_000), unit: "万" };
+  if (abs >=          1_000) return { value: trim(n /          1_000), unit: "千" };
+  return { value: String(Math.round(n)), unit: "" };
 }
 
 export type TokenStyle = "compact" | "wan" | "plain";

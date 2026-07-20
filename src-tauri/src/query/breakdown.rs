@@ -17,6 +17,10 @@ pub struct BreakdownEntry {
     pub cost_usd: f64,
     pub cost_pct: f64,
     pub messages: i64,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -34,6 +38,10 @@ pub struct RawEntry {
     pub tokens: i64,
     pub cost: f64,
     pub messages: i64,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
 }
 
 /// Pure: turn raw aggregates into a breakdown with percentages. Tested directly.
@@ -49,6 +57,10 @@ pub fn finalize(raws: Vec<RawEntry>, dim: Dimension) -> Breakdown {
             cost_usd: r.cost,
             cost_pct: pct_f(r.cost, grand_total_cost),
             messages: r.messages,
+            input: r.input,
+            output: r.output,
+            cache_read: r.cache_read,
+            cache_write: r.cache_write,
         })
         .collect();
     Breakdown {
@@ -57,6 +69,57 @@ pub fn finalize(raws: Vec<RawEntry>, dim: Dimension) -> Breakdown {
         grand_total_tokens,
         grand_total_cost,
     }
+}
+
+/// Query breakdown items that match a specific key in the *other* dimension.
+/// e.g. `query_filtered(conn, range, "model", "claude")` returns models used
+/// by the "claude" tool, and vice versa.
+pub fn query_filtered(
+    conn: &Connection,
+    range: &DateRange,
+    dim: Dimension,
+    filter_key: &str,
+) -> Result<Breakdown, QueryError> {
+    let col = dim.column();
+    let filter_col = match dim {
+        Dimension::Tool => "model",
+        Dimension::Model => "tool",
+    };
+    let (clause, mut params) = super::range_clause(range);
+    let where_clause = format!("{clause} AND {filter_col} = ?");
+    params.push(filter_key.to_string());
+    let sql = format!(
+        "SELECT {col} AS k,
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(cost_usd), 0) AS cost,
+                COALESCE(SUM(messages), 0) AS messages,
+                COALESCE(SUM(input_tokens), 0) AS input,
+                COALESCE(SUM(output_tokens), 0) AS output,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
+         FROM daily_usage
+         WHERE {where_clause}
+         GROUP BY {col}
+         ORDER BY tokens DESC
+         LIMIT 3"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let raws: Vec<RawEntry> = {
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
+            Ok(RawEntry {
+                key: r.get::<_, String>(0)?,
+                tokens: r.get::<_, i64>(1)?,
+                cost: r.get::<_, f64>(2)?,
+                messages: r.get::<_, i64>(3)?,
+                input: r.get::<_, i64>(4)?,
+                output: r.get::<_, i64>(5)?,
+                cache_read: r.get::<_, i64>(6)?,
+                cache_write: r.get::<_, i64>(7)?,
+            })
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    Ok(finalize(raws, dim))
 }
 
 /// Query the breakdown by `dim` within `range`.
@@ -71,7 +134,11 @@ pub fn query(
         "SELECT {col} AS k,
                 COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
                 COALESCE(SUM(cost_usd), 0) AS cost,
-                COALESCE(SUM(messages), 0) AS messages
+                COALESCE(SUM(messages), 0) AS messages,
+                COALESCE(SUM(input_tokens), 0) AS input,
+                COALESCE(SUM(output_tokens), 0) AS output,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
          FROM daily_usage
          WHERE {clause}
          GROUP BY {col}
@@ -85,6 +152,10 @@ pub fn query(
                 tokens: r.get::<_, i64>(1)?,
                 cost: r.get::<_, f64>(2)?,
                 messages: r.get::<_, i64>(3)?,
+                input: r.get::<_, i64>(4)?,
+                output: r.get::<_, i64>(5)?,
+                cache_read: r.get::<_, i64>(6)?,
+                cache_write: r.get::<_, i64>(7)?,
             })
         })?;
         rows.collect::<Result<_, _>>()?
@@ -132,12 +203,20 @@ mod tests {
                 tokens: 1500,
                 cost: 12.0,
                 messages: 5,
+                input: 1000,
+                output: 0,
+                cache_read: 500,
+                cache_write: 0,
             },
             RawEntry {
                 key: "codex".into(),
                 tokens: 500,
                 cost: 3.0,
                 messages: 2,
+                input: 500,
+                output: 500,
+                cache_read: 0,
+                cache_write: 0,
             },
         ];
         let b = finalize(raws, Dimension::Tool);
@@ -147,6 +226,9 @@ mod tests {
         assert_eq!(claude.key, "claude");
         assert!((claude.token_pct - 75.0).abs() < 1e-9); // 1500/2000
         assert!((claude.cost_pct - 80.0).abs() < 1e-9); // 12/15
+        assert_eq!(claude.input, 1000);
+        assert_eq!(claude.cache_read, 500);
+        assert_eq!(b.entries[1].output, 500);
     }
 
     #[test]

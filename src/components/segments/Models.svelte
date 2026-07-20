@@ -28,7 +28,7 @@
 
 <div class="seg-body">
   {#if data}
-    <BreakdownList entries={data.entries} {currency} {cnyRate} />
+    <BreakdownList entries={data.entries} {currency} {cnyRate} title="模型用量" dim="model" />
   {:else}
     <p class="loading">加载中…</p>
   {/if}

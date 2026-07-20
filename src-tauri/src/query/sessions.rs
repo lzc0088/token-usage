@@ -1,6 +1,10 @@
-//! Session list (T2.3). V1 returns sessions ordered by token use; per-session
-//! `started_at` / `last_used_at` / `project_path` are NULL until a richer
-//! ingest lands (see storage/sessions.rs), so those fields stay out of the V1 VM.
+//! Session list (T2.3). Reads from the `sessions` table (populated by
+//! `tokscale --group-by session,model`), grouped by `(tool, session_id)`.
+//! Project names are resolved by scanning `~/.claude/projects/` (like the
+//! projects page does via workspace.rs). A second endpoint groups session
+//! JSONL messages into "rounds" (one per user input) with apportioned cost.
+
+use std::path::Path;
 
 use rusqlite::Connection;
 
@@ -10,72 +14,606 @@ use super::QueryError;
 pub struct SessionVm {
     pub tool: String,
     pub session_id: String,
-    pub model: String,
     pub tokens: i64,
     pub cost_usd: f64,
+    pub messages: i64,
+    pub model_count: i64,
+    pub models: String,
+    pub last_used_at: Option<String>,
+    pub project_name: Option<String>,
+    pub project_path: Option<String>,
 }
 
-/// All sessions, ordered by tokens desc (V1 default sort).
-pub fn query(conn: &Connection) -> Result<Vec<SessionVm>, QueryError> {
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SessionDetailRow {
+    pub model: String,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
+    pub tokens: i64,
+    pub cost_usd: f64,
+    pub messages: i64,
+}
+
+/// Grouped session list ordered by tokens desc. `claude_projects_dir` is
+/// scanned to resolve project names for Claude sessions.
+pub fn query(
+    conn: &Connection,
+    claude_projects_dir: Option<&Path>,
+) -> Result<Vec<SessionVm>, QueryError> {
+    let proj_map = claude_projects_dir
+        .map(crate::collector::workspace::session_project_map)
+        .unwrap_or_default();
+
     let mut stmt = conn.prepare(
-        "SELECT tool, session_id, model,
-                input_tokens + output_tokens + cache_read_tokens + cache_write_tokens AS tokens,
-                cost_usd
+        "SELECT tool, session_id,
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(cost_usd), 0) AS cost,
+                COALESCE(SUM(message_count), 0) AS messages,
+                COUNT(DISTINCT model) AS model_count,
+                COALESCE(GROUP_CONCAT(DISTINCT model), '') AS models,
+                MAX(last_used_at) AS last_used_at
          FROM sessions
-         ORDER BY tokens DESC",
+         GROUP BY tool, session_id
+         ORDER BY tokens DESC
+         LIMIT 100",
     )?;
     let out = stmt
         .query_map([], |r| {
+            let sid: String = r.get::<_, String>(1)?;
+            let (proj_name, proj_path, file_mtime) =
+                proj_map.get(&sid).cloned().unwrap_or_default();
+            let db_time = format_last_used(r.get::<_, Option<i64>>(7)?);
             Ok(SessionVm {
                 tool: r.get::<_, String>(0)?,
-                session_id: r.get::<_, String>(1)?,
-                model: r.get::<_, String>(2)?,
-                tokens: r.get::<_, i64>(3)?,
-                cost_usd: r.get::<_, f64>(4)?,
+                session_id: sid,
+                tokens: r.get::<_, i64>(2)?,
+                cost_usd: r.get::<_, f64>(3)?,
+                messages: r.get::<_, i64>(4)?,
+                model_count: r.get::<_, i64>(5)?,
+                models: r.get::<_, String>(6)?,
+                last_used_at: file_mtime.or(db_time),
+                project_name: (!proj_name.is_empty()).then_some(proj_name),
+                project_path: (!proj_path.is_empty()).then_some(proj_path),
             })
         })?
         .collect::<Result<_, _>>()?;
     Ok(out)
 }
 
+/// Per-model rows for a single session. Ordered by tokens desc.
+pub fn query_detail(
+    conn: &Connection,
+    tool: &str,
+    session_id: &str,
+) -> Result<Vec<SessionDetailRow>, QueryError> {
+    let mut stmt = conn.prepare(
+        "SELECT model,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                COALESCE(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens, 0) AS tokens,
+                cost_usd,
+                message_count
+         FROM sessions
+         WHERE tool = ? AND session_id = ?
+         ORDER BY tokens DESC",
+    )?;
+    let out = stmt
+        .query_map(rusqlite::params![tool, session_id], |r| {
+            Ok(SessionDetailRow {
+                model: r.get::<_, String>(0)?,
+                input: r.get::<_, i64>(1)?,
+                output: r.get::<_, i64>(2)?,
+                cache_read: r.get::<_, i64>(3)?,
+                cache_write: r.get::<_, i64>(4)?,
+                tokens: r.get::<_, i64>(5)?,
+                cost_usd: r.get::<_, f64>(6)?,
+                messages: r.get::<_, i64>(7)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(out)
+}
+
+fn format_last_used(ts: Option<i64>) -> Option<String> {
+    let ms = ts?;
+    if ms <= 0 {
+        return None;
+    }
+    use chrono::{Local, TimeZone};
+    let secs = ms / 1000;
+    let nsecs = ((ms % 1000) * 1_000_000) as u32;
+    let dt = Local.timestamp_opt(secs, nsecs).single()?;
+    Some(dt.format("%Y-%m-%d %H:%M").to_string())
+}
+
+// ── per-round data (grouped by user input) from session JSONL ───────────────
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SessionRoundVm {
+    pub user_text: String,
+    pub timestamp: Option<String>,
+    pub turns: i64,
+    pub tools: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub total_tokens: i64,
+    pub cost_usd: f64,
+}
+
+/// Group a session's messages into rounds (each starts at a user message and
+/// includes all following assistant messages), apportion the session's
+/// per-model cost across rounds by token share, and return newest-first
+/// capped at `MAX_ROUNDS`.
+pub fn query_rounds(
+    conn: &Connection,
+    claude_projects_dir: Option<&Path>,
+    tool: &str,
+    session_id: &str,
+) -> Result<Vec<SessionRoundVm>, QueryError> {
+    let model_totals = session_model_totals_public(conn, tool, session_id)?;
+    Ok(build_rounds(
+        claude_projects_dir,
+        tool,
+        session_id,
+        model_totals,
+    ))
+}
+
+/// `(model_total_tokens, model_total_cost)` per model for one session.
+/// Public so a command can snapshot it under a short DB lock, then release
+/// the lock before the (slow) JSONL parse runs on the blocking pool.
+pub fn session_model_totals_public(
+    conn: &Connection,
+    tool: &str,
+    session_id: &str,
+) -> Result<std::collections::HashMap<String, (i64, f64)>, QueryError> {
+    let mut stmt = conn.prepare(
+        "SELECT model,
+                COALESCE(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens, 0),
+                COALESCE(cost_usd, 0)
+         FROM sessions
+         WHERE tool = ? AND session_id = ?",
+    )?;
+    let rows = stmt.query_map(rusqlite::params![tool, session_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            (r.get::<_, i64>(1)?, r.get::<_, f64>(2)?),
+        ))
+    })?;
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (m, tc) = row?;
+        map.insert(m, tc);
+    }
+    Ok(map)
+}
+
+struct RoundAcc {
+    user_text: String,
+    ts_raw: Option<String>,
+    is_command: bool,
+    turns: i64,
+    tools: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_write_tokens: i64,
+    model_tokens: std::collections::HashMap<String, i64>,
+}
+
+impl RoundAcc {
+    fn new(user_text: String, ts_raw: Option<String>, is_command: bool) -> Self {
+        Self {
+            user_text,
+            ts_raw,
+            is_command,
+            turns: 0,
+            tools: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            model_tokens: std::collections::HashMap::new(),
+        }
+    }
+
+    fn finalize(self, cost_usd: f64) -> SessionRoundVm {
+        SessionRoundVm {
+            total_tokens: self.input_tokens
+                + self.output_tokens
+                + self.cache_read_tokens
+                + self.cache_write_tokens,
+            user_text: self.user_text,
+            timestamp: format_iso(&self.ts_raw),
+            turns: self.turns,
+            tools: self.tools,
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_read_tokens: self.cache_read_tokens,
+            cache_write_tokens: self.cache_write_tokens,
+            cost_usd,
+        }
+    }
+}
+
+fn parse_rounds(claude_projects_dir: Option<&Path>, tool: &str, session_id: &str) -> Vec<RoundAcc> {
+    let Some(claude_dir) = claude_projects_dir else {
+        return Vec::new();
+    };
+    if tool != "claude" {
+        return Vec::new();
+    }
+    let Some(path) = crate::collector::workspace::find_session_file(claude_dir, session_id) else {
+        return Vec::new();
+    };
+    let Ok(file) = std::fs::File::open(&path) else {
+        return Vec::new();
+    };
+
+    let mut rounds: Vec<RoundAcc> = Vec::new();
+    for line in std::io::BufRead::lines(std::io::BufReader::new(file)) {
+        let Ok(line) = line else {
+            break;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        match v.get("type").and_then(|x| x.as_str()).unwrap_or("") {
+            "user" => {
+                // Tool-result-only user messages are tool outputs, not real
+                // user input — fold them into the current round if any.
+                let text = user_prompt_preview(&v, 80);
+                if text.is_empty() {
+                    continue;
+                }
+                let is_cmd = is_command_message(&v, &text);
+                let ts_raw = v
+                    .get("timestamp")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string());
+                rounds.push(RoundAcc::new(text, ts_raw, is_cmd));
+            }
+            "assistant" => {
+                let Some(round) = rounds.last_mut() else {
+                    continue;
+                };
+                let msg = v.get("message");
+                let model = msg
+                    .and_then(|m| m.get("model"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let usage = msg.and_then(|m| m.get("usage"));
+                let input = usage
+                    .and_then(|u| u.get("input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let output = usage
+                    .and_then(|u| u.get("output_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let cache_read = usage
+                    .and_then(|u| u.get("cache_read_input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let cache_write = usage
+                    .and_then(|u| u.get("cache_creation_input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let tool_count = msg
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array())
+                    .map(|arr| arr.iter().filter(|b| is_tool_use(b)).count() as i64)
+                    .unwrap_or(0);
+                round.turns += 1;
+                round.tools += tool_count;
+                round.input_tokens += input;
+                round.output_tokens += output;
+                round.cache_read_tokens += cache_read;
+                round.cache_write_tokens += cache_write;
+                let mt = input + output + cache_read + cache_write;
+                *round.model_tokens.entry(model).or_insert(0) += mt;
+            }
+            _ => {}
+        }
+    }
+    rounds
+}
+
+/// Parse rounds from the session JSONL, apportion cost via `model_totals`,
+/// cap to the newest `MAX_ROUNDS`, and reverse to newest-first. Pure (no DB).
+pub fn build_rounds(
+    claude_projects_dir: Option<&Path>,
+    tool: &str,
+    session_id: &str,
+    model_totals: std::collections::HashMap<String, (i64, f64)>,
+) -> Vec<SessionRoundVm> {
+    let mut acc = parse_rounds(claude_projects_dir, tool, session_id);
+    // Keep only real conversations: not slash commands, not low-signal filler
+    // ("继续" etc.), produced AI output (turns > 0), and with non-zero token
+    // usage (zero-token rounds have zero apportioned cost too — no signal).
+    acc.retain(|r| {
+        let total = r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
+        !r.is_command && !is_filler_prompt(&r.user_text) && r.turns > 0 && total > 0
+    });
+
+    // Sort by timestamp descending (newest first) — explicit, not relying on
+    // file order. Rounds without a timestamp sink to the bottom.
+    acc.sort_by(|a, b| b.ts_raw.cmp(&a.ts_raw));
+
+    // Take the most recent MAX_ROUNDS AFTER sorting.
+    const MAX_ROUNDS: usize = 300;
+    if acc.len() > MAX_ROUNDS {
+        acc.truncate(MAX_ROUNDS);
+    }
+
+    acc.into_iter()
+        .map(|r| {
+            let cost = apportion_cost(&r.model_tokens, &model_totals);
+            r.finalize(cost)
+        })
+        .collect()
+}
+
+/// Low-signal filler prompts to hide (continuations / acknowledgements).
+const FILLER_PROMPTS: &[&str] = &[
+    "继续",
+    "继续。",
+    "继续一下",
+    "继续吧",
+    "continue",
+    "cont",
+    "go",
+    "go on",
+    "next",
+    "好的",
+    "好",
+    "ok",
+    "okay",
+    "yes",
+    "是",
+    "对",
+    "嗯",
+    "恩",
+    "行",
+    "可以",
+];
+
+/// True for tiny acknowledgement / continuation prompts like "继续", "ok".
+fn is_filler_prompt(text: &str) -> bool {
+    let t = text.trim().to_lowercase();
+    if t.is_empty() {
+        return true;
+    }
+    // Single character (e.g. "好", "是") → filler.
+    if t.chars().count() <= 1 {
+        return true;
+    }
+    FILLER_PROMPTS.iter().any(|f| *f == t)
+}
+
+/// round cost = Σ_models (round_model_tokens / session_model_tokens × session_model_cost).
+fn apportion_cost(
+    round_model_tokens: &std::collections::HashMap<String, i64>,
+    model_totals: &std::collections::HashMap<String, (i64, f64)>,
+) -> f64 {
+    let mut cost = 0.0;
+    for (model, rtok) in round_model_tokens {
+        if let Some((total_tok, total_cost)) = model_totals.get(model) {
+            if *total_tok > 0 {
+                cost += (*rtok as f64 / *total_tok as f64) * total_cost;
+            }
+        }
+    }
+    cost
+}
+
+/// Format an ISO-8601 UTC timestamp "2026-07-15T08:03:55.008Z" → local
+/// "2026-07-15 16:03". The JSONL timestamps are UTC (Z suffix); we convert to the
+/// user's local timezone so the displayed time matches their clock.
+fn format_iso(raw: &Option<String>) -> Option<String> {
+    use chrono::{DateTime, Local};
+    let raw = raw.as_ref()?;
+    let parsed: DateTime<Local> = DateTime::parse_from_rfc3339(raw).ok()?.into();
+    Some(parsed.format("%Y-%m-%d %H:%M").to_string())
+}
+
+/// Extract a one-line preview of the user's prompt: takes the first text
+/// block (skipping `tool_result` blocks), strips command tags, ellipsises.
+fn user_prompt_preview(v: &serde_json::Value, max_chars: usize) -> String {
+    let msg = match v.get("message") {
+        Some(m) => m,
+        None => return String::new(),
+    };
+    let content = match msg.get("content") {
+        Some(c) => c,
+        None => return String::new(),
+    };
+    let raw = if let Some(s) = content.as_str() {
+        s.to_string()
+    } else if let Some(arr) = content.as_array() {
+        let mut picked = String::new();
+        for block in arr {
+            if block.get("type").and_then(|x| x.as_str()) == Some("text") {
+                if let Some(t) = block.get("text").and_then(|x| x.as_str()) {
+                    if !t.trim().is_empty() {
+                        picked = t.to_string();
+                        break;
+                    }
+                }
+            }
+        }
+        picked
+    } else {
+        return String::new();
+    };
+    let stripped = strip_command_tags(&raw);
+    let first_line = stripped
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    truncate_str(first_line, max_chars)
+}
+
+fn strip_command_tags(s: &str) -> String {
+    let mut out = s.to_string();
+    for tag in ["command-message", "command-name", "local-command-stdout"] {
+        let open = format!("<{tag}>");
+        let close = format!("</{tag}>");
+        if let (Some(a), Some(b)) = (out.find(&open), out.find(&close)) {
+            if a < b {
+                let inner = out[a + open.len()..b].to_string();
+                out = format!("{}{}", &out[..a], &out[b + close.len()..]);
+                if out.trim().is_empty() {
+                    out = inner;
+                }
+            }
+        }
+    }
+    out
+}
+
+fn is_tool_use(block: &serde_json::Value) -> bool {
+    block.get("type").and_then(|x| x.as_str()) == Some("tool_use")
+}
+
+/// True if the user message is a slash command (e.g. `/exit`, `/compact`,
+/// `/model`) rather than a real prompt. Detected via a leading `/` in the
+/// cleaned text or a Claude-Code `<command-name>` wrapper in the raw content.
+fn is_command_message(v: &serde_json::Value, cleaned_text: &str) -> bool {
+    if cleaned_text.trim_start().starts_with('/') {
+        return true;
+    }
+    let Some(msg) = v.get("message") else {
+        return false;
+    };
+    let raw = match msg.get("content") {
+        Some(serde_json::Value::String(s)) => s.as_str().to_string(),
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|b| {
+                if b.get("type").and_then(|x| x.as_str()) == Some("text") {
+                    b.get("text").and_then(|x| x.as_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => String::new(),
+    };
+    raw.contains("<command-name>") || raw.contains("<command-message>")
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max).collect();
+    format!("{truncated}…")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{schema, sessions::ingest_sessions};
+    use crate::storage::schema;
 
     fn seeded() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
         schema::migrate(&conn).unwrap();
-        ingest_sessions(
-            &mut conn,
-            &serde_json::json!({
-                "entries": [
-                    { "client": "claude", "sessionId": "s1", "model": "glm-5.2",
-                      "input": 100, "output": 0, "cacheRead": 0, "cacheWrite": 0, "cost": 1.0 },
-                    { "client": "codex", "sessionId": "s2", "model": "gpt-5",
-                      "input": 500, "output": 500, "cacheRead": 0, "cacheWrite": 0, "cost": 5.0 }
-                ]
-            }),
-        )
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
+             VALUES ('claude','s1','glm-5.2',1000,200,300,0,1.5,10,{now}),
+                    ('claude','s1','gpt-5',500,0,0,0,0.5,3,{now}),
+                    ('codex','s2','gpt-5-plus',200,80,0,0,0.42,5,{now})"
+        ))
         .unwrap();
         conn
     }
 
     #[test]
-    fn lists_sessions_ordered_by_tokens_desc() {
+    fn query_groups_by_tool_and_session() {
         let conn = seeded();
-        let v = query(&conn).unwrap();
+        let v = query(&conn, None).unwrap();
         assert_eq!(v.len(), 2);
-        assert_eq!(v[0].session_id, "s2"); // 1000 > 100
-        assert_eq!(v[0].tokens, 1000);
-        assert!((v[0].cost_usd - 5.0).abs() < 1e-9);
-        assert_eq!(v[1].session_id, "s1");
+        let s1 = &v[0];
+        assert_eq!(s1.tool, "claude");
+        assert_eq!(s1.session_id, "s1");
+        assert_eq!(s1.tokens, 2000);
+        assert!((s1.cost_usd - 2.0).abs() < 1e-9);
+        assert_eq!(s1.messages, 13);
+        assert_eq!(s1.model_count, 2);
+        assert!(s1.last_used_at.is_some());
+        assert!(s1.project_name.is_none());
+    }
+
+    #[test]
+    fn query_detail_returns_per_model_rows() {
+        let conn = seeded();
+        let rows = query_detail(&conn, "claude", "s1").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].model, "glm-5.2");
+        assert_eq!(rows[0].tokens, 1500);
+    }
+
+    #[test]
+    fn query_detail_empty_for_unknown() {
+        let conn = seeded();
+        assert!(query_detail(&conn, "no", "ne").unwrap().is_empty());
+    }
+
+    #[test]
+    fn query_rounds_empty_without_session_file() {
+        let conn = seeded();
+        // No claude_projects_dir → no rounds.
+        let rounds = query_rounds(&conn, None, "claude", "s1").unwrap();
+        assert!(rounds.is_empty());
     }
 
     #[test]
     fn empty_when_no_sessions() {
         let conn = Connection::open_in_memory().unwrap();
         schema::migrate(&conn).unwrap();
-        assert!(query(&conn).unwrap().is_empty());
+        assert!(query(&conn, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn apportion_cost_scales_by_token_share() {
+        let mut totals = std::collections::HashMap::new();
+        totals.insert("glm-5.2".to_string(), (1000_i64, 10.0_f64));
+        let mut round = std::collections::HashMap::new();
+        round.insert("glm-5.2".to_string(), 250_i64);
+        // 250/1000 × 10.0 = 2.5
+        assert!((apportion_cost(&round, &totals) - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn apportion_cost_zero_when_no_totals() {
+        let totals = std::collections::HashMap::new();
+        let mut round = std::collections::HashMap::new();
+        round.insert("glm-5.2".to_string(), 250_i64);
+        assert_eq!(apportion_cost(&round, &totals), 0.0);
+    }
+
+    #[test]
+    fn truncate_adds_ellipsis() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("abcdefghij", 4), "abcd…");
+    }
+
+    #[test]
+    fn filler_prompt_detection() {
+        assert!(is_filler_prompt("继续"));
+        assert!(is_filler_prompt(" ok "));
+        assert!(is_filler_prompt("好的"));
+        assert!(is_filler_prompt("是"));
+        assert!(!is_filler_prompt("帮我优化会话页面"));
+        assert!(!is_filler_prompt("continue with the next step please"));
     }
 }

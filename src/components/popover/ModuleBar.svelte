@@ -27,7 +27,10 @@
 
 <style>
   .module-bar {
-    padding: 11px 16px;
+    /* Sits inside ov-body (padding 14px 18px) — only need bottom spacing
+       to match wireframe module-bar (margin 13px, dashed divider). */
+    padding-bottom: 11px;
+    margin-bottom: 13px;
     border-bottom: 1px dashed var(--border-dim);
   }
   .module-toggles {
