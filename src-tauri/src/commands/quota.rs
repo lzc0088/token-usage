@@ -1,22 +1,258 @@
-//! Quota commands (M4 T4.5). Reads each vendor's credential from the keyring
-//! and fetches its quota. V1 ships only DeepSeek; other vendors return nothing
-//! here until their adapters + a binding exist.
+//! Quota commands (M4 T4.5).
+//!
+//! - `get_quotas`: reads cached data from `quota_cache` table (fast, no network).
+//! - `refresh_quotas`: triggers a live fetch for all bound vendors (manual "刷新").
+//! - `refresh_quota`: triggers a live fetch for a single vendor (per-vendor refresh).
+//!
+//! Background refresh is driven by `quota::scheduler::run()`, started at app boot.
 
-use crate::quota::Quota;
-use crate::{credentials, quota};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// All configured vendors' quotas. Vendors without a stored credential or whose
-/// fetch fails are skipped (the frontend shows an empty / unconfigured state).
+use chrono::Datelike;
+use tauri::{AppHandle, Emitter, State};
+
+use crate::config;
+use crate::credentials;
+use crate::quota::scheduler;
+use crate::quota::{Quota, QuotaBalance, VendorId};
+use crate::state::AppState;
+
+/// All vendor ids the account page can bind.
+pub const TRACKED_VENDORS: &[&str] = &[
+    "claude",
+    "codex",
+    "cursor",
+    "deepseek",
+    "minimax",
+    "glm",
+    "kimi",
+    "volcengine",
+    "stepfun",
+    "iflytek",
+    "copilot",
+    "mimo",
+    "opencode",
+    "zai_team",
+    "qoder",
+    "ollama",
+];
+
+/// True when this vendor has a working quota adapter.
+fn adapter_for(id: &str) -> Option<VendorId> {
+    match id {
+        "deepseek" => Some(VendorId::Deepseek),
+        "glm" => Some(VendorId::Glm),
+        "minimax" => Some(VendorId::Minimax),
+        "kimi" => Some(VendorId::Kimi),
+        "volcengine" => Some(VendorId::Volcengine),
+        "mimo" => Some(VendorId::Mimo),
+        "stepfun" => Some(VendorId::Stepfun),
+        "iflytek" => Some(VendorId::Iflytek),
+        _ => None,
+    }
+}
+
+/// Debug command: test credential parsing and API call for a vendor.
+/// Returns detailed logs about what happened during the fetch.
 #[tauri::command]
-pub async fn get_quotas() -> Result<Vec<Quota>, String> {
-    let mut out = Vec::new();
+pub async fn test_credential(vendor: String, credential: String) -> Result<String, String> {
+    eprintln!("=== test_credential called ===");
+    eprintln!("vendor: {}", vendor);
+    eprintln!("credential length: {}", credential.len());
+    eprintln!(
+        "credential (first 100 chars): {}",
+        &credential[..credential.len().min(100)]
+    );
 
-    // DeepSeek (balance-type, API key in keyring under "deepseek").
-    if let Ok(cred) = credentials::get("deepseek") {
-        if let Ok(q) = quota::fetch(quota::VendorId::Deepseek, &cred).await {
+    let vid = adapter_for(&vendor).ok_or_else(|| format!("no adapter for vendor: {vendor}"))?;
+
+    match crate::quota::fetch(vid, &credential).await {
+        Ok(quota) => {
+            let result = format!(
+                "SUCCESS\nvendor: {}\nstatus: {:?}\nwindows: {}\nplan_label: {:?}\nbalance: {:?}",
+                quota.vendor,
+                quota.status,
+                quota.windows.len(),
+                quota.plan_label,
+                quota.balance
+            );
+            eprintln!("{}", result);
+            Ok(result)
+        }
+        Err(e) => {
+            let error = format!("FAILED: {e}");
+            eprintln!("{}", error);
+            Err(error)
+        }
+    }
+}
+
+/// Read cached quotas from `quota_cache` table, filtered by config's
+/// `quota_active_vendors`. Fast — no network calls.
+///
+/// A vendor only appears in `quota_cache` if its credential was validated and
+/// the quota was fetched successfully, so presence here implies "connected".
+#[tauri::command]
+pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
+    let conn = state.db.lock().expect("db poisoned");
+    let cfg = config::load(&conn).unwrap_or_default();
+    let active_set = cfg.quota_active_vendors;
+
+    let mut stmt = conn
+        .prepare("SELECT vendor, data FROM quota_cache")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            let vendor: String = r.get(0)?;
+            let data: String = r.get(1)?;
+            Ok((vendor, data))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (vendor, data) = row.map_err(|e| e.to_string())?;
+        // Apply active-vendor filter
+        if let Some(ref active) = active_set {
+            if !active.contains(&vendor) {
+                continue;
+            }
+        }
+        if let Ok(q) = serde_json::from_str::<Quota>(&data) {
             out.push(q);
         }
     }
-
+    // Sort by the user's custom vendor order (from the Account quota list).
+    // Falls back to active-vendors order, then leaves DB order unchanged.
+    let order_key = cfg.quota_vendor_order.as_ref().or(active_set.as_ref());
+    if let Some(order_ref) = order_key {
+        let order: std::collections::HashMap<&str, usize> = order_ref
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.as_str(), i))
+            .collect();
+        out.sort_by_key(|q| order.get(q.vendor.as_str()).copied().unwrap_or(usize::MAX));
+    }
     Ok(out)
+}
+
+/// Manually trigger a full refresh for all bound vendors. Updates `quota_cache`
+/// in the background. Call this from "刷新" buttons.
+#[tauri::command]
+pub async fn refresh_quotas(state: State<'_, AppState>) -> Result<(), String> {
+    scheduler::refresh_all(&state.db).await;
+    Ok(())
+}
+
+/// Process-wide guard so two pages mounting in quick succession (Overview +
+/// Limits) don't kick off overlapping refreshes. The second caller returns
+/// `false` immediately and lets the first finish.
+static STALE_REFRESHING: AtomicBool = AtomicBool::new(false);
+
+/// Releases `STALE_REFRESHING` on drop — survives early returns so the flag
+/// can never get stuck set.
+struct StaleRefreshGuard;
+impl Drop for StaleRefreshGuard {
+    fn drop(&mut self) {
+        STALE_REFRESHING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// If the freshest cached quota is older than `quota_refresh_interval`, refresh
+/// now and emit `quota:updated`; otherwise no-op. Called when the user opens
+/// the Overview / Limits page so the data shown is never staler than the
+/// configured cadence. Returns `true` when a refresh was actually triggered.
+#[tauri::command]
+pub async fn refresh_quotas_if_stale(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<bool, String> {
+    // Claim the guard; bail if another stale-check is already mid-flight.
+    if STALE_REFRESHING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Ok(false);
+    }
+    let _guard = StaleRefreshGuard;
+
+    // Decide staleness from the freshest cache row + the configured interval.
+    let (stale, db) = {
+        let conn = state.db.lock().expect("db poisoned");
+        let cfg = config::load(&conn).unwrap_or_default();
+        let interval = scheduler::parse_interval_secs(&cfg.quota_refresh_interval);
+        let max_fetched: Option<i64> = conn
+            .query_row("SELECT MAX(fetched_at) FROM quota_cache", [], |r| r.get(0))
+            .ok();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        (
+            scheduler::is_stale(max_fetched, interval, now_ms),
+            state.db.clone(),
+        )
+    };
+
+    if !stale {
+        return Ok(false);
+    }
+    scheduler::refresh_all(&db).await;
+    let _ = app.emit("quota:updated", ());
+    Ok(true)
+}
+
+/// Manually trigger a refresh for a single vendor. Updates `quota_cache`
+/// and emits `quota:updated` so open pages reload immediately.
+#[tauri::command]
+pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    let cred = {
+        let conn = state.db.lock().expect("db poisoned");
+        credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
+    };
+    let (_cfg, now, today, month_start) = {
+        let conn = state.db.lock().expect("db poisoned");
+        let cfg = config::load(&conn).unwrap_or_default();
+        let now = chrono::Utc::now();
+        let today = now.format("%Y-%m-%d").to_string();
+        let month_start = {
+            let (y, m, _d) = (now.year(), now.month(), now.day());
+            format!("{y:04}-{m:02}-01")
+        };
+        (cfg, now, today, month_start)
+    };
+    let now_rfc = now.to_rfc3339();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let _q = match adapter_for(&vendor) {
+        Some(vid) => match crate::quota::fetch(vid, &cred).await {
+            Ok(mut q) => {
+                q.refreshed_at = Some(now_rfc);
+                if let Ok(conn) = state.db.lock() {
+                    if q.balance.is_some() {
+                        let today_c = scheduler::query_consumption(&conn, &vendor, &today);
+                        let month_c = scheduler::query_consumption(&conn, &vendor, &month_start);
+                        q.balance = q.balance.map(|b| QuotaBalance {
+                            today_consumption: today_c,
+                            month_consumption: month_c,
+                            ..b
+                        });
+                    }
+                    scheduler::write_cache(&conn, &vendor, &q, now_ms);
+                }
+                q
+            }
+            Err(e) => {
+                eprintln!("[quota] {vendor} refresh failed: {e}");
+                return Err(e.to_string());
+            }
+        },
+        None => return Err(format!("no adapter for {vendor}")),
+    };
+    let _ = app.emit("quota:updated", ());
+    Ok(())
 }

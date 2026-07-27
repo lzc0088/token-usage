@@ -54,6 +54,15 @@ jobs:
       - name: Install npm deps
         run: npm install
 
+      - name: Fetch tokscale binary (bundled)
+        # Download the platform-native tokscale binary so Tauri bundles it as
+        # a resource (zero network dependency for end users on first launch).
+        env:
+          # macOS cross-compile: the runner is x86_64 but we target arm64.
+          # Tell the script which arch to fetch instead of detecting the host.
+          TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+        run: node scripts/fetch-tokscale.mjs
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

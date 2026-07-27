@@ -12,11 +12,11 @@
   import Sessions from "./components/segments/Sessions.svelte";
   import Trend from "./components/segments/Trend.svelte";
   import Limits from "./components/segments/Limits.svelte";
-  import SettingsModal from "./views/SettingsModal.svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { api, type Config, type Summary } from "./lib/api";
+  import { applyAppearance, initAppearanceListeners } from "./lib/appearance";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
-  import { isSettingsOpen, openSettings } from "./stores/settings.svelte";
 
   const appWindow = getCurrentWindow();
 
@@ -24,23 +24,58 @@
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
   let lastUpdated = $state<number>(0); // epoch ms
+  let refreshTrigger = $state(0); // Force segment refresh on global refresh
+  // USD→CNY rate for cost conversion. Loaded from the latest stored value
+  // (auto or manual) and refreshed on rate:updated / config:changed.
+  let cnyRate = $state<number>(7.2);
 
-  // Auto-hide on blur — works even with transparent macOS windows
-  // because DOM blur / visibility events fire regardless of NSWindow type.
+  // Auto-hide on blur — settings is now a separate window, so main always
+  // hides when it loses focus.
   $effect(() => {
     function hideOnBlur() {
-      if (!isSettingsOpen()) appWindow.hide();
+      appWindow.hide();
     }
     window.addEventListener("blur", hideOnBlur);
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden && !isSettingsOpen()) appWindow.hide();
+      if (document.hidden) appWindow.hide();
     });
     return () => {
       window.removeEventListener("blur", hideOnBlur);
     };
   });
 
+  // Reload config on focus — picks up changes made from the tray menu
+  // (theme, window display mode) without needing a config:changed event.
+  $effect(() => {
+    async function onFocus() {
+      try {
+        const c = await api.getConfig();
+        config = c;
+        applyAppearance(c);
+      } catch { /* ignore */ }
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  });
+
   let period = $derived(periodValue());
+
+  // Sync period from config.default_period ONCE on startup. The periodSynced
+  // guard ensures this never re-runs when the user later switches period via
+  // the PeriodSwitcher — otherwise clicking MONTH/TOTAL would read `period`,
+  // see it differ from default_period, and snap straight back to "day".
+  let periodSynced = $state(false);
+  $effect(() => {
+    const cfg = config;
+    if (periodSynced || !cfg.default_period) return;
+    periodSynced = true;
+    if (cfg.default_period !== periodValue()) {
+      // Dynamically import to avoid circular deps.
+      import("./stores/period.svelte").then(({ setPeriod }) => {
+        setPeriod(cfg.default_period as "day" | "month" | "total");
+      }).catch(console.error);
+    }
+  });
 
   $effect(() => {
     const p = period;
@@ -75,6 +110,55 @@
     };
   });
 
+  // Live-apply settings changes saved from the settings window (layout,
+  // currency, period, quota vendors) without requiring a manual refresh.
+  $effect(() => {
+    const unlisten_promise = listen<void>("config:changed", () => {
+      api.getConfig()
+        .then((c) => { config = c; lastUpdated = Date.now(); })
+        .catch(console.error);
+      reloadRate();
+    });
+    return () => {
+      unlisten_promise.then((un) => un());
+    };
+  });
+
+  // Tray context menu "立即刷新" → trigger a full data refresh.
+  $effect(() => {
+    const unlisten_promise = listen<void>("tray:refresh", () => {
+      void refreshData();
+    });
+    return () => {
+      unlisten_promise.then((un) => un());
+    };
+  });
+
+  // Reload the stored USD→CNY rate (covers auto-fetch, manual save, and
+  // config changes — all emit one of the events above or rate:updated).
+  function reloadRate(): void {
+    api.getLatestRate()
+      .then((info) => { cnyRate = info.rate; })
+      .catch(console.error);
+  }
+
+  $effect(() => {
+    reloadRate();
+    const unlisten_promise = listen<void>("rate:updated", () => reloadRate());
+    return () => {
+      unlisten_promise.then((un) => un());
+    };
+  });
+
+  // Apply appearance (theme / animation) whenever config changes, and
+  // listen to system media queries for "system" mode.
+  $effect(() => {
+    applyAppearance(config);
+  });
+  $effect(() => {
+    return initAppearanceListeners();
+  });
+
   let segment = $derived(segmentValue());
 
   function updatedTime(): string {
@@ -88,45 +172,73 @@
     updatedStr = updatedTime();
   });
 
+  // Global refresh feedback: shown to the left of the refresh button.
+  let refreshStatus = $state<"idle" | "loading" | "ok" | "fail">("idle");
+  let refreshMsg = $state("");
+
   async function refreshData() {
+    refreshStatus = "loading";
+    refreshMsg = "";
     try {
-      const [s, c] = await Promise.all([api.getSummary(periodValue()), api.getConfig()]);
-      summary = s;
-      config = c;
+      // Refresh usage data + quota data in parallel.
+      await Promise.all([api.getSummary(periodValue()), api.getConfig(), api.refreshQuotas()]);
+      summary = await api.getSummary(periodValue());
+      config = await api.getConfig();
       loadError = null;
+      refreshStatus = "ok";
+      refreshMsg = "刷新成功";
+      // Increment trigger to force current segment to reload.
+      refreshTrigger++;
+      setTimeout(() => { refreshStatus = "idle"; refreshMsg = ""; }, 3000);
     } catch (e) {
       console.error("refresh failed", e);
+      refreshStatus = "fail";
+      refreshMsg = e instanceof Error ? e.message : String(e);
     }
   }
 </script>
 
-<div class="popover">
+<div class="popover" class:draggable={config.window_display_mode === "normal"}>
   <header class="pop-hero">
-    <Hero {summary} currency={config.currency} />
+    <Hero {summary} currency={config.currency} {cnyRate} />
     <div class="hero-right">
       <PeriodSwitcher />
     </div>
   </header>
 
-  <SegBar />
+  <SegBar {config} />
 
   <main class="seg-scroll">
     {#if loadError}
       <p class="err">{loadError}</p>
     {:else if segment === "ov"}
-      <Overview {summary} currency={config.currency} />
+      {#key "ov-" + refreshTrigger}
+        <Overview {summary} currency={config.currency} config={config} {cnyRate} />
+      {/key}
     {:else if segment === "tools"}
-      <Tools currency={config.currency} />
+      {#key "tools-" + refreshTrigger}
+        <Tools currency={config.currency} {cnyRate} />
+      {/key}
     {:else if segment === "models"}
-      <Models currency={config.currency} />
+      {#key "models-" + refreshTrigger}
+        <Models currency={config.currency} {cnyRate} />
+      {/key}
     {:else if segment === "projects"}
-      <Projects currency={config.currency} />
+      {#key "projects-" + refreshTrigger}
+        <Projects currency={config.currency} {cnyRate} />
+      {/key}
     {:else if segment === "sess"}
-      <Sessions currency={config.currency} />
+      {#key "sess-" + refreshTrigger}
+        <Sessions currency={config.currency} {cnyRate} />
+      {/key}
     {:else if segment === "trend"}
-      <Trend />
+      {#key "trend-" + refreshTrigger}
+        <Trend />
+      {/key}
     {:else if segment === "limit"}
-      <Limits />
+      {#key "limit-" + refreshTrigger}
+        <Limits />
+      {/key}
     {:else}
       <p class="placeholder">「{segment}」分段 · M4 待实装</p>
     {/if}
@@ -135,21 +247,30 @@
   <footer class="pop-footer">
     <div class="l"><span class="live"></span>最新刷新 {updatedStr}</div>
     <div class="r">
-      <button class="fbtn" onclick={() => refreshData()} title="刷新" aria-label="刷新">↻</button>
-      <button class="fbtn fbtn-gear" onclick={openSettings} title="设置" aria-label="设置">⚙</button>
+      {#if refreshStatus === "loading"}
+        <span class="refresh-feedback loading">刷新中…</span>
+      {:else if refreshStatus === "ok"}
+        <span class="refresh-feedback ok">{refreshMsg}</span>
+      {:else if refreshStatus === "fail"}
+        <span class="refresh-feedback fail">刷新失败</span>
+      {/if}
+      <button class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">↻</button>
+      <button class="fbtn fbtn-gear" onclick={() => invoke("open_settings")} title="设置" aria-label="设置">⚙</button>
     </div>
   </footer>
 </div>
-
-{#if isSettingsOpen()}
-  <SettingsModal />
-{/if}
 
 <style>
   .popover {
     display: flex;
     flex-direction: column;
     height: 100%;
+    background: rgba(var(--app-bg), var(--app-bg-opacity));
+    border-radius: 15px;
+    overflow: hidden;
+  }
+  .popover.draggable {
+    cursor: grab;
   }
   .pop-hero {
     display: flex;
@@ -202,12 +323,17 @@
   .pop-footer .r {
     display: flex;
     gap: 6px;
+    align-items: center;
   }
+  .refresh-feedback { font-size: 10.5px; line-height: 1; }
+  .refresh-feedback.loading { color: var(--text-dim); }
+  .refresh-feedback.ok { color: var(--lime); }
+  .refresh-feedback.fail { color: var(--coral); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fbtn {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border-dim);
     color: var(--text-dim);
-    padding: 5px 9px;
+    padding: 4px 8px;
     border-radius: 6px;
     font-size: 16px;
     line-height: 1;
@@ -217,10 +343,10 @@
     align-items: center;
     justify-content: center;
     transition: 0.15s;
-    min-width: 30px;
-    min-height: 30px;
+    min-width: 32px;
+    min-height: 32px;
   }
-  .fbtn-gear { font-size: 20px; }
+  .fbtn-gear { font-size: 17px; }
   .fbtn:hover {
     color: var(--amber);
     border-color: var(--amber-soft);
@@ -247,5 +373,14 @@
     margin: 24px 16px;
     color: var(--text-faint);
     font-size: 12px;
+  }
+
+  /* Ensure interactive elements maintain their cursor when in draggable mode */
+  .popover.draggable button,
+  .popover.draggable .seg-scroll {
+    cursor: auto;
+  }
+  .popover.draggable .fbtn {
+    cursor: pointer;
   }
 </style>

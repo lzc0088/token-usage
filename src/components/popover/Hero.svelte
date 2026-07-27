@@ -16,7 +16,7 @@
   }
 
   const label = $derived(summary ? periodLabel(summary.period) : "今日 · TODAY");
-  const t = $derived(summary ? splitTokensCN(summary.total_tokens) : { value: "—", unit: "" });
+  const t = $derived(summary ? splitTokensCN(summary.total_tokens, 3) : { value: "—", unit: "" });
   const deltaDir = $derived(
     summary?.delta_pct != null ? (summary.delta_pct >= 0 ? "↑" : "↓") : "",
   );

@@ -19,12 +19,15 @@ use crate::{paths, storage};
 /// no watchable dirs) logs and returns silently rather than crashing the app —
 /// the popover still works with whatever's already in the DB.
 pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
-    // 1. resolve tokscale (install on first run if missing).
+    // 1. resolve tokscale: prefer the bundled binary (packaged at build time);
+    //    fall back to the legacy install-on-first-run path only if the bundle
+    //    is missing/corrupt (e.g. dev without `npm run fetch-tokscale` yet).
     let data = match tokscale::app_bin_dir() {
         Some(d) => d,
         None => return,
     };
-    let bin = match tokscale::resolve_bin(None, &data) {
+    let custom = tokscale::bundled_bin_path(&app);
+    let bin = match tokscale::resolve_bin(custom.as_deref(), &data) {
         Ok(b) => b,
         Err(_) => match tokscale::install(&data).await {
             Ok(b) => b,
@@ -59,11 +62,25 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     };
     let (ev_tx, mut ev_rx) = mpsc::channel::<scheduler::CollectionEvent>(64);
     let scanner = scheduler::TokscaleScanner::new(bin, clients.clone());
+    // Persist the discovered installed-clients list so backend commands can
+    // compute 归档会话 (sessions whose tool is no longer installed) without
+    // re-running tokscale. Best-effort — a write failure only means the archive
+    // count is unavailable until the next startup.
+    if let Ok(conn) = db.lock() {
+        let _ = crate::config::set_json(&conn, "installed_clients", &clients);
+    }
+    let installed_clients = clients.clone();
     let cfg = scheduler::SchedulerConfig {
         history_interval: Duration::from_secs(15 * 60),
         enabled_clients: clients,
     };
-    tauri::async_runtime::spawn(scheduler::run(scanner, cfg, tick_rx, ev_tx));
+    tauri::async_runtime::spawn(scheduler::run(
+        scanner,
+        cfg,
+        tick_rx,
+        ev_tx,
+        Some(db.clone()),
+    ));
 
     // 4. consumer: persist graph, emit today:updated, update tray title.
     tauri::async_runtime::spawn(async move {
@@ -78,10 +95,20 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                 scheduler::CollectionEvent::Sessions(v) => {
                     if let Ok(mut conn) = db.lock() {
                         let _ = storage::sessions::ingest_sessions(&mut conn, &v);
+                        // 会话保留 OFF → prune sessions whose tool is no longer
+                        // installed (auto-cleanup). ON (default) keeps everything.
+                        let keep = crate::config::load(&conn)
+                            .map(|c| c.session_archive_enabled)
+                            .unwrap_or(true);
+                        if !keep {
+                            let _ = storage::sessions::prune_uninstalled(&conn, &installed_clients);
+                        }
                     }
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {
-                    tray::update_from_json(&app, &v);
+                    if let Ok(conn) = db.lock() {
+                        tray::update_from_json(&app, &v, &conn);
+                    }
                     if let Some(s) = summary::from_today_json(&v) {
                         let _ = app.emit("today:updated", s);
                     }

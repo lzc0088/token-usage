@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use super::StorageError;
 
 /// Current schema version. Bump + add a migration step on schema change.
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 4;
 
 /// v1: initial tables + indexes.
 const V1: &str = r#"
@@ -75,6 +75,26 @@ const V2: &str = r#"
 ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// v3: add `exchange_rate` table for caching currency exchange rates.
+const V4: &str = r#"
+CREATE TABLE IF NOT EXISTS quota_cache (
+  vendor     TEXT PRIMARY KEY,
+  data       TEXT NOT NULL,            -- JSON-serialized Quota
+  fetched_at INTEGER NOT NULL          -- epoch ms
+);
+"#;
+const V3: &str = r#"
+CREATE TABLE IF NOT EXISTS exchange_rate (
+  from_currency TEXT NOT NULL,
+  to_currency   TEXT NOT NULL,
+  rate          REAL NOT NULL,
+  date          TEXT NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (from_currency, to_currency, date)
+);
+CREATE INDEX IF NOT EXISTS idx_exchange_date ON exchange_rate(date);
+"#;
+
 /// Apply all pending migrations to `conn`. Idempotent.
 pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     // WAL: collection writes vs query reads (design §11).
@@ -90,6 +110,14 @@ pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     if current < 2 {
         conn.execute_batch(V2)?;
         conn.pragma_update(None, "user_version", 2)?;
+    }
+    if current < 3 {
+        conn.execute_batch(V3)?;
+        conn.pragma_update(None, "user_version", 3)?;
+    }
+    if current < 4 {
+        conn.execute_batch(V4)?;
+        conn.pragma_update(None, "user_version", 4)?;
     }
     Ok(())
 }

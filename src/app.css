@@ -18,10 +18,66 @@
   --violet: #b69be0;
   --coral: #f08e6a;
 
+  /* #app background as RGB triplet + separate opacity. */
+  --app-bg: 28, 26, 22;
+  --app-bg-opacity: 0.98;
+  --app-border: rgba(232, 176, 75, 0.12);
+  --app-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.3);
+
+  /* Progress bar track — subtle white on dark; flips to subtle black on light. */
+  --bar-track: rgba(255, 255, 255, 0.08);
+
+  /* Subtle surface tints for pills/badges/inputs. White-on-dark by default,
+     flipped to black-on-light below so low-alpha fills stay visible in both
+     themes (rgba(255,255,255,…) vanishes on a light background). */
+  --surface-tint: rgba(255, 255, 255, 0.04);
+  --surface-tint-strong: rgba(255, 255, 255, 0.07);
+
   --radius: 12px;
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: "Fraunces", serif;
+}
+
+/* ── Light theme overrides ── */
+[data-theme="light"] {
+  --bg: #f5f3ef;
+  --glass: #ffffff;
+  --glass-2: #f0ede7;
+  --glass-3: #e6e2d9;
+  --border: #d4cec1;
+  --border-dim: #e0dbd0;
+
+  --text: #2a2519;
+  --text-dim: #6b6453;
+  --text-faint: #9a9384;
+
+  --amber: #c98a1e;
+  --amber-soft: #b07a18;
+  --lime: #6ba81f;
+  --cyan: #2a9fa3;
+  --violet: #7c5fb8;
+  --coral: #d4603a;
+
+  --app-bg: 245, 243, 239;
+  --app-border: rgba(201, 138, 30, 0.15);
+  --app-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+
+  /* Dark track on light background for visibility. */
+  --bar-track: rgba(0, 0, 0, 0.08);
+
+  /* Subtle dark surface tints: rgba(255,255,255,…) would be invisible here. */
+  --surface-tint: rgba(0, 0, 0, 0.05);
+  --surface-tint-strong: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Animation off → near-instant transitions (0.01ms avoids stuck states) ── */
+[data-animation="off"] *,
+[data-animation="off"] *::before,
+[data-animation="off"] *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
 }
 
 * {
@@ -35,7 +91,7 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: transparent;
+  background: rgba(var(--app-bg), 1);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 15px;
@@ -47,15 +103,12 @@ body {
 }
 
 #app {
-  /* Solid dark background — no backdrop-filter to avoid first-frame flicker.
-     High opacity (0.95) keeps the popover looking substantial while still
-     letting the native macOS shadow show through the transparent window. */
   width: 100%;
   height: 100vh;
-  background: rgba(28, 26, 22, 0.98);
-  border: 1px solid rgba(232, 176, 75, 0.12);
+  background: rgba(var(--app-bg), var(--app-bg-opacity));
+  border: 1px solid var(--app-border);
   border-radius: 15px;
-  box-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--app-shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;

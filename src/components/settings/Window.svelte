@@ -1,30 +1,358 @@
 <script lang="ts">
-  // 窗口 (T5.2): 菜单栏图标 + 行为 + 快捷键 (V1 display-only).
+  // 窗口外观: 主题 / 动画 / 弹窗触发 / 窗口显示 / 菜单栏托盘.
+  import type { Config } from "../../lib/api";
+  let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
+
+  const THEME_OPTIONS: Array<{ value: NonNullable<Config["theme"]>; label: string }> = [
+    { value: "dark", label: "深色" },
+    { value: "light", label: "浅色" },
+    { value: "system", label: "跟随系统" },
+  ];
+
+  const ANIMATION_OPTIONS: Array<{ value: NonNullable<Config["animation"]>; label: string }> = [
+    { value: "on", label: "开启" },
+    { value: "off", label: "关闭" },
+    { value: "system", label: "跟随系统" },
+  ];
+
+  const activeTheme = $derived(config.theme || "system");
+  const activeAnimation = $derived(config.animation || "system");
+
+  // 菜单栏托盘显示方式的可选项（与 Rust default_tray_display 取值对齐）。
+  const TRAY_OPTIONS: Array<{ value: NonNullable<Config["tray_display"]>; label: string }> = [
+    { value: "today_tokens", label: "今日 Tokens" },
+    { value: "today_cost", label: "今日成本" },
+    { value: "today_both", label: "今日 Tokens + 成本" },
+    { value: "total_tokens", label: "累计 Tokens" },
+    { value: "total_cost", label: "累计成本" },
+    { value: "total_both", label: "累计 Tokens + 成本" },
+    { value: "icon_only", label: "仅显示图标" },
+  ];
+
+  // ── 快捷键录制 ──
+  const MODIFIER_NAMES = new Set(["Alt", "Meta", "Shift", "Control"]);
+  // accelerator 名 → 显示符号
+  const SYMBOLS: Record<string, string> = {
+    Alt: "⌥",
+    Meta: "⌘",
+    Command: "⌘",
+    Shift: "⇧",
+    Control: "⌃",
+  };
+
+  let recording = $state(false);
+
+  function onSelect<K extends keyof Config>(key: K, value: Config[K]): void {
+    onUpdate({ [key]: value } as Partial<Config>);
+  }
+
+  function startRecording(): void {
+    recording = true;
+  }
+
+  function cancelRecording(): void {
+    recording = false;
+  }
+
+  // 将 accelerator 字符串渲染为符号（用于展示）。
+  function formatHotkey(hotkey: string): string[] {
+    if (!hotkey) return [];
+    return hotkey
+      .split("+")
+      .map((part) => SYMBOLS[part] ?? (part.length === 1 ? part.toUpperCase() : part));
+  }
+
+  // 录制：keydown 组合 modifier + 主键。Escape 取消，Backspace（无主键时）清除。
+  function onKeyDown(e: KeyboardEvent): void {
+    if (!recording) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === "Escape") {
+      recording = false;
+      return;
+    }
+
+    // 等待主键：纯修饰键按下时不结束录制。
+    if (MODIFIER_NAMES.has(e.key)) return;
+
+    const parts: string[] = [];
+    if (e.metaKey) parts.push("Meta");
+    if (e.ctrlKey) parts.push("Control");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+
+    // 主键归一化：单字符大写，功能键原样。
+    let main = e.key;
+    if (main === " ") main = "Space";
+    else if (main.length === 1) main = main.toUpperCase();
+    parts.push(main);
+
+    onUpdate({ hotkey: parts.join("+") });
+    recording = false;
+  }
 </script>
-<div class="sh"><h3>窗口</h3><div class="desc">菜单栏图标与弹窗行为</div></div>
+
+<svelte:window onkeydown={onKeyDown} />
+
+<div class="sh"><h3>窗口外观</h3><div class="desc">主题、动画、弹窗触发与菜单栏显示方式</div></div>
 <div class="sc">
-  <div class="row">
-    <div class="lab">菜单栏图标显示内容</div>
-    <select class="sel"><option>今日 token + 成本</option><option>今日 token</option><option>今日成本</option><option>总 token + 成本</option><option>总 token</option><option>总成本</option><option>仅图标</option></select>
+
+  <!-- ══ 外观 ══ -->
+  <div class="section-title">外观</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">主题<div class="hint">浅色 / 深色 / 跟随系统</div></div>
+      <div class="seg">
+        {#each THEME_OPTIONS as opt (opt.value)}
+          <button
+            type="button"
+            class="seg-btn"
+            class:on={activeTheme === opt.value}
+            onclick={() => onUpdate({ theme: opt.value })}
+          >
+            {opt.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+    <div class="box-row">
+      <div class="lab">动画<div class="hint">界面过渡与交互动画</div></div>
+      <div class="seg">
+        {#each ANIMATION_OPTIONS as opt (opt.value)}
+          <button
+            type="button"
+            class="seg-btn"
+            class:on={activeAnimation === opt.value}
+            onclick={() => onUpdate({ animation: opt.value })}
+          >
+            {opt.label}
+          </button>
+        {/each}
+      </div>
+    </div>
   </div>
-  <div class="row"><div class="lab">行为</div>
-    <select class="sel"><option>单击弹出窗口</option><option>鼠标移上弹出窗口</option></select>
+
+  <!-- ══ 行为 ══ -->
+  <div class="section-title">行为</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">弹出方式<div class="hint">点击或移上菜单栏图标时显示窗口</div></div>
+      <select
+        class="sel"
+        value={config.trigger_mode || "click"}
+        onchange={(e) => {
+          const target = e.target as HTMLSelectElement;
+          onSelect("trigger_mode", target.value as Config["trigger_mode"]);
+        }}
+      >
+        <option value="click">鼠标单击</option>
+        <option value="hover">鼠标移上</option>
+      </select>
+    </div>
+
+    <div class="box-row">
+      <div class="lab">快捷方式<div class="hint">全局快捷键，随时显示 / 隐藏窗口</div></div>
+      <div class="hotkey-wrap">
+        {#if recording}
+          <button class="hk recording" onclick={cancelRecording}>按下快捷键…</button>
+        {:else if config.hotkey}
+          <button class="hk" onclick={startRecording}>
+            {#each formatHotkey(config.hotkey) as sym, i (i)}
+              <kbd>{sym}</kbd>
+            {/each}
+          </button>
+        {:else}
+          <button class="hk empty" onclick={startRecording}>未设置</button>
+        {/if}
+      </div>
+    </div>
   </div>
-  <div class="row"><div class="lab">弹窗失焦自动关闭</div><div class="tg on"></div></div>
-  <div class="gtitle">快捷键</div>
-  <div class="row"><div class="lab">显示 / 隐藏窗口</div><span class="key">⌥ ⌘ T</span></div>
-  <div class="row"><div class="lab">立即刷新采集</div><span class="key">⌥ ⌘ R</span></div>
+
+  <!-- ══ 显示 ══ -->
+  <div class="section-title">显示</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">窗口显示<div class="hint">弹窗是否可拖动改变位置</div></div>
+      <select
+        class="sel"
+        value={config.window_display_mode || "normal"}
+        onchange={(e) => {
+          const target = e.target as HTMLSelectElement;
+          onSelect("window_display_mode", target.value as Config["window_display_mode"]);
+        }}
+      >
+        <option value="normal">普通窗口</option>
+        <option value="fixed">固定位置</option>
+      </select>
+    </div>
+
+    <div class="box-row">
+      <div class="lab">菜单托盘<div class="hint">菜单栏中图标的显示方式</div></div>
+      <select
+        class="sel"
+        value={config.tray_display || "icon_only"}
+        onchange={(e) => {
+          const target = e.target as HTMLSelectElement;
+          onSelect("tray_display", target.value as Config["tray_display"]);
+        }}
+      >
+        {#each TRAY_OPTIONS as opt (opt.value)}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="box-row">
+      <div class="lab">程序坞图标<div class="hint">在 Dock 中显示应用图标（默认隐藏）</div></div>
+      <button
+        class="tg"
+        class:on={!!config.show_in_dock}
+        onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
+        aria-label="程序坞图标"
+      ></button>
+    </div>
+  </div>
+
 </div>
+
 <style>
-  .sh { padding: 18px 16px 12px; position: sticky; top: 0; background: var(--bg); z-index: 10; border-bottom: 1px solid var(--border-dim); }
-  .sh h3 { font-size: 18px; margin: 0 0 2px; }
-  .desc { font-size: 11.5px; color: var(--text-faint); }
-  .sc { padding: 5px 16px 18px; display: flex; flex-direction: column; }
-  .row { display: flex; justify-content: space-between; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border-dim); gap: 10px; }
-  .lab { font-size: 12.5px; }
-  .sel { background: var(--glass-2); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: 7px; font-family: inherit; font-size: 12px; }
-  .tg { width: 36px; height: 20px; background: var(--amber); border: 1px solid var(--amber); border-radius: 11px; position: relative; flex-shrink: 0; }
-  .tg::after { content:""; position:absolute; top:2px; left:18px; width:14px; height:14px; background:#1a1408; border-radius:50%; }
-  .gtitle { font-size: 13px; color: var(--text); margin: 16px 0 4px; }
-  .key { background: var(--glass-2); border: 1px solid var(--border); color: var(--amber); padding: 4px 10px; border-radius: 7px; font-family: "JetBrains Mono", var(--font-mono); font-size: 11px; }
+  .sc { display: flex; flex-direction: column; }
+
+  /* ── section title ── */
+  .section-title {
+    font-family: var(--font-ui);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--amber);
+    margin-top: 20px;
+    margin-bottom: 8px;
+  }
+  .section-title:first-of-type { margin-top: 24px; }
+
+  /* ── section box ── */
+  .section-box {
+    background: rgba(0,0,0,0.02);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  /* ── box row ── */
+  .box-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); gap: 16px; }
+  .box-row:first-child { padding-top: 2px; }
+  .box-row:last-child { border-bottom: none; padding-bottom: 2px; }
+  .lab { font-size: 13px; color: var(--text); }
+  .lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+
+  /* ── segmented control ── */
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    background: var(--glass-3);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 1px;
+    height: 32px;
+    box-sizing: border-box;
+  }
+  .seg-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    padding: 0 12px;
+    height: 26px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .seg-btn:hover { color: var(--text); }
+  .seg-btn.on {
+    background: var(--amber);
+    color: #1a1408;
+    font-weight: 500;
+  }
+
+  /* ── select ── */
+  .sel {
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border-dim);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    min-width: 150px;
+    height: 32px;
+  }
+  .sel:hover { border-color: var(--amber); }
+  .sel:focus { outline: none; border-color: var(--amber); }
+
+  /* ── toggle ── */
+  .tg {
+    width: 38px; height: 22px;
+    background: var(--glass-3);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: block;
+  }
+  .tg.on { background: var(--amber); border-color: var(--amber); }
+  .tg::after {
+    content:"";
+    position:absolute;
+    top:2px; left:2px;
+    width:16px; height:16px;
+    background:var(--text);
+    border-radius:50%;
+    transition:.18s;
+  }
+  .tg.on::after { left:18px; background:#1a1408; }
+
+  /* ── hotkey recorder ── */
+  .hotkey-wrap { display: flex; align-items: center; gap: 6px; }
+  .hk {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border-dim);
+    color: var(--amber);
+    padding: 5px 10px;
+    border-radius: 7px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 150px;
+    height: 32px;
+    box-sizing: border-box;
+    transition: all 0.15s;
+  }
+  .hk:hover { border-color: var(--amber); }
+  .hk.recording { color: var(--text-dim); border-color: var(--amber); border-style: dashed; animation: pulse 1.2s ease-in-out infinite; }
+  .hk.empty { color: var(--text-faint); }
+  @keyframes pulse {
+    /* Avoid animating `opacity` — on macOS WKWebView with a transparent window,
+       opacity changes trigger compositor rebuilds that can briefly hide
+       sibling elements (e.g. the close button). Pulse the border instead. */
+    0%, 100% { border-color: var(--amber); }
+    50% { border-color: rgba(232, 176, 75, 0.3); }
+  }
+  .hk kbd {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 12px;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 1px 6px;
+    line-height: 1.4;
+  }
 </style>

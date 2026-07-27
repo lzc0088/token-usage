@@ -1,7 +1,9 @@
 <script lang="ts">
   import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
   import { formatCost, splitTokens } from "../../lib/format";
+  import { modelVendor } from "../../lib/modelMeta";
   import { toolMeta } from "../../lib/toolMeta";
+  import ToolIcon from "../../lib/ToolIcon.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
@@ -74,9 +76,13 @@
     return arr;
   });
 
-  function modelLabel(count: number, models: string): string {
-    if (count <= 1) return models || "—";
-    return `${count} models`;
+  function modelLabel(count: number, models: string): { tag: string; isCount: boolean; color?: string } {
+    if (count <= 1) {
+      const first = models.split(",").filter(Boolean)[0] || models;
+      const mv = modelVendor(first);
+      return { tag: first || "—", isCount: false, color: mv?.color };
+    }
+    return { tag: `${count} 个模型`, isCount: true };
   }
 
   function projectLabel(s: SessionVm): string {
@@ -130,6 +136,10 @@
                   <span class="rd-sep">·</span>
                   <span class="rd-tools">{r.tools} tools</span>
                 {/if}
+                {#if r.model}
+                  <span class="rd-sep">·</span>
+                  <span class="rd-model">{r.model}</span>
+                {/if}
               </div>
             </div>
             <div class="rd-right">
@@ -157,9 +167,9 @@
       <p class="empty">暂无会话数据</p>
     {:else}
       {#each sorted as s (s.tool + s.session_id)}
-        {@const meta = toolMeta(s.tool)}
         {@const st = splitTokens(s.tokens)}
         {@const open = expanded === `${s.tool}:${s.session_id}`}
+        {@const ml = modelLabel(s.model_count, s.models)}
         <div
           class="srow"
           role="button"
@@ -171,8 +181,13 @@
             <div class="s-line s-l1"><span class="s-proj">{projectLabel(s)}</span></div>
             <div class="s-line s-l2"><span class="s-id">{s.session_id}</span></div>
             <div class="s-line s-l3">
-              <span class="s-tool-tag" style="color:{meta.color}">{meta.label}</span>
-              <span class="s-model">{modelLabel(s.model_count, s.models)}</span>
+              <ToolIcon tool={s.tool} badge={false} size={9} />
+              <span class="s-tool-name">{toolMeta(s.tool).label}</span>
+              {#if ml.color && !ml.isCount}
+                <span class="s-model-tag model-colored" style="color:{ml.color};background:{ml.color}18;border-color:{ml.color}33">{ml.tag}</span>
+              {:else}
+                <span class="s-model-tag" class:tag-count={ml.isCount}>{ml.tag}</span>
+              {/if}
             </div>
             <div class="s-line s-l4">
               <span class="s-time">{s.last_used_at ?? "—"}</span>
@@ -184,7 +199,7 @@
               <span class="s-cost">{formatCost(s.cost_usd, currency, cnyRate)}</span>
               <span class="s-tokens">{st.value}<span class="tku">{st.unit}</span></span>
             </div>
-            {#if s.tool === "claude"}
+            {#if s.tool === "claude" || s.tool === "codex" || s.tool === "opencode"}
               <button
                 class="s-arr"
                 title="查看详情"
@@ -201,11 +216,11 @@
             {:else if detail.length === 0}
               <p class="det-empty">暂无详情</p>
             {:else}
-              {#each detail as dr, di (dr.model)}
+              {#each detail as dr (dr.model)}
                 {@const dm = toolMeta(dr.model)}
                 <div class="det-entry">
                   <div class="det-model-row">
-                    <span class="det-dot" style="background:{palette[di % palette.length]}"></span>
+                    <ToolIcon tool={dr.model} badge={false} size={11} />
                     <span class="det-model-name">{dm.label}</span>
                     <span class="det-model-tokens">{splitTokens(dr.tokens).value}<span class="tku">{splitTokens(dr.tokens).unit}</span></span>
                     <span class="det-model-cost">{formatCost(dr.cost_usd, currency, cnyRate)}</span>
@@ -213,7 +228,7 @@
                   {#each composeDetail(dr) as cd (`${dr.model}-${cd.label}`)}
                     {@const cds = splitTokens(cd.tokens)}
                     <div class="det-comp-row">
-                      <span class="det-bar-label">{cd.label}</span>
+                      <span class="det-bar-label"><span class="det-dot" style="background:{cd.color}"></span>{cd.label}</span>
                       <div class="det-bar"><i style="width:{Math.max(2, cd.pct).toFixed(1)}%;background:{cd.color}"></i></div>
                       <span class="det-pct">{cd.pct.toFixed(1)}<span class="pct-u">%</span></span>
                       <span class="det-tok">{cds.value}<span class="tku">{cds.unit}</span></span>
@@ -247,21 +262,12 @@
   .s-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .s-line { display: flex; align-items: baseline; gap: 6px; }
   .s-l1 .s-proj { font-size: 13px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); word-break: break-all; line-height: 1.3; }
-  .s-l3 .s-tool-tag {
-    display: inline-block;
-    font-family: var(--font-ui);
-    font-size: 9px;
-    font-weight: 600;
-    color: var(--text-dim);
-    background: var(--glass-3);
-    padding: 1px 7px;
-    border-radius: 4px;
-    line-height: 1.5;
-    flex-shrink: 0;
-  }
-  .s-l3 .s-model { font-size: 10px; color: var(--text-faint); }
-  .s-l3 { margin-bottom: -1px; }
+  .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-l3 { display: flex; align-items: center; gap: 4px; }
+  .s-tool-name { font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+  .s-model-tag { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+  .s-model-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }
+  .s-model-tag.tag-count { color: var(--text-faint); background: var(--glass-3); padding: 0px 5px; border-radius: 3px; line-height: 1.6; }
   .s-l4 { font-size: 10px; color: var(--text-faint); gap: 10px; }
   .s-time { font-family: var(--font-mono); }
 
@@ -286,14 +292,14 @@
   .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: rgba(0,0,0,.08); }
   .det-entry { margin-bottom: 8px; }
   .det-entry:last-child { margin-bottom: 0; }
-  .det-model-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
-  .det-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .det-model-row { display: flex; align-items: center; gap: 3px; padding: 2px 0; }
   .det-model-name { font-size: 12px; color: var(--text); flex: 1; }
   .det-model-tokens { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-right: 8px; }
   .det-model-cost { font-family: var(--font-mono); font-size: 10px; color: var(--amber); }
-  .det-comp-row { display: grid; grid-template-columns: 38px 1fr 42px 56px; align-items: center; gap: 8px; padding: 2px 0 2px 14px; }
-  .det-bar-label { font-size: 10px; color: var(--text-faint); text-align: left; }
-  .det-bar { height: 3px; background: var(--glass-3); border-radius: 1.5px; overflow: hidden; }
+  .det-comp-row { display: grid; grid-template-columns: 1fr 100px 50px 56px; align-items: center; gap: 8px; padding: 2px 0; }
+  .det-bar-label { font-size: 10px; color: var(--text-faint); text-align: left; display: flex; align-items: center; gap: 4px; }
+  .det-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .det-bar { height: 3px; background: var(--bar-track); border-radius: 1.5px; overflow: hidden; }
   .det-bar i { display: block; height: 100%; border-radius: 1.5px; }
   .det-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
   .det-tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
@@ -321,6 +327,7 @@
   .rd-sep { color: var(--text-faint); }
   .rd-turns { color: var(--text-dim); }
   .rd-tools { color: var(--lime); }
+  .rd-model { color: var(--violet); font-size: 10px; }
   .rd-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
   .rd-cost { font-size: 11px; color: var(--amber); font-family: var(--font-mono); }
   .rd-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }

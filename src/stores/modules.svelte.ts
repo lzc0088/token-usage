@@ -1,32 +1,48 @@
-// Overview module visibility (分项 / 缓存命中 / 工具 / 模型 / 额度 show-hide).
-// V1 in-memory; persisted via config later.
+// Overview module visibility (分项 / 工具 / 模型 / 额度 show-hide).
+// Synced to config.layout_overview_sub so settings page and popover stay in sync.
 
-export type ModuleKey = "split" | "hitrate" | "tools" | "models" | "limits";
+import { api } from "../lib/api";
+
+export type ModuleKey = "split" | "tools" | "models" | "limits";
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   split: "分项",
-  hitrate: "缓存命中",
   tools: "工具",
   models: "模型",
   limits: "额度",
 };
 
-export const MODULE_ORDER: ModuleKey[] = ["split", "hitrate", "tools", "models", "limits"];
+export const MODULE_ORDER: ModuleKey[] = ["split", "tools", "models", "limits"];
 
 let visible = $state<Record<ModuleKey, boolean>>({
   split: true,
-  hitrate: true,
   tools: true,
   models: true,
   limits: true,
 });
 
+// Load from config on init.
+api.getConfig().then(cfg => {
+  if (cfg?.layout_overview_sub) {
+    const s = new Set(cfg.layout_overview_sub);
+    for (const k of MODULE_ORDER) {
+      visible[k] = s.has(k);
+    }
+  }
+}).catch(() => {});
+
 export function isModuleVisible(k: ModuleKey): boolean {
   return visible[k];
 }
 
-export function toggleModule(k: ModuleKey): void {
+export async function toggleModule(k: ModuleKey): Promise<void> {
   visible[k] = !visible[k];
+  // Persist to config so settings page stays in sync.
+  const keys = MODULE_ORDER.filter(kk => visible[kk]);
+  try {
+    const cfg = await api.getConfig();
+    await api.setConfig({ ...cfg, layout_overview_sub: keys });
+  } catch {}
 }
 
 export function moduleVisibility(): Record<ModuleKey, boolean> {

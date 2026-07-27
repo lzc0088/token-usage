@@ -91,6 +91,7 @@ export interface SessionRoundVm {
   cache_write_tokens: number;
   total_tokens: number;
   cost_usd: number;
+  model: string | null;
 }
 
 export interface ProjectDetailRow {
@@ -126,26 +127,115 @@ export interface TokscaleStatus {
 
 export type Currency = "usd" | "cny" | "both";
 
-export type QuotaKind = "balance" | "plan";
 export type QuotaStatus = "ok" | "low" | "danger";
+
+export interface QuotaWindow {
+  label: string;
+  used_pct: number;
+  /** Absolute reset time (RFC3339/ISO-8601). Frontend computes live countdown. */
+  resets_at?: string;
+}
+
+export interface QuotaBalance {
+  amount: number;
+  currency: string;
+  today_consumption?: number;
+  month_consumption?: number;
+}
 
 export interface Quota {
   vendor: string;
-  kind: QuotaKind;
   status: QuotaStatus;
-  value: number | null;
-  display: string;
-  reset_in_secs: number | null;
-  used_pct: number | null;
-  currency: string | null;
+  plan_label?: string;
+  windows: QuotaWindow[];
+  balance: QuotaBalance | null;
+  /** RFC3339 timestamp when this quota was last fetched. */
+  refreshed_at?: string;
+  /** User-actionable error message, e.g. "凭证已失效". */
+  error?: string | null;
+  /** Optional-cookie expired hint (e.g. Volcengine expiry cookie, or cookie-only
+   * vendor fully failing). Frontend shows an inline "更新 Cookie" entry. */
+  cookie_error?: string | null;
+  /** Subscription plan expiry (RFC3339). Distinct from per-window `resets_at`
+   * (rolling quota reset). Drives the "到期" tag. */
+  expires_at?: string | null;
 }
 
 export interface Config {
   currency: Currency;
+  /** Exchange-rate source: "auto" (fetch daily) | "manual" (user-supplied). */
+  rate_mode?: "auto" | "manual";
   tokscale_path?: string | null;
   auto_start?: boolean;
   language?: "zh" | "en";
   default_period?: "day" | "month" | "total";
+  auto_close_on_blur?: boolean;
+  /** Popover trigger: "click" (tray click) | "hover" (mouse over tray). */
+  trigger_mode?: "click" | "hover";
+  /** Window display mode: "normal" (draggable) | "fixed" (pinned). */
+  window_display_mode?: "normal" | "fixed";
+  /** Tray display style. */
+  tray_display?:
+    | "today_tokens"
+    | "today_cost"
+    | "today_both"
+    | "total_tokens"
+    | "total_cost"
+    | "total_both"
+    | "icon_only";
+  /** Whether to show the app icon in the Dock. */
+  show_in_dock?: boolean;
+  /** Global hotkey to toggle the popover (e.g. "Alt+Command+T"). */
+  hotkey?: string;
+  /** UI theme: "dark" | "light" | "system". */
+  theme?: "dark" | "light" | "system";
+  /** Animation preference: "system" | "on" | "off". */
+  animation?: "system" | "on" | "off";
+  /** Data refresh interval. */
+  refresh_interval?: "manual" | "30s" | "60s" | "300s" | "600s";
+  /** Preserve sessions whose source tool is no longer installed. */
+  session_archive_enabled?: boolean;
+  /** Quota data refresh interval. */
+  quota_refresh_interval?: "1m" | "3m" | "5m" | "10m" | "15m";
+  /** Quota progress display mode. */
+  quota_progress_mode?: "用量" | "剩余";
+  /** Enabled vendor IDs for the quota display (undefined = all enabled). */
+  quota_active_vendors?: string[] | null;
+  /** Custom display order for quota vendor list (all vendor ids). */
+  quota_vendor_order?: string[] | null;
+  /** Collection: tracked tool names (undefined = all tracked). */
+  collection_tracked?: string[] | null;
+  /** Collection: visible tool names (undefined = all visible). */
+  collection_visible?: string[] | null;
+  /** Collection: ordered tool names (undefined = report order). */
+  collection_ordered?: string[] | null;
+  /** Layout: visible top-level segment keys in order. */
+  layout_modules?: string[] | null;
+  /** Layout: visible overview sub-item keys in order. */
+  layout_overview_sub?: string[] | null;
+  /** Overview: quota vendor IDs to show, in order. */
+  overview_quota_vendors?: string[] | null;
+}
+
+// ── exchange rate ───────────────────────────────────────────────────────────
+
+export interface ExchangeRateInfo {
+  rate: number;
+  cached: boolean;
+  date: string;
+}
+
+export interface UpdateInfo {
+  has_update: boolean;
+  version: string;
+  name: string;
+  changelog: string;
+  url: string;
+  published_at: string | null;
+  /** Error message when the check failed; empty on success. */
+  error: string;
+  /** Direct download URL for the release asset (e.g. .dmg). */
+  download_url: string | null;
 }
 
 // ── command wrappers ────────────────────────────────────────────────────────
@@ -175,15 +265,57 @@ export const api = {
 
   getQuotas: () => invoke<Quota[]>("get_quotas"),
 
+  refreshQuotas: () => invoke<void>("refresh_quotas"),
+
+  /** Refresh quotas only if cache is older than `quota_refresh_interval`. Returns true if a refresh ran. */
+  refreshQuotasIfStale: () => invoke<boolean>("refresh_quotas_if_stale"),
+
+  refreshQuota: (vendor: string) => invoke<void>("refresh_quota", { vendor }),
+
+  testCredential: (vendor: string, credential: string) => invoke<string>("test_credential", { vendor, credential }),
+
   getCredentialStatus: (vendor: string) => invoke<boolean>("get_credential_status", { vendor }),
 
   setCredential: (vendor: string, secret: string) => invoke<void>("set_credential", { vendor, secret }),
 
   deleteCredential: (vendor: string) => invoke<void>("delete_credential", { vendor }),
 
+  /** Update only the cookie field of an existing credential (preserves key/secret). */
+  updateCookie: (vendor: string, cookie: string) =>
+    invoke<void>("update_cookie", { vendor, cookie }),
+
+  /** Non-empty field names in a stored credential (e.g. ["key","secret","cookie"]). */
+  getCredentialFields: (vendor: string) =>
+    invoke<string[]>("get_credential_fields", { vendor }),
+
+  /** Remove specific fields from a stored credential, keeping the rest. */
+  clearCredentialFields: (vendor: string, fields: string[]) =>
+    invoke<void>("clear_credential_fields", { vendor, fields }),
+
   getTokscaleStatus: () => invoke<TokscaleStatus>("get_tokscale_status"),
+
+  getArchivedSessionCount: () => invoke<number>("get_archived_session_count"),
+
+  clearArchivedSessions: () => invoke<number>("clear_archived_sessions"),
 
   getConfig: () => invoke<Config>("get_config"),
 
   setConfig: (config: Config) => invoke<void>("set_config", { config }),
+
+  getExchangeRate: () => invoke<ExchangeRateInfo>("get_exchange_rate"),
+
+  refreshExchangeRate: () => invoke<ExchangeRateInfo>("refresh_exchange_rate"),
+
+  /** Latest stored USD→CNY rate (any date, no API call). For cost conversion. */
+  getLatestRate: () => invoke<ExchangeRateInfo>("get_latest_rate"),
+
+  /** Persist a user-supplied rate and switch to manual mode. */
+  setManualRate: (rate: number) => invoke<void>("set_manual_rate", { rate }),
+
+  setAutoStart: (enabled: boolean) => invoke<boolean>("set_auto_start", { enabled }),
+
+  getAutoStart: () => invoke<boolean>("get_auto_start"),
+
+  checkUpdate: (repo: string, currentVersion: string) =>
+    invoke<UpdateInfo>("check_update", { repo, currentVersion }),
 };

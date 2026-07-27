@@ -59,8 +59,7 @@ impl ClientInfo {
     /// (e.g. `~/.zcode/cli/db/db.sqlite`) and tokscale reports a non-zero
     /// message count. We include those too so their data gets collected.
     pub fn is_installed(&self) -> bool {
-        self.sessions_path_exists
-            || self.message_count > 0
+        self.sessions_path_exists || self.message_count > 0
     }
 }
 

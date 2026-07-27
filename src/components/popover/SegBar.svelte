@@ -2,8 +2,12 @@
   // 7-segment nav bar. Writes the global segment store; App renders the
   // matching view. Only 总览 is built in T4.1; others fall back to a placeholder.
   import { getSegment, setSegment } from "../../stores/segment.svelte";
+  import type { Config } from "../../lib/api";
 
-  const segments: { key: string; label: string }[] = [
+  let { config }: { config: Config } = $props();
+
+  // Default segment order (all visible by default).
+  const DEFAULT_SEGMENTS = [
     { key: "ov", label: "总览" },
     { key: "tools", label: "工具" },
     { key: "models", label: "模型" },
@@ -12,6 +16,32 @@
     { key: "trend", label: "趋势" },
     { key: "limit", label: "额度" },
   ];
+
+  // Map config.layout_modules keys to segment keys.
+  const MODULE_KEY_MAP: Record<string, string> = {
+    overview: "ov",
+    tools: "tools",
+    models: "models",
+    projects: "projects",
+    sessions: "sess",
+    trends: "trend",
+    quotas: "limit",
+  };
+
+  // Build visible + ordered segments from config.
+  const segments = $derived.by(() => {
+    const moduleKeys = config.layout_modules ?? DEFAULT_SEGMENTS.map(s => s.key);
+    const visible: { key: string; label: string }[] = [];
+    for (const mk of moduleKeys) {
+      const sk = MODULE_KEY_MAP[mk];
+      if (sk) {
+        const def = DEFAULT_SEGMENTS.find(s => s.key === sk);
+        if (def) visible.push(def);
+      }
+    }
+    // Fallback: if no valid modules, show defaults.
+    return visible.length > 0 ? visible : DEFAULT_SEGMENTS;
+  });
 
   let active = $derived(getSegment());
 </script>

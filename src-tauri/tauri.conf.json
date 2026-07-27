@@ -15,14 +15,29 @@
       {
         "label": "main",
         "title": "Token Usage",
-        "width": 432,
-        "height": 792,
+        "width": 458,
+        "height": 871,
         "visible": false,
         "resizable": true,
         "decorations": false,
         "transparent": true,
         "shadow": true,
         "center": false
+      },
+      {
+        "label": "settings",
+        "title": "Token Usage · 设置",
+        "width": 960,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 620,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "center": true,
+        "hiddenTitle": true
       }
     ],
     "security": {

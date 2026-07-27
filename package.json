@@ -9,6 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "fetch-tokscale": "node scripts/fetch-tokscale.mjs",
+    "pretauri": "npm run fetch-tokscale",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -12,9 +12,17 @@
 //! (no trait objects, no async-trait dep).
 
 pub mod deepseek;
+pub mod glm;
+pub mod iflytek;
+pub mod kimi;
+pub mod mimo;
+pub mod minimax;
+pub mod scheduler;
+pub mod stepfun;
 pub mod types;
+pub mod volcengine;
 
-pub use types::{Quota, QuotaKind, QuotaStatus};
+pub use types::{Quota, QuotaBalance, QuotaStatus, QuotaWindow};
 
 /// Credential binding category (design.md §F9, settings→账号 UI).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,9 +39,16 @@ pub enum CredentialCategory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VendorId {
     Deepseek,
+    Glm,
+    Minimax,
+    Kimi,
+    Volcengine,
+    Mimo,
+    Stepfun,
+    Iflytek,
     // V1 stubs — adapters land incrementally:
     // Claude, Codex, Grok,          // subscription
-    // Glm, Minimax, Kimi, Volcengine, Copilot,  // api key
+    // Copilot,                      // api key
     // Qoder, Ollama, GlmTeam,       // cookie
 }
 
@@ -41,12 +56,26 @@ impl VendorId {
     pub fn label(self) -> &'static str {
         match self {
             VendorId::Deepseek => "DeepSeek",
+            VendorId::Glm => "GLM",
+            VendorId::Minimax => "MiniMax",
+            VendorId::Kimi => "Kimi",
+            VendorId::Volcengine => "Volcengine",
+            VendorId::Mimo => "MiMo",
+            VendorId::Stepfun => "StepFun",
+            VendorId::Iflytek => "iFlytek",
         }
     }
 
     pub fn category(self) -> CredentialCategory {
         match self {
-            VendorId::Deepseek => CredentialCategory::ApiKey,
+            VendorId::Deepseek
+            | VendorId::Glm
+            | VendorId::Minimax
+            | VendorId::Kimi
+            | VendorId::Volcengine
+            | VendorId::Mimo => CredentialCategory::ApiKey,
+            // stepfun / iflytek quota is read via the console cookie API.
+            VendorId::Stepfun | VendorId::Iflytek => CredentialCategory::Cookie,
         }
     }
 }
@@ -61,6 +90,11 @@ pub enum VendorError {
     Parse(String),
     #[error("vendor returned no usable quota payload")]
     Empty,
+    /// Authentication / session failure (expired cookie, invalid token, etc.).
+    /// Adapters should use this for any clearly auth-related failure so the
+    /// scheduler can surface a cookie/credential error to the frontend.
+    #[error("authentication failed: {0}")]
+    Auth(String),
 }
 
 /// Reject control chars (CRLF → HTTP header injection) and enforce sane length
@@ -82,9 +116,82 @@ pub fn validate_header_safe(s: &str) -> Result<(), VendorError> {
     Ok(())
 }
 
+/// Extract the API key from a credential string.
+///
+/// The frontend sends credentials as JSON (`{"key":"sk-..."}`), but some
+/// adapters expect a plain key string. This helper unwraps the `key` field
+/// when the input is JSON, otherwise returns the string as-is.
+pub fn extract_key(credential: &str) -> String {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(credential) {
+        if let Some(key) = v.get("key").and_then(|k| k.as_str()) {
+            return key.trim().to_string();
+        }
+    }
+    credential.trim().to_string()
+}
+
 /// Fetch a vendor's quota. `credential` comes from the keyring (caller's job).
 pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorError> {
     match vendor {
         VendorId::Deepseek => deepseek::fetch(credential).await,
+        VendorId::Glm => glm::fetch(credential).await,
+        VendorId::Minimax => minimax::fetch(credential).await,
+        VendorId::Kimi => kimi::fetch(credential).await,
+        VendorId::Volcengine => volcengine::fetch(credential).await,
+        VendorId::Mimo => mimo::fetch(credential).await,
+        VendorId::Stepfun => stepfun::fetch(credential).await,
+        VendorId::Iflytek => iflytek::fetch(credential).await,
+    }
+}
+
+/// Validate a credential by making a single API call. Returns Ok only when
+/// the API responds successfully with valid data. ANY failure rejects the
+/// credential, so invalid/expired keys are caught immediately at save time.
+pub async fn validate(vendor: VendorId, credential: &str) -> Result<(), String> {
+    match fetch(vendor, credential).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            eprintln!("[quota:validate] {vendor:?} failed: {msg}");
+            Err(format_validate_error(&msg))
+        }
+    }
+}
+
+/// True when a vendor error looks like an auth/credential failure
+/// (401 / 403 / unauthorized / explicit Auth variant). Used by adapters + the
+/// scheduler to decide whether to surface a "凭证/Cookie 已失效" hint vs. a
+/// generic network error.
+pub fn is_auth_error(e: &VendorError) -> bool {
+    if matches!(e, VendorError::Auth(_)) {
+        return true;
+    }
+    let msg = e.to_string();
+    msg.contains("401")
+        || msg.contains("403")
+        || msg.contains("unauthorized")
+        || msg.contains("Unauthorized")
+        || msg.contains("Forbidden")
+}
+
+/// Format a vendor error into a user-friendly message.
+pub fn format_validate_error(msg: &str) -> String {
+    if msg.contains("401")
+        || msg.contains("403")
+        || msg.contains("unauthorized")
+        || msg.contains("Unauthorized")
+    {
+        "API 密钥无效或已过期，请检查后重试".into()
+    } else if msg.contains("timeout")
+        || msg.contains("timed out")
+        || msg.contains("resolve")
+        || msg.contains("No address")
+        || msg.contains("connection refused")
+    {
+        "网络连接失败，请检查网络后重试".into()
+    } else if msg.contains("empty credential") || msg.contains("缺少必需") {
+        "请填写完整的凭证".into()
+    } else {
+        format!("凭证验证失败: {msg}")
     }
 }

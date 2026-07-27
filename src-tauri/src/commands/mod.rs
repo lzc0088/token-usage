@@ -2,10 +2,15 @@
 //! config / collector layers; the heavy logic lives behind them and is unit
 //! tested there. Commands only (de)serialize + borrow [`AppState`].
 
+pub mod autostart;
+pub mod collection;
+pub mod exchange;
 pub mod query;
 pub mod quota;
 pub mod settings;
 pub mod status;
+pub mod update;
+pub mod window_cmd;
 
 use tauri::State;
 

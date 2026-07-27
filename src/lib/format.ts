@@ -20,9 +20,9 @@ export function formatTokens(n: number, style: TokenStyle = "compact"): string {
   return String(Math.round(n));
 }
 
-function trim(v: number): string {
+function trim(v: number, decimals = 2): string {
   // 1.84 not 1.8400
-  return Number(v.toFixed(2)).toString();
+  return Number(v.toFixed(decimals)).toString();
 }
 
 /** Format cost in the chosen currency. USD/CNY/双显 (CNY first per user preference). */
@@ -39,28 +39,30 @@ export function formatCost(usd: number, currency: Currency, cnyRate = 7.2): stri
 }
 
 /** Split a token count into numeric value and compact unit（B / M / K / ""）.
- *  Designed so the unit can be rendered in a smaller font at baseline-shift. */
-export function splitTokens(n: number): { value: string; unit: string } {
+ *  Designed so the unit can be rendered in a smaller font at baseline-shift.
+ *  @param decimals - Number of decimal places (default: 2). */
+export function splitTokens(n: number, decimals = 2): { value: string; unit: string } {
   if (!Number.isFinite(n)) return { value: "0", unit: "" };
-  if (n >= 1_000_000_000) return { value: trim(n / 1_000_000_000), unit: "B" };
-  if (n >= 1_000_000) return { value: trim(n / 1_000_000), unit: "M" };
-  if (n >= 1_000) return { value: trim(n / 1_000), unit: "K" };
+  if (n >= 1_000_000_000) return { value: trim(n / 1_000_000_000, decimals), unit: "B" };
+  if (n >= 1_000_000) return { value: trim(n / 1_000_000, decimals), unit: "M" };
+  if (n >= 1_000) return { value: trim(n / 1_000, decimals), unit: "K" };
   return { value: String(Math.round(n)), unit: "" };
 }
 
 /** Chinese-unit variant for Hero top area only.
- *  Thresholds: ≥百亿 → 十亿 → 亿 → 千万 → 百万 → 十万 → 万 → 千. */
-export function splitTokensCN(n: number): { value: string; unit: string } {
+ *  Thresholds: ≥百亿 → 十亿 → 亿 → 千万 → 百万 → 十万 → 万 → 千.
+ *  @param decimals - Number of decimal places (default: 2). */
+export function splitTokensCN(n: number, decimals = 2): { value: string; unit: string } {
   if (!Number.isFinite(n)) return { value: "0", unit: "" };
   const abs = Math.abs(n);
-  if (abs >= 10_000_000_000) return { value: trim(n / 10_000_000_000), unit: "百亿" };
-  if (abs >=  1_000_000_000) return { value: trim(n /  1_000_000_000), unit: "十亿" };
-  if (abs >=    100_000_000) return { value: trim(n /    100_000_000), unit: "亿" };
-  if (abs >=     10_000_000) return { value: trim(n /     10_000_000), unit: "千万" };
-  if (abs >=      1_000_000) return { value: trim(n /      1_000_000), unit: "百万" };
-  if (abs >=        100_000) return { value: trim(n /        100_000), unit: "十万" };
-  if (abs >=         10_000) return { value: trim(n /         10_000), unit: "万" };
-  if (abs >=          1_000) return { value: trim(n /          1_000), unit: "千" };
+  if (abs >= 10_000_000_000) return { value: trim(n / 10_000_000_000, decimals), unit: "百亿" };
+  if (abs >=  1_000_000_000) return { value: trim(n /  1_000_000_000, decimals), unit: "十亿" };
+  if (abs >=    100_000_000) return { value: trim(n /    100_000_000, decimals), unit: "亿" };
+  if (abs >=     10_000_000) return { value: trim(n /     10_000_000, decimals), unit: "千万" };
+  if (abs >=      1_000_000) return { value: trim(n /      1_000_000, decimals), unit: "百万" };
+  if (abs >=        100_000) return { value: trim(n /        100_000, decimals), unit: "十万" };
+  if (abs >=         10_000) return { value: trim(n /         10_000, decimals), unit: "万" };
+  if (abs >=          1_000) return { value: trim(n /          1_000, decimals), unit: "千" };
   return { value: String(Math.round(n)), unit: "" };
 }
 

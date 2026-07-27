@@ -21,10 +21,13 @@ pub enum Currency {
 
 /// User-tunable settings. Each field maps to one `app_config` row so partial
 /// updates don't require rewriting a monolithic blob.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     #[serde(default)]
     pub currency: Currency,
+    /// Exchange-rate source: "auto" (fetch daily) | "manual" (user-supplied).
+    #[serde(default = "default_rate_mode")]
+    pub rate_mode: String,
     /// Absolute path to a user-supplied tokscale binary (None = auto resolve).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokscale_path: Option<String>,
@@ -40,6 +43,103 @@ pub struct Config {
     /// Auto-hide popover when window loses focus.
     #[serde(default = "default_true")]
     pub auto_close_on_blur: bool,
+    /// How the popover is triggered: "click" (tray click) | "hover" (mouse over tray).
+    #[serde(default = "default_trigger_mode")]
+    pub trigger_mode: String,
+    /// Window display mode: "normal" (draggable) | "fixed" (pinned position).
+    #[serde(default = "default_window_display_mode")]
+    pub window_display_mode: String,
+    /// Tray display style: today_tokens | today_cost | today_both |
+    /// total_tokens | total_cost | total_both | icon_only.
+    #[serde(default = "default_tray_display")]
+    pub tray_display: String,
+    /// Show the app icon in the Dock (menu-bar apps usually hide it).
+    #[serde(default)]
+    pub show_in_dock: bool,
+    /// Global hotkey to show/hide the popover (empty = not set).
+    #[serde(default)]
+    pub hotkey: String,
+    /// UI theme: "dark" | "light" | "system".
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Animation preference: "system" | "on" | "off".
+    #[serde(default = "default_animation")]
+    pub animation: String,
+    /// Data refresh interval: "manual" | "30s" | "60s" | "300s" | "600s".
+    #[serde(default = "default_refresh_interval")]
+    pub refresh_interval: String,
+    /// Preserve sessions whose source tool is no longer installed. When false,
+    /// the collector prunes them on each ingest.
+    #[serde(default = "default_true")]
+    pub session_archive_enabled: bool,
+    /// Quota data refresh interval: "1m" | "3m" | "5m" | "10m" | "15m".
+    #[serde(default = "default_quota_refresh_interval")]
+    pub quota_refresh_interval: String,
+    /// Quota progress display mode: "用量" (show usage %) or "剩余" (show remaining %).
+    #[serde(default = "default_quota_progress_mode")]
+    pub quota_progress_mode: String,
+    /// Which vendors are enabled in the quota display (None = all enabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_active_vendors: Option<Vec<String>>,
+    /// Custom display order for vendors in the quota list (all vendor ids in
+    /// preferred order). New vendors not in this list appear at the end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_vendor_order: Option<Vec<String>>,
+    /// Collection: tracked tool names (None = all tracked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_tracked: Option<Vec<String>>,
+    /// Collection: visible tool names (None = all visible).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_visible: Option<Vec<String>>,
+    /// Collection: ordered tool names (None = report order).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_ordered: Option<Vec<String>>,
+    /// Layout: visible top-level segment keys in order (None = all default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_modules: Option<Vec<String>>,
+    /// Layout: visible overview sub-item keys in order (None = all default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_overview_sub: Option<Vec<String>>,
+    /// Overview: quota vendor IDs to show, in order (None = show all active).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overview_quota_vendors: Option<Vec<String>>,
+}
+
+/// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
+/// above. (`#[derive(Default)]` would give every `String` field `""`, which
+/// diverges from e.g. `default_theme()` and breaks the "no DB row yet" path in
+/// `load()` — the UI would see `theme = ""` and highlight nothing.)
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            currency: Currency::default(),
+            rate_mode: default_rate_mode(),
+            tokscale_path: None,
+            auto_start: false,
+            language: default_language(),
+            default_period: default_period(),
+            auto_close_on_blur: default_true(),
+            trigger_mode: default_trigger_mode(),
+            window_display_mode: default_window_display_mode(),
+            tray_display: default_tray_display(),
+            show_in_dock: false,
+            hotkey: String::new(),
+            theme: default_theme(),
+            animation: default_animation(),
+            refresh_interval: default_refresh_interval(),
+            session_archive_enabled: default_true(),
+            quota_refresh_interval: default_quota_refresh_interval(),
+            quota_progress_mode: default_quota_progress_mode(),
+            quota_active_vendors: None,
+            quota_vendor_order: None,
+            collection_tracked: None,
+            collection_visible: None,
+            collection_ordered: None,
+            layout_modules: None,
+            layout_overview_sub: None,
+            overview_quota_vendors: None,
+        }
+    }
 }
 
 fn default_language() -> String {
@@ -50,6 +150,33 @@ fn default_period() -> String {
 }
 fn default_true() -> bool {
     true
+}
+fn default_rate_mode() -> String {
+    "auto".into()
+}
+fn default_trigger_mode() -> String {
+    "click".into()
+}
+fn default_window_display_mode() -> String {
+    "normal".into()
+}
+fn default_tray_display() -> String {
+    "icon_only".into()
+}
+fn default_theme() -> String {
+    "system".into()
+}
+fn default_animation() -> String {
+    "system".into()
+}
+fn default_refresh_interval() -> String {
+    "manual".into()
+}
+fn default_quota_refresh_interval() -> String {
+    "5m".into()
+}
+fn default_quota_progress_mode() -> String {
+    "剩余".into()
 }
 
 // Stable config keys.

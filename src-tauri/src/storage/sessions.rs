@@ -130,6 +130,32 @@ pub fn ingest_sessions(
     upsert_rows(conn, &rows)
 }
 
+/// Count sessions whose `tool` is NOT in the installed-clients list. An empty
+/// `installed` list means "nothing is currently installed" → every session is
+/// archived. Used by the 归档会话 count in 采集追踪 settings.
+pub fn archived_count(conn: &Connection, installed: &[String]) -> Result<i64, StorageError> {
+    if installed.is_empty() {
+        return Ok(conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?);
+    }
+    let placeholders = installed.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("SELECT COUNT(*) FROM sessions WHERE tool NOT IN ({placeholders})");
+    let params: Vec<&dyn rusqlite::ToSql> = installed.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    Ok(conn.query_row(&sql, params.as_slice(), |r| r.get(0))?)
+}
+
+/// Delete sessions whose `tool` is NOT in the installed-clients list. Returns
+/// the number of rows deleted. An empty `installed` list is a no-op (refuses to
+/// delete everything — that would wipe legitimate data when detection fails).
+pub fn prune_uninstalled(conn: &Connection, installed: &[String]) -> Result<usize, StorageError> {
+    if installed.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = installed.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("DELETE FROM sessions WHERE tool NOT IN ({placeholders})");
+    let params: Vec<&dyn rusqlite::ToSql> = installed.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    Ok(conn.execute(&sql, params.as_slice())?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +269,38 @@ mod tests {
         let mut conn = fresh_conn();
         let n = ingest_sessions(&mut conn, &serde_json::json!({"entries": []})).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn archived_count_counts_uninstalled_tools() {
+        let mut conn = fresh_conn();
+        ingest_sessions(&mut conn, &sample_report()).unwrap();
+        // sample_report has claude + codex. Installed = [claude] → codex archived.
+        let n = archived_count(&conn, &["claude".into()]).unwrap();
+        assert_eq!(n, 1);
+        // Both installed → none archived.
+        assert_eq!(archived_count(&conn, &["claude".into(), "codex".into()]).unwrap(), 0);
+        // Empty installed list → all archived.
+        assert_eq!(archived_count(&conn, &[]).unwrap(), 3);
+    }
+
+    #[test]
+    fn prune_uninstalled_deletes_only_uninstalled_and_refuses_empty() {
+        let mut conn = fresh_conn();
+        ingest_sessions(&mut conn, &sample_report()).unwrap();
+        // Empty installed list → no-op (guard against wiping data on detect failure).
+        assert_eq!(prune_uninstalled(&conn, &[]).unwrap(), 0);
+        // Prune everything not claude.
+        let deleted = prune_uninstalled(&conn, &["claude".into()]).unwrap();
+        assert_eq!(deleted, 1);
+        // claude rows (2) survive; codex (1) gone.
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 2);
+        let claude: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions WHERE tool='claude'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(claude, 2);
     }
 }

@@ -11,7 +11,7 @@
 <style>
   .bar {
     height: 6px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bar-track);
     border-radius: 3px;
     overflow: hidden;
   }

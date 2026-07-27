@@ -1,6 +1,8 @@
 import "./app.css";
 import App from "./App.svelte";
+import SettingsApp from "./views/SettingsApp.svelte";
 import { mount } from "svelte";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // Add Google Fonts for design consistency with wireframe
 const link = document.createElement("link");
@@ -8,8 +10,11 @@ link.href = "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,
 link.rel = "stylesheet";
 document.head.appendChild(link);
 
-const app = mount(App, {
+// Branch on the window label: the `settings` window mounts the settings UI,
+// every other window (the `main` popover) mounts the app.
+const label = getCurrentWindow().label;
+const Root = label === "settings" ? SettingsApp : App;
+
+mount(Root, {
   target: document.getElementById("app")!,
 });
-
-export default app;

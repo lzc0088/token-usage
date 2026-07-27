@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "bin/tokscale": "bin/tokscale"
+    }
+  }
+}

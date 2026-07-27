@@ -1,7 +1,9 @@
 <script lang="ts">
   import BreakdownBar from "./BreakdownBar.svelte";
   import { formatCost, splitTokens } from "../../lib/format";
-  import { toolMeta } from "../../lib/toolMeta";
+  import { modelVendor, vendorIdForModel } from "../../lib/modelMeta";
+  import { toolMeta, vendorIcon } from "../../lib/toolMeta";
+  import ToolIcon from "../../lib/ToolIcon.svelte";
   import { api, type Breakdown, type BreakdownEntry, type Currency, type Dimension } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
 
@@ -67,12 +69,16 @@
   {@const meta = toolMeta(e.key)}
   {@const open = expanded.has(e.key)}
   {@const st = splitTokens(e.tokens)}
+  {@const mv = dim === "model" ? modelVendor(e.key) : null}
+  {@const vid = vendorIdForModel(e.key)}
+  {@const rkIcon = (dim === "model" && vid) ? vendorIcon(vid) : meta.icon}
+  {@const rkBg = (dim === "model" && vid && mv) ? mv.color : meta.color}
   <div class="bd-row" role="button" tabindex="0" onclick={() => toggleExpand(e.key)} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && toggleExpand(e.key)}>
-    <span class="rk" style="background:{meta.color};color:#1a1408" title={meta.label}>{meta.icon}</span>
+    <span class="rk" style="background:{rkBg};color:#1a1408" title={meta.label}>{@html rkIcon}</span>
     <div class="bd-main">
       <div class="bd-name">
-        <span class="title-dot" style="background:{meta.color}"></span>
         <span class="bd-key">{meta.label}</span>
+        {#if mv}<span class="bd-vendor" style="color:{mv.color}">{mv.vendor}</span>{/if}
         <span class="bd-cost">{formatCost(e.cost_usd, currency, cnyRate)}</span>
       </div>
       <div class="bd-meta">
@@ -100,10 +106,12 @@
       {#if details[e.key]}
         <div class="det-sep"></div>
         {#each details[e.key]!.entries.slice(0, 3) as de, j (de.key)}
-          {@const dm = toolMeta(de.key)}
+          {@const detailMeta = oppDim === "model" ? toolMeta(de.key) : toolMeta(de.key)}
           {@const ds = splitTokens(de.tokens)}
           <div class="det-row det-sub">
-            <span class="det-label"><span class="det-dot" style="background:{PALETTE[j % PALETTE.length]}"></span>{dm.label}</span>
+            <span class="det-label"
+              ><ToolIcon tool={de.key} badge={false} size={11} />{detailMeta.label}</span
+            >
             <div class="det-bar"><i style="width:{Math.max(2, de.token_pct).toFixed(1)}%;background:{PALETTE[j % PALETTE.length]}"></i></div>
             <span class="det-pct">{de.token_pct.toFixed(1)}<span class="pct-u">%</span></span>
             <span class="det-tok">{ds.value}<span class="tku">{ds.unit}</span></span>
@@ -161,12 +169,21 @@
   }
   .bd-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .bd-name { display: flex; align-items: center; gap: 7px; }
-  .title-dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  .bd-key { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+  .bd-vendor {
+    font-size: 10px;
+    font-weight: 600;
     flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--glass-3);
+    border: 1px solid var(--border-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    line-height: 1.5;
   }
-  .bd-key { font-size: 13px; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bd-cost { font-size: 11px; color: var(--amber); flex-shrink: 0; }
+  .bd-cost { font-size: 11px; color: var(--amber); flex-shrink: 0; margin-left: auto; }
   .bd-meta { display: flex; align-items: center; gap: 7px; }
   .bd-meta :global(.bar) { flex: 1; }
   .bd-pct { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); width: 42px; text-align: right; }
@@ -191,21 +208,32 @@
     text-align: right; flex-shrink: 0;
   }
   .det-sub {
-    font-size: 10px; align-items: center;
-    display: grid; grid-template-columns: 100px 100px 50px 55px;
+    font-size: 11px;
+    align-items: center;
+    display: grid;
+    grid-template-columns: 1fr 100px 50px 55px;
     gap: 8px;
   }
-  .det-sub .det-dot {
-    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-    margin-right: 5px; vertical-align: middle; flex-shrink: 0;
+  .det-label {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    gap: 4px;
   }
-  .det-label { display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .det-bar { height: 4px; background: var(--glass-3); border-radius: 2px; overflow: hidden; align-self: center; }
+  .det-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .det-bar { height: 4px; background: var(--bar-track); border-radius: 2px; overflow: hidden; align-self: center; }
   .det-bar i { display: block; height: 100%; border-radius: 2px; }
   .det-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
   .det-tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
   .det-sep {
-    height: 0; border-top: 1px dashed var(--border-dim);
-    margin: 6px 0;
+    height: 0; border-top: 1px solid var(--border);
+    margin: 8px 0;
   }
 </style>

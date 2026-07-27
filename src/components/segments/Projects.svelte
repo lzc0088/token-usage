@@ -2,12 +2,15 @@
   import { api, type Currency, type ProjectDetailRow, type ProjectVm } from "../../lib/api";
   import { formatCost, splitTokens } from "../../lib/format";
   import { toolMeta } from "../../lib/toolMeta";
+  import ToolIcon from "../../lib/ToolIcon.svelte";
   import { periodValue } from "../../stores/period.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
   let projects = $state<ProjectVm[] | null>(null);
   let expanded = $state<string | null>(null);
+  let copyFeedback = $state<string | null>(null);
+  let loading = $state(true);
 
   // Sort key: token | cost | name | latest
   type SortKey = "token" | "cost" | "name" | "latest";
@@ -17,19 +20,33 @@
     expanded = expanded === key ? null : key;
   }
 
+  /** Copy full project path to clipboard */
+  async function copyPath(path: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(path);
+      copyFeedback = path;
+      setTimeout(() => {
+        copyFeedback = null;
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  }
+
   $effect(() => {
     const p = periodValue();
     let cancelled = false;
+    loading = true;
     (async () => {
       try {
         const data = await api.getProjects(p);
         if (!cancelled) {
-          // 过滤低活跃度项目：对话次数 < 5 或费用 < 0.1 USD
-          projects = data.filter(pr => pr.messages >= 5 && pr.cost_usd >= 0.1);
+          projects = data;
+          loading = false;
           expanded = null;
         }
       } catch {
-        if (!cancelled) projects = null;
+        if (!cancelled) { projects = null; loading = false; }
       }
     })();
     return () => {
@@ -83,20 +100,37 @@
     </div>
   </div>
 
-  {#if projects === null}
-    <p class="loading">加载中…</p>
+  {#if loading}
+    <div class="skel-list">
+      {#each [1,2,3] as _}
+        <div class="skel-row">
+          <div class="skel-icon"></div>
+          <div class="skel-main">
+            <div class="skel-line skel-w60"></div>
+            <div class="skel-line skel-w40"></div>
+          </div>
+          <div class="skel-right">
+            <div class="skel-line skel-w30"></div>
+            <div class="skel-line skel-w20"></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {:else if projects === null}
+    <p class="empty">加载失败，请重试</p>
   {:else if projects.length === 0}
     <p class="empty">暂无项目数据</p>
   {:else}
-    {#each sorted as p, i (p.name + i)}
+    {#each sorted as p, i (p.full_path ?? `${p.name}#${i}`)}
+      {@const rowKey = p.full_path ?? `${p.name}#${i}`}
       {@const st = splitTokens(p.tokens)}
-      {@const open = expanded === p.name}
+      {@const open = expanded === rowKey}
       <div
         class="prow"
         role="button"
         tabindex="0"
-        onclick={() => toggleExpand(p.name)}
-        onkeydown={(e: KeyboardEvent) => e.key === "Enter" && toggleExpand(p.name)}
+        onclick={() => toggleExpand(rowKey)}
+        onkeydown={(e: KeyboardEvent) => e.key === "Enter" && toggleExpand(rowKey)}
       >
         <span class="pk">📁</span>
         <div class="p-main">
@@ -118,22 +152,39 @@
       </div>
       {#if open}
         <div class="p-detail">
-          <div class="det-row">
-            <span>项目路径</span>
-            <span class="det-val ellipsis-left" title={p.full_path}>{ellipsisLeft(p.full_path)}</span>
-          </div>
-          <div class="det-row">
-            <span>最近活跃</span><span class="det-val">{p.latest_date ?? "—"}</span>
-          </div>
+          {#if p.full_path}
+            <div class="det-row">
+              <span>项目路径</span>
+              <div class="det-val-row">
+                <span class="det-val ellipsis-left" title={p.full_path}>{ellipsisLeft(p.full_path)}</span>
+                <button
+                  class="copy-btn"
+                  onclick={() => copyPath(p.full_path!)}
+                  title="复制完整路径"
+                  aria-label="复制项目路径"
+                >
+                  {#if copyFeedback === p.full_path}
+                    ✓
+                  {:else}
+                    📋
+                  {/if}
+                </button>
+              </div>
+            </div>
+          {/if}
+          {#if p.latest_date}
+            <div class="det-row">
+              <span>最近活跃</span><span class="det-val">{p.latest_date}</span>
+            </div>
+          {/if}
           {#if p.models.length > 0}
             <div class="det-sep"></div>
             {#each p.models as me, j (me.key + j)}
               {@const mm = toolMeta(me.key)}
               {@const ms = rowTokens(me)}
               <div class="det-row det-sub">
-                <span class="det-label"
-                  ><span class="det-dot" style="background:{palette[j % palette.length]}"></span
-                  >{mm.label}</span
+                <span class="det-label" style="display:flex;align-items:center;gap:4px"
+                  ><ToolIcon tool={me.key} badge={false} size={11} />{mm.label}</span
                 >
                 <div class="det-bar">
                   <i style="width:{Math.max(2, me.pct).toFixed(1)}%;background:{palette[j % palette.length]}"></i>
@@ -143,15 +194,14 @@
               </div>
             {/each}
           {/if}
-          {#if p.tools.length > 1}
+          {#if p.tools.length > 0}
             <div class="det-sep"></div>
             {#each p.tools as te, j (te.key + j)}
               {@const tm = toolMeta(te.key)}
               {@const ts = rowTokens(te)}
               <div class="det-row det-sub">
-                <span class="det-label"
-                  ><span class="det-dot" style="background:{palette[(j + 2) % palette.length]}"></span
-                  >{tm.label}</span
+                <span class="det-label" style="display:flex;align-items:center;gap:4px"
+                  ><ToolIcon tool={te.key} badge={false} size={11} />{tm.label}</span
                 >
                 <div class="det-bar">
                   <i style="width:{Math.max(2, te.pct).toFixed(1)}%;background:{palette[(j + 2) % palette.length]}"></i>
@@ -171,14 +221,61 @@
   .seg-body {
     display: flex;
     flex-direction: column;
+    width: 100%;
   }
-  .loading,
   .empty {
     padding: 24px 16px;
     color: var(--text-faint);
     font-size: 12px;
     text-align: center;
   }
+
+  /* ── Skeleton loading (matches BreakdownList .bd-row) ── */
+  .skel-list {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+  .skel-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 16px;
+    border-bottom: 1px dashed var(--border-dim);
+    width: 100%;
+  }
+  .skel-row:last-child { border-bottom: none; }
+  .skel-icon {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--surface-tint-strong);
+    flex-shrink: 0;
+  }
+  .skel-main {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .skel-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    min-width: 70px;
+    justify-content: flex-end;
+  }
+  .skel-line {
+    height: 10px;
+    border-radius: 4px;
+    background: var(--surface-tint-strong);
+  }
+  .skel-w60 { width: 60%; }
+  .skel-w40 { width: 40%; }
+  .skel-w30 { width: 30%; }
+  .skel-w20 { width: 20%; }
+  .skel-icon, .skel-line { animation: skel-pulse 1.4s ease-in-out infinite; }
+  @keyframes skel-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 
   .bd-header {
     display: flex;
@@ -227,7 +324,7 @@
     grid-template-columns: 28px 1fr auto;
     align-items: center;
     gap: 12px;
-    padding: 10px 16px;
+    padding: 9px 16px;
     border-bottom: 1px dashed var(--border-dim);
     cursor: pointer;
   }
@@ -247,6 +344,7 @@
     flex-shrink: 0;
   }
   .p-main {
+    flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -279,7 +377,7 @@
   .br {
     flex: 1;
     height: 4px;
-    background: var(--glass-3);
+    background: var(--bar-track);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -325,11 +423,11 @@
 
   /* expand detail — matches BreakdownList */
   .p-detail {
-    padding: 8px 24px 10px 24px;
+    padding: 8px 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    border-bottom: 1px dashed var(--border-dim);
+    border-bottom: 1px solid var(--border-dim);
     background: rgba(0, 0, 0, 0.08);
   }
   .det-row {
@@ -344,12 +442,45 @@
     flex-shrink: 0;
     white-space: nowrap;
   }
+  .det-val-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
   .det-val {
     color: var(--text-dim);
     font-family: var(--font-mono);
     font-size: 10px;
     text-align: right;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .copy-btn {
     flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    min-width: 24px;
+    height: 20px;
+  }
+  .copy-btn:hover {
+    background: rgba(232, 176, 75, 0.15);
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .copy-btn:active {
+    transform: scale(0.95);
   }
   .ellipsis-left {
     flex: 1;
@@ -361,22 +492,15 @@
   }
   .det-sep {
     height: 0;
-    border-top: 1px dashed var(--border-dim);
-    margin: 6px 0;
+    border-top: 1px solid var(--border-dim);
+    margin: 8px 0;
   }
   .det-sub {
-    font-size: 10px;
+    font-size: 11px;
     align-items: center;
     display: grid;
-    grid-template-columns: 100px 100px 50px 55px;
+    grid-template-columns: 1fr 100px 50px 55px;
     gap: 8px;
-  }
-  .det-sub .det-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    margin-right: 5px;
   }
   .det-label {
     display: flex;
@@ -386,16 +510,16 @@
     text-overflow: ellipsis;
   }
   .det-bar {
-    height: 4px;
-    background: var(--glass-3);
-    border-radius: 2px;
+    height: 6px;
+    background: var(--bar-track);
+    border-radius: 3px;
     overflow: hidden;
     align-self: center;
   }
   .det-bar i {
     display: block;
     height: 100%;
-    border-radius: 2px;
+    border-radius: 3px;
   }
   .det-pct {
     font-family: var(--font-mono);

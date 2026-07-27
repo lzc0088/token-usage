@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 
-use super::types::{Quota, QuotaKind, QuotaStatus};
+use super::types::{Quota, QuotaBalance, QuotaStatus};
 use super::VendorError;
 
 const URL: &str = "https://api.deepseek.com/user/balance";
@@ -29,21 +29,42 @@ pub trait Http {
 }
 
 /// Parse a DeepSeek balance response into a [`Quota`]. Pure — tested directly.
+///
+/// Row selection mirrors token-monitor's `selectFundedRow`: among rows with a
+/// positive balance, take the largest (ties break toward USD); if none are
+/// funded, fall back to the USD row, else the first.
 pub fn parse(body: &str) -> Result<Quota, VendorError> {
     let resp: Resp = serde_json::from_str(body).map_err(|e| VendorError::Parse(e.to_string()))?;
-    let primary = resp
-        .balance_infos
-        .iter()
-        .find(|b| b.currency == "CNY")
-        .or_else(|| resp.balance_infos.first());
-    let primary = match primary {
-        Some(p) => p,
-        None => return Err(VendorError::Empty),
-    };
-    let balance: f64 = primary
-        .total_balance
-        .parse()
-        .map_err(|e| VendorError::Parse(format!("total_balance not a number: {e}")))?;
+
+    // Parse rows into (currency, amount) pairs, dropping malformed ones.
+    let mut rows: Vec<(String, f64)> = Vec::new();
+    for info in &resp.balance_infos {
+        if let Ok(amount) = info.total_balance.parse::<f64>() {
+            if amount.is_finite() {
+                rows.push((info.currency.clone(), amount));
+            }
+        }
+    }
+    if rows.is_empty() {
+        return Err(VendorError::Empty);
+    }
+
+    // Prefer the largest funded row (ties → USD); else USD row; else first.
+    let funded: Option<&(String, f64)> =
+        rows.iter().filter(|(_, amt)| *amt > 0.0).max_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    // On equal amount, USD wins.
+                    (b.0 == "USD").cmp(&(a.0 == "USD"))
+                })
+        });
+    let (currency, balance) = funded
+        .or_else(|| rows.iter().find(|(c, _)| c == "USD"))
+        .or_else(|| rows.first())
+        .map(|(c, a)| (c.clone(), *a))
+        .ok_or(VendorError::Empty)?;
+
     // DeepSeek is prepaid; "low" if balance is small (heuristic — no fixed budget).
     let status = if balance < 1.0 {
         QuotaStatus::Danger
@@ -54,24 +75,28 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
     };
     Ok(Quota {
         vendor: "deepseek".into(),
-        kind: QuotaKind::Balance,
+        plan_label: Some("Pay-as-you-go".into()),
         status,
-        value: Some(balance),
-        display: format!(
-            "{}{}",
-            currency_symbol(&primary.currency),
-            format_money(balance)
-        ),
-        reset_in_secs: None,
-        used_pct: None,
-        currency: Some(primary.currency.clone()),
+        windows: vec![],
+        balance: Some(QuotaBalance {
+            amount: balance,
+            currency,
+            today_consumption: None,
+            month_consumption: None,
+        }),
+        refreshed_at: None,
+        error: None,
+        cookie_error: None,
+        expires_at: None,
     })
 }
 
 /// Fetch via `http`. Returns the normalized quota.
 pub fn fetch_with(http: &dyn Http, api_key: &str) -> Result<Quota, VendorError> {
-    super::validate_header_safe(api_key)?;
-    let body = http.get(URL, api_key)?;
+    // Credential may be JSON `{"key":"sk-..."}` or a plain key string.
+    let key = super::extract_key(api_key);
+    super::validate_header_safe(&key)?;
+    let body = http.get(URL, &key)?;
     parse(&body)
 }
 
@@ -85,24 +110,13 @@ pub async fn fetch(api_key: &str) -> Result<Quota, VendorError> {
     .map_err(|e| VendorError::Network(format!("join: {e}")))?
 }
 
-fn currency_symbol(code: &str) -> &'static str {
-    match code {
-        "CNY" => "¥",
-        "USD" => "$",
-        _ => "",
-    }
-}
-
-fn format_money(v: f64) -> String {
-    format!("{v:.2}")
-}
-
 /// Default HTTP client (ureq, blocking, run via spawn_blocking).
 struct UreqHttp;
 impl Http for UreqHttp {
     fn get(&self, url: &str, bearer: &str) -> Result<String, VendorError> {
         let resp = ureq::get(url)
             .set("Authorization", &format!("Bearer {bearer}"))
+            .set("Accept", "application/json")
             .call()
             .map_err(|e| VendorError::Network(e.to_string()))?;
         resp.into_string()
@@ -119,11 +133,11 @@ mod tests {
         let body = r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"48.20","granted_balance":"50.00","topped_up_balance":"-1.80"}]}"#;
         let q = parse(body).unwrap();
         assert_eq!(q.vendor, "deepseek");
-        assert_eq!(q.kind, QuotaKind::Balance);
         assert_eq!(q.status, QuotaStatus::Ok);
-        assert!((q.value.unwrap() - 48.20).abs() < 1e-9);
-        assert_eq!(q.display, "¥48.20");
-        assert_eq!(q.currency.as_deref(), Some("CNY"));
+        assert!(q.windows.is_empty());
+        let bal = q.balance.unwrap();
+        assert!((bal.amount - 48.20).abs() < 1e-9);
+        assert_eq!(bal.currency, "CNY");
     }
 
     #[test]
@@ -133,6 +147,30 @@ mod tests {
         let danger =
             parse(r#"{"balance_infos":[{"currency":"CNY","total_balance":"0.50"}]}"#).unwrap();
         assert_eq!(danger.status, QuotaStatus::Danger);
+    }
+
+    #[test]
+    fn parse_selects_largest_funded_row() {
+        // Two rows: CNY 0 (unfunded) + USD 20 (funded) → pick the funded USD row.
+        let body = r#"{"balance_infos":[
+            {"currency":"CNY","total_balance":"0.00"},
+            {"currency":"USD","total_balance":"20.00"}
+        ]}"#;
+        let q = parse(body).unwrap();
+        let bal = q.balance.unwrap();
+        assert_eq!(bal.currency, "USD");
+        assert!((bal.amount - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_falls_back_to_usd_when_none_funded() {
+        // Both unfunded → fall back to the USD row.
+        let body = r#"{"balance_infos":[
+            {"currency":"CNY","total_balance":"0.00"},
+            {"currency":"USD","total_balance":"0.00"}
+        ]}"#;
+        let q = parse(body).unwrap();
+        assert_eq!(q.balance.unwrap().currency, "USD");
     }
 
     #[test]
@@ -158,7 +196,7 @@ mod tests {
             }
         }
         let q = fetch_with(&Mock, "sk-test").unwrap();
-        assert!((q.value.unwrap() - 100.0).abs() < 1e-9);
+        assert!((q.balance.unwrap().amount - 100.0).abs() < 1e-9);
     }
 
     #[test]
@@ -169,8 +207,11 @@ mod tests {
                 unreachable!("must not call http for invalid credential")
             }
         }
+        // Empty credential (after trimming JSON wrapper) is rejected.
         assert!(fetch_with(&Mock, "").is_err());
+        assert!(fetch_with(&Mock, r#"{"key":""}"#).is_err());
+        // CRLF injection in the middle of the key is rejected.
         assert!(fetch_with(&Mock, "sk-bad\r\nX-Injected: yes").is_err());
-        assert!(fetch_with(&Mock, "sk-bad\n").is_err());
+        assert!(fetch_with(&Mock, r#"{"key":"sk-bad\r\nX-Injected: yes"}"#).is_err());
     }
 }

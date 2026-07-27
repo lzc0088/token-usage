@@ -15,6 +15,8 @@ use std::process::Stdio;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Manager};
 
 /// Errors raised by the tokscale layer.
 #[derive(Debug, thiserror::Error)]
@@ -183,6 +185,48 @@ pub fn resolve_bin(custom: Option<&Path>, data_dir: &Path) -> Result<PathBuf, To
         .into_iter()
         .find(|p| p.is_file())
         .ok_or(TokscaleError::NotFound)
+}
+
+/// Resolve the bundled tokscale binary (Tauri resource), if present.
+///
+/// - dev: points at `{src-tauri}/bin/tokscale` (when `fetch-tokscale` ran first)
+/// - prod: points at `$RESOURCE/bin/tokscale` inside the installed bundle
+///
+/// Best-effort: returns `None` on any resolution error so callers fall back to
+/// the legacy install path. On unix, ensures the exec bit is set (bundled files
+/// may lose mode bits through signing/repackaging).
+pub fn bundled_bin_path(app: &AppHandle) -> Option<PathBuf> {
+    let rel = if cfg!(target_os = "windows") {
+        "bin/tokscale.exe"
+    } else {
+        "bin/tokscale"
+    };
+    let path = app.path().resolve(rel, BaseDirectory::Resource).ok()?;
+    if !path.is_file() {
+        return None;
+    }
+    // Best-effort chmod; if it fails we still return the path — the file exists
+    // and exec may still work if the mode bit survived bundling.
+    let _ = ensure_executable(&path);
+    Some(path)
+}
+
+/// Ensure the bundled binary is executable on unix. No-op on Windows.
+/// Idempotent. Mirrors the chmod in `install_from_tarball`.
+#[cfg(unix)]
+pub fn ensure_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::metadata(path)?.permissions();
+    let mode = perms.mode();
+    if mode & 0o111 != 0o111 {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode | 0o755))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn ensure_executable(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Spawn the resolved tokscale binary, return parsed JSON (tolerant).

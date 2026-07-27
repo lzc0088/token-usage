@@ -213,6 +213,70 @@ fn detail_rows(map: HashMap<String, i64>, total: i64) -> Vec<ProjectDetailRow> {
     v
 }
 
+/// Recompute percentages on a detail-rows slice based on their token totals,
+/// then re-sort desc and truncate to top 3.
+fn recompute_detail_pct(rows: &mut Vec<ProjectDetailRow>) {
+    let total: i64 = rows.iter().map(|r| r.tokens).sum();
+    for r in rows.iter_mut() {
+        r.pct = pct(r.tokens, total);
+    }
+    rows.sort_by_key(|b| std::cmp::Reverse(b.tokens));
+    rows.truncate(3);
+}
+
+/// Return a clone of `json` with all `entries` whose `client` equals
+/// `client_to_remove` filtered out. Used to split a workspace report into
+/// Claude vs non-Claude halves so each can be grouped by its own strategy.
+pub fn filter_out_client(json: &Value, client_to_remove: &str) -> Value {
+    let mut j = json.clone();
+    if let Some(arr) = j.get_mut("entries").and_then(|v| v.as_array_mut()) {
+        arr.retain(|e| e.get("client").and_then(|v| v.as_str()) != Some(client_to_remove));
+    }
+    j
+}
+
+/// Merge `incoming` into `projects` by `full_path`. When a project with the
+/// same path already exists, its tokens/cost/messages are accumulated and the
+/// model/tool detail rows are merged (percentages recomputed). Otherwise the
+/// incoming project is appended. Projects without a path are always appended.
+pub fn merge_project(projects: &mut Vec<ProjectAgg>, incoming: ProjectAgg) {
+    let Some(incoming_path) = incoming.full_path.as_ref() else {
+        projects.push(incoming);
+        return;
+    };
+    let idx = projects
+        .iter()
+        .position(|p| p.full_path.as_ref() == Some(incoming_path));
+    let Some(i) = idx else {
+        projects.push(incoming);
+        return;
+    };
+    let target = &mut projects[i];
+    target.tokens += incoming.tokens;
+    target.cost_usd += incoming.cost_usd;
+    target.messages += incoming.messages;
+    // Keep the newest latest_date across the merged sources.
+    if incoming.latest_date.as_ref() > target.latest_date.as_ref() {
+        target.latest_date = incoming.latest_date;
+    }
+    for t in incoming.tools {
+        if let Some(existing) = target.tools.iter_mut().find(|x| x.key == t.key) {
+            existing.tokens += t.tokens;
+        } else {
+            target.tools.push(t);
+        }
+    }
+    recompute_detail_pct(&mut target.tools);
+    for m in incoming.models {
+        if let Some(existing) = target.models.iter_mut().find(|x| x.key == m.key) {
+            existing.tokens += m.tokens;
+        } else {
+            target.models.push(m);
+        }
+    }
+    recompute_detail_pct(&mut target.models);
+}
+
 /// Last segment of a path string (`/a/b/c` → `c`).
 fn last_segment(path: &str) -> String {
     path.trim_end_matches('/')
@@ -263,7 +327,10 @@ fn read_cwds(path: &Path) -> Vec<String> {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for line in std::io::BufReader::new(file).lines().take(500) {
+    // cwd appears on early lines (user/attachment messages). Scanning the
+    // first 40 lines is enough to recover the project root while keeping
+    // large session files (79k+ lines) cheap to open.
+    for line in std::io::BufReader::new(file).lines().take(40) {
         let Ok(line) = line else { break };
         if let Ok(v) = serde_json::from_str::<Value>(&line) {
             if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
@@ -341,9 +408,9 @@ pub fn scan_claude_projects(claude_projects_dir: &Path) -> Vec<DecodedWorkspace>
         }
         // Skip directories without any JSONL session files
         let has_jsonl = match std::fs::read_dir(&path) {
-            Ok(entries) => entries.flatten().any(|e| {
-                e.path().extension().and_then(|x| x.to_str()) == Some("jsonl")
-            }),
+            Ok(entries) => entries
+                .flatten()
+                .any(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl")),
             Err(_) => false,
         };
         if !has_jsonl {
@@ -464,9 +531,8 @@ pub fn build_precise_session_map(
         }
         // Pre-compute fallback (directory-level) project info for sessions
         // without cwd data. This uses the same logic as the old session_project_map.
-        let dir_fallback = read_project_root(&dir).map(|(root, _date)| {
-            (last_segment(&root), tilde_prefix(&root))
-        });
+        let dir_fallback =
+            read_project_root(&dir).map(|(root, _date)| (last_segment(&root), tilde_prefix(&root)));
         let Ok(sessions) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -503,6 +569,106 @@ pub fn build_precise_session_map(
     map
 }
 
+/// Result of a single filesystem scan over `~/.claude/projects/`.
+/// `session_map` maps every session id to its project (name, path, mtime);
+/// `all_projects` is the deduplicated set of projects discovered — used to
+/// surface projects with zero activity in the queried period.
+pub struct ClaudeFs {
+    pub session_map: HashMap<String, (String, String, Option<String>)>,
+    pub all_projects: Vec<DecodedWorkspace>,
+}
+
+/// Single-pass scan of `~/.claude/projects/`. Reads each session JSONL's cwd
+/// (capped at 40 lines) to build both the session→project map and the unique
+/// project list in one walk — replacing the two separate scans that
+/// `build_precise_session_map` + `scan_claude_projects` used to do.
+pub fn scan_claude_filesystem(claude_projects_dir: &Path) -> ClaudeFs {
+    let mut session_map = HashMap::new();
+    let mut proj_index: HashMap<String, (String, Option<String>)> = HashMap::new();
+
+    let Ok(entries) = std::fs::read_dir(claude_projects_dir) else {
+        return ClaudeFs {
+            session_map,
+            all_projects: Vec::new(),
+        };
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let key = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        if !is_safe_workspace_key(&key) {
+            continue;
+        }
+        // Fallback project info for sessions whose JSONL has no cwd.
+        let dir_fallback =
+            read_project_root(&dir).map(|(root, _date)| (last_segment(&root), tilde_prefix(&root)));
+        let Ok(sessions) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for s in sessions.flatten() {
+            let p = s.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let sid = p
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if session_map.contains_key(&sid) {
+                continue;
+            }
+            let cwds = read_cwds(&p);
+            let root = project_root(&cwds);
+            let (name, path) = match &root {
+                Some(r) => (last_segment(r), tilde_prefix(r)),
+                None => match &dir_fallback {
+                    Some((n, fp)) => (n.clone(), fp.clone()),
+                    None => continue,
+                },
+            };
+            let date = std::fs::metadata(&p)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|m| mtime_to_date(m).ok());
+            session_map.insert(sid, (name.clone(), path.clone(), date.clone()));
+            // Dedup projects by path, keeping the latest date.
+            match proj_index.get_mut(&path) {
+                Some((_, d)) => {
+                    if let Some(ref new_date) = date {
+                        if d.as_ref().map_or(true, |old| new_date > old) {
+                            *d = Some(new_date.clone());
+                        }
+                    }
+                }
+                None => {
+                    proj_index.insert(path, (name, date));
+                }
+            }
+        }
+    }
+
+    let all_projects: Vec<DecodedWorkspace> = proj_index
+        .into_iter()
+        .map(|(path, (name, date))| DecodedWorkspace {
+            name,
+            full_path: Some(path),
+            latest_date: date,
+        })
+        .collect();
+
+    ClaudeFs {
+        session_map,
+        all_projects,
+    }
+}
+
 /// Build a `Vec<ProjectAgg>` from tokscale's `--group-by session,model` JSON.
 ///
 /// For each Claude Code session it reads the JSONL `cwd` to determine the
@@ -516,14 +682,22 @@ pub fn build_projects_from_sessions(
     json: &Value,
     claude_projects_dir: Option<&Path>,
 ) -> Vec<ProjectAgg> {
-    let Some(entries) = json.get("entries").and_then(|v| v.as_array()) else {
-        return Vec::new();
-    };
-
-    // Build precise session → project map (one-time O(all-sessions) scan)
     let session_map = claude_projects_dir
         .map(build_precise_session_map)
         .unwrap_or_default();
+    build_projects_from_sessions_with_map(json, &session_map)
+}
+
+/// Same as [`build_projects_from_sessions`] but accepts a pre-built session
+/// map, so the caller can share one filesystem scan across multiple uses
+/// (avoids re-walking `~/.claude/projects/` for each call).
+pub fn build_projects_from_sessions_with_map(
+    json: &Value,
+    session_map: &HashMap<String, (String, String, Option<String>)>,
+) -> Vec<ProjectAgg> {
+    let Some(entries) = json.get("entries").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
 
     // ── Pass 1: aggregate entries by (client, sessionId) ─────────────────
     struct SessionAcc {
@@ -536,17 +710,11 @@ pub fn build_projects_from_sessions(
 
     for e in entries {
         let client = e.get("client").and_then(|v| v.as_str()).unwrap_or("?");
-        let session_id = e
-            .get("sessionId")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let session_id = e.get("sessionId").and_then(|v| v.as_str()).unwrap_or("?");
         let model = e.get("model").and_then(|v| v.as_str()).unwrap_or("?");
         let tokens = token_total(e);
         let cost = e.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let messages = e
-            .get("messageCount")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let messages = e.get("messageCount").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let acc = sess_acc
             .entry((client.to_string(), session_id.to_string()))
@@ -576,34 +744,35 @@ pub fn build_projects_from_sessions(
     let mut proj_acc: HashMap<String, ProjectAcc> = HashMap::new();
 
     for ((client, session_id), sess) in sess_acc {
-        // Determine project key: for Claude use the precise path from JSONL,
-        // for other tools fall back to client name.
-        let (proj_key, proj_name, proj_path, proj_date) =
-            if client == "claude" {
-                match session_map.get(&session_id) {
-                    Some((name, path, date)) => {
-                        (path.clone(), name.clone(), Some(path.clone()), date.clone())
-                    }
-                    None => {
-                        // No JSONL found — skip this session
-                        continue;
-                    }
-                }
-            } else {
-                // Non-Claude tool: use client as project key
-                (client.clone(), client.clone(), None, None)
-            };
+        // Only Claude sessions are handled here. Non-Claude tools are
+        // processed via the workspace,model report (their workspaceKey is
+        // already a real path), so we skip them here to avoid duplicate
+        // per-tool rollups (e.g. "zcode" tool-level vs "/ZCodeProject").
+        if client != "claude" {
+            continue;
+        }
+        let (proj_key, proj_name, proj_path, proj_date) = match session_map.get(&session_id) {
+            Some((name, path, date)) => {
+                (path.clone(), name.clone(), Some(path.clone()), date.clone())
+            }
+            None => continue,
+        };
 
-        let acc = proj_acc.entry(proj_key).or_insert(ProjectAcc {
-            name: proj_name,
-            full_path: proj_path,
-            latest_date: proj_date,
+        let acc = proj_acc.entry(proj_key).or_insert_with(|| ProjectAcc {
+            name: proj_name.clone(),
+            full_path: proj_path.clone(),
+            latest_date: None,
             tokens: 0,
             cost: 0.0,
             messages: 0,
             models: HashMap::new(),
             tools: HashMap::new(),
         });
+        // Keep the newest date across all sessions in this project.
+        // Dates are YYYY-MM-DD, which sort lexicographically == chronologically.
+        if proj_date.as_ref() > acc.latest_date.as_ref() {
+            acc.latest_date = proj_date;
+        }
         acc.tokens += sess.tokens;
         acc.cost += sess.cost;
         acc.messages += sess.messages;

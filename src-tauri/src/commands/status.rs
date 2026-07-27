@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 use crate::collector::tokscale;
+use crate::install_probe;
 use crate::paths;
 
 /// One tool's tracking status, for the 采集 segment / hero tool dots.
@@ -16,9 +17,10 @@ pub struct ClientStatus {
 }
 
 #[tauri::command]
-pub async fn get_tools_status() -> Result<Vec<ClientStatus>, String> {
+pub async fn get_tools_status(app: tauri::AppHandle) -> Result<Vec<ClientStatus>, String> {
     let data = tokscale::app_bin_dir().ok_or("no platform data dir")?;
-    let bin = tokscale::resolve_bin(None, &data).map_err(|e| e.to_string())?;
+    let custom = tokscale::bundled_bin_path(&app);
+    let bin = tokscale::resolve_bin(custom.as_deref(), &data).map_err(|e| e.to_string())?;
     let report = paths::fetch_clients(&bin)
         .await
         .map_err(|e| e.to_string())?;
@@ -26,12 +28,20 @@ pub async fn get_tools_status() -> Result<Vec<ClientStatus>, String> {
         .clients
         .into_iter()
         .map(|c| {
-            let status = if !c.sessions_path_exists {
-                "missing"
-            } else if c.message_count == 0 {
+            // "Installed" = the tool is on the machine: either it has session
+            // data, tokscale's known sessions dir exists, or a curated install
+            // probe (macOS .app bundle / config dir) matches. This fixes tools
+            // like Warp (installed GUI app, no sessions yet) and zcode (data
+            // under a non-standard path) that previously showed as 未安装.
+            let installed = c.sessions_path_exists
+                || c.message_count > 0
+                || install_probe::is_installed(&c.client);
+            let status = if c.message_count > 0 {
+                "active"
+            } else if installed {
                 "waiting"
             } else {
-                "active"
+                "missing"
             };
             ClientStatus {
                 client: c.client,
@@ -50,7 +60,7 @@ pub struct TokscaleStatus {
 }
 
 #[tauri::command]
-pub async fn get_tokscale_status() -> Result<TokscaleStatus, String> {
+pub async fn get_tokscale_status(app: tauri::AppHandle) -> Result<TokscaleStatus, String> {
     let data = match tokscale::app_bin_dir() {
         Some(d) => d,
         None => {
@@ -60,7 +70,8 @@ pub async fn get_tokscale_status() -> Result<TokscaleStatus, String> {
             })
         }
     };
-    let bin = match tokscale::resolve_bin(None, &data) {
+    let custom = tokscale::bundled_bin_path(&app);
+    let bin = match tokscale::resolve_bin(custom.as_deref(), &data) {
         Ok(b) => b,
         Err(_) => {
             return Ok(TokscaleStatus {
