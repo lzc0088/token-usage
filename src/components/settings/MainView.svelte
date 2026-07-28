@@ -2,8 +2,8 @@
   // 预览界面: 基本 + 布局 (tree with drag handle / expand / move / visibility).
   // All visibility/ordering is persisted to config (matching Collection/Account pattern).
   import { api, type Config } from "../../lib/api";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
-  import { VENDOR_LABELS } from "../../lib/vendorLabels";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import { VENDOR_LABELS } from "../../lib/meta/vendors";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   interface TreeItem {
@@ -257,7 +257,13 @@
   <!-- ══ 布局 ══ -->
   <div class="section-title">布局</div>
   <div class="section-box">
-    <div class="tree-hint">拖拽排序 · 展开子项 · 显示 / 隐藏</div>
+
+    <div class="icon-legend">
+      <span class="legend-item">展开</span>
+      <span class="legend-item">上移</span>
+      <span class="legend-item">下移</span>
+      <span class="legend-item">显示</span>
+    </div>
 
     {#each navItems as item, i (item.key)}
       <div class="tree-row">
@@ -392,9 +398,9 @@
   .section-title {
     font-family: var(--font-ui);
     font-weight: 700;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--amber);
-    margin-top: 16px;
+    margin-top: 20px;
     margin-bottom: 6px;
   }
   .section-title:first-of-type { margin-top: 20px; }
@@ -426,7 +432,25 @@
   .sel:focus { outline: none; border-color: var(--amber); }
 
   /* ── tree ── */
-  .tree-hint { font-size: 10.5px; color: var(--text-faint); margin-bottom: 6px; }
+  .icon-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 0;
+  }
+  .icon-legend .legend-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1;
+  }
 
   .tree-row {
     display: flex;
@@ -480,7 +504,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
+    width: 28px;
     height: 24px;
     background: none;
     border: 1px solid transparent;

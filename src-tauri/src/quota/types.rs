@@ -73,17 +73,52 @@ pub struct Quota {
 }
 
 /// One subscription window (e.g. "5h 42%", "weekly 78%", "MCP 月 25%").
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// For vendors with multiple individual quota items (e.g. Qoder's per-package
+/// resource_package entries), the aggregate window carries `used_value` /
+/// `total_value` for the summary "X / Y credits" display, and `sub_items`
+/// lists each individual item with its own expiry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct QuotaWindow {
-    /// Human label, e.g. "5h", "周", "MCP 月", "monthly".
+    /// Human label, e.g. "5h", "周", "MCP 月", "monthly", "订阅", "资源包".
     pub label: String,
-    /// Used percentage 0..100.
+    /// Used percentage 0..100 (from the summary bucket).
     pub used_pct: f64,
     /// Absolute reset time as an RFC3339/ISO-8601 string, parsed from the
     /// vendor's real API response. `None` when the vendor doesn't report it.
-    /// The frontend computes the live countdown from this timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<String>,
+    /// Summary used value (e.g. credits consumed). `None` when not applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub used_value: Option<f64>,
+    /// Summary total value (e.g. credits limit). `None` when not applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub total_value: Option<f64>,
+    /// Individual quota items within this window (e.g. each resource package).
+    /// When present, the frontend renders one row per item instead of a single
+    /// aggregate progress bar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub sub_items: Option<Vec<QuotaWindowSubItem>>,
+}
+
+/// An individual quota item within a window (e.g. one resource package bonus).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct QuotaWindowSubItem {
+    /// Item label (e.g. "Bonus Pack #1"). Empty for default display.
+    pub name: String,
+    /// Used value (credits consumed).
+    pub used: f64,
+    /// Total value (credits limit).
+    pub total: f64,
+    /// Used percentage 0..100.
+    pub pct: f64,
+    /// Item-level expiry/reset time (RFC3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// Prepaid balance (DeepSeek, MiMo, future top-up vendors).
@@ -175,11 +210,13 @@ mod tests {
                     label: "5h".into(),
                     used_pct: 42.0,
                     resets_at: None,
+                    ..Default::default()
                 },
                 QuotaWindow {
                     label: "周".into(),
                     used_pct: 78.0,
                     resets_at: None,
+                    ..Default::default()
                 },
             ],
             balance: None,

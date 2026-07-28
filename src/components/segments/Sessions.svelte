@@ -1,9 +1,9 @@
 <script lang="ts">
   import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
   import { formatCost, splitTokens } from "../../lib/format";
-  import { modelVendor } from "../../lib/modelMeta";
-  import { toolMeta } from "../../lib/toolMeta";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
+  import { modelVendor } from "../../lib/meta/models";
+  import { toolMeta } from "../../lib/meta/tools";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
@@ -109,7 +109,7 @@
       <span class="view-title">会话详情<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
       <div class="rd-sort">
         {#each [["time", "时间"], ["token", "TOKEN"]] as [k, label] (k)}
-          <button class:on={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
+          <button class:on={roundSort === (k as RoundSort)} aria-pressed={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
         {/each}
       </div>
     </div>
@@ -156,7 +156,7 @@
       <span class="bd-title">会话历史<span class="bd-count">{sorted.length}</span></span>
       <div class="bd-sort">
         {#each [["latest", "最近"], ["token", "TOKEN"], ["proj", "项目"], ["tool", "工具"]] as [k, label] (k)}
-          <button class:on={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
+          <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
         {/each}
       </div>
     </div>
@@ -273,12 +273,9 @@
 
   /* right side */
   .s-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 2px; flex-shrink: 0; min-height: 100%; padding-top: 4px; }
-
-  /* right side */
-  .s-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 2px; flex-shrink: 0; min-height: 100%; padding-top: 4px; }
   .s-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-  .s-cost { font-size: 11px; color: var(--amber); }
-  .s-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+  .s-cost { font-size: 11px; color: var(--amber); user-select: text; -webkit-user-select: text; }
+  .s-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); user-select: text; -webkit-user-select: text; }
   .tku { font-size: 8px; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
   .s-arr {
     background: none; border: none; color: var(--text-faint);
@@ -315,7 +312,7 @@
   .rd-sort button.on { background: var(--amber); color: #1a1408; }
   .back-btn { background: none; border: none; color: var(--amber); font-size: 16px; cursor: pointer; padding: 2px 4px; line-height: 1; }
   .back-btn:hover { color: var(--text); }
-  .view-body { flex: 1; overflow-y: auto; }
+  .view-body { flex: 1; }
   .rd-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px dashed var(--border-dim); }
   .rd-row:hover { background: rgba(232,176,75,.04); }
   .rd-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }

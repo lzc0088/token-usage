@@ -37,7 +37,7 @@ pub fn apply_dock_visibility(_app: &AppHandle, show: bool) {
 fn set_app_icon(ns_app: *mut objc::runtime::Object) {
     use objc::{class, msg_send, sel, sel_impl};
     use std::os::raw::c_void;
-    let bytes: &[u8] = include_bytes!("../icons/icon.png");
+    let bytes: &[u8] = include_bytes!("../../icons/icon.png");
     let nsdata: *mut objc::runtime::Object = unsafe {
         msg_send![class!(NSData), dataWithBytes: bytes.as_ptr() as *const c_void length: bytes.len()]
     };
@@ -101,7 +101,10 @@ pub fn apply_hotkey(app: &AppHandle, hotkey: &str) {
 }
 
 /// Map the recorded hotkey (`Meta+Alt+T`) into an accelerator string
-/// (`CommandOrControl+Alt+T`). Returns None if there is no main key.
+/// (`CommandOrControl+Alt+T`). Returns None if there is no valid main key.
+/// Case-insensitive matching for modifier keys; main key must be a single
+/// ASCII letter/digit, a function key (F1–F24), or a named key (Space, Tab,
+/// …). Special Unicode characters (e.g. `†` from Mac Option+T) are rejected.
 fn map_accelerator(stored: &str) -> Option<String> {
     if stored.is_empty() {
         return None;
@@ -109,15 +112,55 @@ fn map_accelerator(stored: &str) -> Option<String> {
     let parts: Vec<&str> = stored.split('+').collect();
     let mapped: Vec<String> = parts
         .iter()
-        .map(|p| match *p {
-            "Meta" => "CommandOrControl".to_string(),
-            "Control" => "Control".to_string(),
-            "Alt" => "Alt".to_string(),
-            "Shift" => "Shift".to_string(),
-            other => other.to_string(),
+        .map(|p| {
+            let lower = p.to_lowercase();
+            match lower.as_str() {
+                "meta" | "command" | "cmd" => "CommandOrControl".to_string(),
+                "control" | "ctrl" => "Control".to_string(),
+                "alt" | "option" => "Alt".to_string(),
+                "shift" => "Shift".to_string(),
+                _ => p.to_string(),
+            }
         })
         .collect();
-    Some(mapped.join("+"))
+    let result = mapped.join("+");
+    // Validate: the last segment must be a recognizable main key.
+    let main = mapped.last()?;
+    if !is_valid_main_key(main) {
+        eprintln!("[window_ctl] invalid main key in hotkey: {main}");
+        return None;
+    }
+    Some(result)
+}
+
+/// A valid main key is: single ASCII letter/digit, F1–F24, or a named key
+/// (Space, Tab, Escape, Enter, Insert, Delete, Home, End, PageUp, PageDown,
+/// Up, Down, Left, Right, Backspace, NumpadX, etc.).
+fn is_valid_main_key(key: &str) -> bool {
+    if key.is_empty() {
+        return false;
+    }
+    // Single ASCII letter or digit.
+    if key.len() == 1 && key.as_bytes()[0].is_ascii_alphanumeric() {
+        return true;
+    }
+    // Function keys F1–F24.
+    if key.starts_with('F') && key.len() <= 3 {
+        if let Ok(n) = key[1..].parse::<u8>() {
+            return (1..=24).contains(&n);
+        }
+    }
+    // Named keys.
+    matches!(
+        key,
+        "Space" | "Tab" | "Escape" | "Enter" | "Insert" | "Delete"
+            | "Home" | "End" | "PageUp" | "PageDown"
+            | "Up" | "Down" | "Left" | "Right" | "Backspace"
+            | "NumpadAdd" | "NumpadSubtract" | "NumpadMultiply" | "NumpadDivide"
+            | "NumpadDecimal" | "NumpadEnter" | "Numpad0" | "Numpad1"
+            | "Numpad2" | "Numpad3" | "Numpad4" | "Numpad5" | "Numpad6"
+            | "Numpad7" | "Numpad8" | "Numpad9"
+    )
 }
 
 /// Toggle main popover visibility: hide if visible, else show under the tray.
@@ -179,7 +222,7 @@ pub fn apply_window_features(app: &AppHandle, conn: &Connection) {
     apply_hotkey(app, &cfg.hotkey);
     // Repaint tray title immediately (tray_display) instead of waiting for
     // the next collector tick.
-    crate::tray::refresh_from_db(app, conn);
+    crate::ui::tray::refresh_from_db(app, conn);
 }
 
 /// Apply ALL window-behaviour settings from the persisted config. Used by the
@@ -196,7 +239,7 @@ pub fn apply_window_config(app: &AppHandle, conn: &Connection) {
     apply_dock_visibility(app, cfg.show_in_dock);
     apply_drag_mode(app, cfg.window_display_mode == "fixed");
     apply_hotkey(app, &cfg.hotkey);
-    crate::tray::refresh_from_db(app, conn);
+    crate::ui::tray::refresh_from_db(app, conn);
 }
 
 #[cfg(test)]
@@ -222,5 +265,19 @@ mod tests {
     #[test]
     fn empty_returns_none() {
         assert!(map_accelerator("").is_none());
+    }
+
+    #[test]
+    fn rejects_unicode_main_key() {
+        // † (Mac Option+T) is not a valid Tauri accelerator key.
+        assert!(map_accelerator("Meta+Alt+†").is_none());
+    }
+
+    #[test]
+    fn accepts_function_keys() {
+        assert_eq!(
+            map_accelerator("Meta+F12").unwrap(),
+            "CommandOrControl+F12"
+        );
     }
 }

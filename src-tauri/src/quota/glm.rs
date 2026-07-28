@@ -378,6 +378,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
                 label: label.into(),
                 used_pct: pct,
                 resets_at: reset_iso(&l.next_reset_time),
+                ..Default::default()
             });
         }
     };

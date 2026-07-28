@@ -59,18 +59,24 @@
     display: flex;
     align-items: baseline;
     gap: 3px;
+    user-select: text;
+    -webkit-user-select: text;
   }
   .big-unit {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-dim);
     font-family: var(--font-ui);
+    user-select: text;
+    -webkit-user-select: text;
   }
   .cost {
     font-size: 12px;
     font-weight: 600;
     color: var(--amber);
     white-space: nowrap;
+    user-select: text;
+    -webkit-user-select: text;
   }
   .delta {
     margin-left: 8px;

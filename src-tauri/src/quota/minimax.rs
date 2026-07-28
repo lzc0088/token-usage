@@ -82,6 +82,7 @@ fn window(
         label: label.into(),
         used_pct: used,
         resets_at: end_time.and_then(epoch_to_iso),
+        ..Default::default()
     })
 }
 

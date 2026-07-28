@@ -246,6 +246,7 @@ pub fn parse(
         label: plan_label.clone(),
         used_pct: primary_used,
         resets_at: None,
+        ..Default::default()
     }];
 
     // Optional short-term rate-limit windows (present only for some plans).
@@ -254,6 +255,7 @@ pub fn parse(
             label: "5h".into(),
             used_pct: p,
             resets_at: None,
+            ..Default::default()
         });
     }
     if let Some(p) = pct(usage.rpwUsage, usage.rpwLimit) {
@@ -261,6 +263,7 @@ pub fn parse(
             label: "周".into(),
             used_pct: p,
             resets_at: None,
+            ..Default::default()
         });
     }
 

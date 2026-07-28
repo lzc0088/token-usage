@@ -1,8 +1,8 @@
 <script lang="ts">
   import { api, type Currency, type ProjectDetailRow, type ProjectVm } from "../../lib/api";
   import { formatCost, splitTokens } from "../../lib/format";
-  import { toolMeta } from "../../lib/toolMeta";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
+  import { toolMeta } from "../../lib/meta/tools";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { periodValue } from "../../stores/period.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
@@ -95,7 +95,7 @@
     <span class="bd-title">项目列表<span class="bd-count">{sorted.length}</span></span>
     <div class="bd-sort">
       {#each [["latest", "最近"], ["token", "TOKEN"], ["cost", "成本"], ["name", "名称"]] as [k, label] (k)}
-        <button class:on={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
+        <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
       {/each}
     </div>
   </div>
@@ -423,7 +423,7 @@
 
   /* expand detail — matches BreakdownList */
   .p-detail {
-    padding: 8px 8px 10px;
+    padding: 8px 24px 10px 24px;
     display: flex;
     flex-direction: column;
     gap: 4px;

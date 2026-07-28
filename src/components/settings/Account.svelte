@@ -3,8 +3,8 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-shell";
   import { api, type Config } from "../../lib/api";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
-  import { VENDOR_PANEL } from "../../lib/vendorPanel";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import { VENDOR_PANEL } from "../../lib/meta/panels";
 
   type AuthType = "detect" | "login" | "key" | "cookie";
   type TagColor = "blue" | "amber" | "purple" | "lime" | "coral" | "gray";
@@ -42,19 +42,24 @@
 
   // ── 厂商清单（基于 token-monitor limitCollector.js 实测）──
   const VENDORS: VendorDef[] = [
-    // ① 订阅制 — 自动检测 / 跳转 CLI 登录
-    { id: "claude",    label: "Claude Code",        cat: "subscription", billing: ["订阅"], authType: "detect",
-      desc: "Anthropic 官方订阅，自动检测本机登录状态",
+    // ① 订阅制 — 自动检测 / Cookie 粘贴
+    { id: "claude",    label: "Claude Code ( Anthropic )", cat: "cookie", billing: ["订阅"], authType: "detect",
+      desc: "未设置 Web 登录时，会自动检测 Claude Code OAuth 与 CLI；添加 Web 登录后，本机 Claude 会改用此来源。Cookie 只会保存在本机。",
       tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"}],
+      fields: [
+        { key: "cookie", label: "Cookie", placeholder: "粘贴 sessionKey 的值…", type: "textarea" },
+      ],
       loginLabel: "运行 claude /login" },
-    { id: "codex",     label: "Codex",              cat: "subscription", billing: ["订阅"], authType: "login",
-      desc: "OpenAI Codex 订阅，OAuth 授权登录，分主 / 次窗口",
+    { id: "codex",     label: "Codex ( OpenAI )",    cat: "subscription", billing: ["订阅"], authType: "detect",
+      desc: "未设置 Codex CLI 登录时，会自动检测本地凭证；添加 Web 登录后，本机会改用此来源。",
       tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"}],
-      loginLabel: "OAuth 登录" },
-    { id: "cursor",    label: "Cursor",             cat: "subscription", billing: ["订阅"], authType: "detect",
-      desc: "Cursor IDE 订阅，按账单周期统计用量",
+      loginLabel: "运行 codex /login" },
+    { id: "cursor",    label: "Cursor ( Anysphere )",             cat: "cookie", billing: ["订阅"], authType: "cookie",
+      desc: "Cursor IDE 订阅，粘贴浏览器 WorkosCursorSessionToken Cookie 值查询用量",
       tags: [{text:"账单周期",color:"amber"}],
-      loginLabel: "打开 Cursor 登录" },
+      fields: [
+        { key: "cookie", label: "Session Token", placeholder: "粘贴 WorkosCursorSessionToken 的值…", type: "textarea" },
+      ] },
     // ② API Key — 表单填入
     { id: "deepseek",  label: "DeepSeek ( 深度求索 )",  cat: "api-key", billing: ["按量"], authType: "key",
       desc: "按量付费，查询账户余额",
@@ -97,16 +102,16 @@
         { key: "cookie", label: "Cookie", placeholder: "粘贴 maas.xfyun.cn 控制台 Cookie（含 ssoSessionId）…", type: "textarea" },
       ] },
     { id: "copilot",   label: "GitHub Copilot",     cat: "subscription", billing: ["订阅"], authType: "login",
-      desc: "GitHub 账号 OAuth 授权",
-      tags: [],
+      desc: "GitHub 账号 OAuth 授权，显示 Premium / Chat 额度",
+      tags: [{text:"Premium",color:"amber"},{text:"Chat",color:"blue"}],
       loginLabel: "GitHub 登录" },
     { id: "mimo",      label: "MiMo ( 小米 )",          cat: "cookie", billing: ["Token Plan", "按量"], authType: "cookie",
       desc: "小米 MiMo，粘贴浏览器 Cookie 获取余额与套餐额度，支持 Token Plan 与按量",
       tags: [{text:"余额",color:"lime"},{text:"Token Plan",color:"amber"}] },
     // ③ Cookie — 粘贴
-    { id: "opencode",  label: "OpenCode",           cat: "cookie", billing: ["按量"], authType: "cookie",
-      desc: "Go / Zen Web 面板，粘贴会话 Cookie",
-      tags: [] },
+    { id: "opencode",  label: "OpenCode ( OpenCode AI )",           cat: "cookie", billing: ["按量"], authType: "cookie",
+      desc: "Go / Zen Web 面板，粘贴会话 Cookie，支持 5h / 周 / 月额度与余额",
+      tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"},{text:"月窗口",color:"amber"},{text:"余额",color:"lime"}] },
     { id: "zai_team",  label: "GLM Team ( 智谱团队 )",     cat: "cookie", billing: ["Team Plan"], authType: "cookie",
       desc: "智谱团队计划，需 Key + 组织 ID + 项目 ID",
       tags: [{text:"多字段",color:"coral"}],
@@ -115,14 +120,14 @@
         { key: "orgid", label: "Organization ID", placeholder: "Bigmodel-Organization", type: "text" },
         { key: "projid", label: "Project ID", placeholder: "Bigmodel-Project", type: "text" },
       ] },
-    { id: "qoder",     label: "Qoder",              cat: "cookie", billing: ["按量"], authType: "cookie",
+    { id: "qoder",     label: "Qoder ( 阿里 )",              cat: "cookie", billing: ["按量"], authType: "cookie",
       desc: "仪表盘 Cookie，区分国际站 / 中国站",
       tags: [{text:"区域",color:"amber"}],
       fields: [
-        { key: "cookie", label: "Cookie", placeholder: "粘贴仪表盘 Cookie…", type: "text" },
         { key: "site", label: "站点", placeholder: "", type: "select", options: ["global", "cn"], default: "cn" },
+        { key: "cookie", label: "Cookie", placeholder: "粘贴仪表盘 Cookie…", type: "textarea" },
       ] },
-    { id: "ollama",    label: "Ollama",             cat: "cookie", billing: ["按量"], authType: "cookie",
+    { id: "ollama",    label: "Ollama ( Ollama Cloud )",             cat: "cookie", billing: ["按量"], authType: "cookie",
       desc: "Ollama Cloud，按周统计用量",
       tags: [{text:"周窗口",color:"amber"}] },
   ];
@@ -132,7 +137,7 @@
   const sortedVendors = $derived([...VENDORS].sort((a, b) => CAT_ORDER[a.cat] - CAT_ORDER[b.cat]));
   // 账号区分组
   const GROUPS: Array<{ cat: string; label: string }> = [
-    { cat: "subscription", label: "订阅制（OAuth）" },
+    { cat: "subscription", label: "OAuth" },
     { cat: "api-key", label: "API Key" },
     { cat: "cookie", label: "Cookie" },
   ];
@@ -142,6 +147,7 @@
   let inputs = $state<Record<string, Record<string, string>>>({});
   let config = $state<Config | null>(null);
   let saveError = $state<Record<string, string>>({});
+  let saving = $state<Record<string, boolean>>({});
   // 厂商排列顺序（从 config 恢复，追加新厂商到末尾）
   let ordered = $state<string[]>([]);
   // 厂商启用状态（从 config 恢复，默认全部不启用）
@@ -192,7 +198,7 @@
     isBound: boolean,
     cookieErr: boolean,
   ): Array<{ label: string; kind: BadgeKind }> {
-    const isOAuth = v.authType === "detect" || v.authType === "login";
+    const isOAuth = v.authType === "detect" || v.authType === "login" || v.id === "claude";
     if (!isBound) {
       return [{ label: isOAuth ? "未登录" : "未设定", kind: "dim" }];
     }
@@ -336,9 +342,12 @@
   });
 
   function toggle(id: string): void {
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    expanded = next;
+    // Accordion: only one vendor panel open at a time.
+    if (expanded.has(id)) {
+      expanded = new Set();
+    } else {
+      expanded = new Set([id]);
+    }
   }
 
   function getField(id: string, fieldKey: string): string {
@@ -354,6 +363,8 @@
     const fields = fieldsFor(VENDORS.find(x => x.id === vendor)!);
     const values = fields.map(f => getField(vendor, f.key)).filter(Boolean);
     if (values.length === 0) return;
+    if (saving[vendor]) return;
+    saving = { ...saving, [vendor]: true };
     saveError = { ...saveError, [vendor]: "" };
     // 序列化为 JSON 字符串存入 keyring（后端按厂商解析）
     const payload = JSON.stringify(
@@ -373,13 +384,14 @@
       saveError = { ...saveError, [vendor]: "" };
       // Immediately refresh this vendor's quota so the 额度 page and 总览
       // reflect the newly-bound credential without waiting for the scheduler.
-      void api.refreshQuota(vendor);
-      // set_credential re-fetched + re-cached the quota (clearing any stale
-      // cookie_error), so refresh the "Cookie 失效" hint immediately.
+      // Failures are non-fatal — the scheduler will retry on its next tick.
+      api.refreshQuota(vendor).catch(() => {});
       void loadQuotaErrors();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       saveError = { ...saveError, [vendor]: msg };
+    } finally {
+      saving = { ...saving, [vendor]: false };
     }
   }
   async function remove(vendor: string): Promise<void> {
@@ -433,8 +445,123 @@
       refreshState = { ...refreshState, [vendor]: { status: "fail", msg } };
     }
   }
+  // ── Copilot OAuth Device Flow ──
+  // Tracks the device-flow login lifecycle so the panel can show the user code
+  // + verification URL while polling. Only one login runs at a time.
+  interface CopilotLoginState {
+    phase: "requesting" | "authorize" | "polling" | "success" | "error";
+    userCode?: string;
+    verificationUrl?: string;
+    error?: string;
+  }
+  let copilotLogin = $state<CopilotLoginState | null>(null);
+
+  async function startCopilotLogin(): Promise<void> {
+    copilotLogin = { phase: "requesting" };
+    // Listen for progress events emitted by the Rust device-flow driver.
+    const un = await listen<{
+      phase: string;
+      user_code?: string;
+      verification_url?: string;
+    }>("copilot:login_status", (e) => {
+      const p = e.payload;
+      if (p.phase === "authorize") {
+        copilotLogin = {
+          phase: "authorize",
+          userCode: p.user_code,
+          verificationUrl: p.verification_url,
+        };
+        // Open the GitHub verification page in the system browser.
+        if (p.verification_url) open(p.verification_url).catch(() => {});
+      } else if (p.phase === "polling") {
+        copilotLogin = { ...copilotLogin!, phase: "polling" };
+      }
+    });
+    try {
+      const token = await api.copilotLogin();
+      // Persist the token as the copilot credential (validates + caches quota).
+      await api.setCredential("copilot", JSON.stringify({ key: token }));
+      copilotLogin = { phase: "success" };
+      bound = { ...bound, copilot: true };
+      credFields = { ...credFields, copilot: ["key"] };
+      void api.refreshQuota("copilot");
+      void loadQuotaErrors();
+      // Auto-dismiss the success state after a moment.
+      setTimeout(() => {
+        copilotLogin = null;
+      }, 2500);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      copilotLogin = { phase: "error", error: msg };
+    } finally {
+      un();
+    }
+  }
+
+  // ── Codex OAuth Login Flow ──
+  // Mirrors token-monitor: spawn `codex login`, parse stdout for OAuth URL,
+  // emit `codex:login_status` events. Frontend opens the URL for the user.
+  interface CodexLoginState {
+    phase: "requesting" | "authorize" | "success" | "error";
+    loginUrl?: string;
+    error?: string;
+  }
+  let codexLogin = $state<CodexLoginState | null>(null);
+
+  async function startCodexLogin(): Promise<void> {
+    codexLogin = { phase: "requesting" };
+    const un = await listen<{
+      phase: string;
+      login_url?: string;
+      message?: string;
+    }>("codex:login_status", (e) => {
+      const p = e.payload;
+      if (p.phase === "authorize" && p.login_url) {
+        codexLogin = {
+          phase: "authorize",
+          loginUrl: p.login_url,
+        };
+        // Open the OAuth URL in the system browser.
+        open(p.login_url).catch(() => {});
+      } else if (p.phase === "success") {
+        codexLogin = { phase: "success" };
+        bound = { ...bound, codex: true };
+        void api.refreshQuota("codex");
+        void loadQuotaErrors();
+        setTimeout(() => { codexLogin = null; }, 2500);
+      } else if (p.phase === "error") {
+        codexLogin = { phase: "error", error: p.message };
+      }
+    });
+    try {
+      await api.codexLogin();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      codexLogin = { phase: "error", error: msg };
+    } finally {
+      un();
+    }
+  }
+
   function startLogin(vendor: string): void {
-    // TODO: 后端 invoke 登录 command（如 codex_login spawn OAuth 流程）
+    if (vendor === "copilot") {
+      void startCopilotLogin();
+      return;
+    }
+    if (vendor === "claude") {
+      // Claude detect: read CLI OAuth from local auth files.
+      void api.refreshQuota(vendor).then(() => {
+        bound = { ...bound, [vendor]: true };
+      }).catch(() => {
+        console.log("Claude detect: no CLI credentials found");
+      });
+      return;
+    }
+    if (vendor === "codex") {
+      // Codex: run the full OAuth login flow (spawn `codex login`).
+      void startCodexLogin();
+      return;
+    }
     console.log("start login for", vendor);
   }
 
@@ -460,7 +587,7 @@
   {#each GROUPS as g}
     {@const items = sortedVendors.filter(v => v.cat === g.cat)}
     {#if items.length > 0}
-      <div class="section-box" style="margin-top:12px">
+      <div class="section-box" style="margin-top:8px">
         <div class="group-head">{g.label} <span class="group-count">{items.length}</span></div>
         {#each items as v, rowIdx (v.id)}
           {@const fs = fieldsFor(v)}
@@ -485,7 +612,7 @@
 
           <!-- 展开配置面板 -->
           {#if expanded.has(v.id)}
-            <div class="panel">
+            <div class="panel {rowIdx === items.length - 1 ? 'panel-last' : ''}">
               {#if bound[v.id]}
                 {#if cookieErrorOf[v.id]}
                   <p class="panel-warn">⚠ {cookieErrorOf[v.id]}，请重新填写并保存</p>
@@ -505,7 +632,7 @@
                       <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder="粘贴新 Cookie…" rows="3" disabled={cookieSaving}></textarea>
                       <div class="cookie-mgr-actions">
                         <button class="btn-primary" onclick={() => saveCookie(v.id)} disabled={cookieSaving || !cookieDraft.trim()}>
-                          {cookieSaving ? "保存中…" : "保存 Cookie"}
+                          {cookieSaving ? "检查中…" : "保存 Cookie"}
                         </button>
                         <button class="btn-outline" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
                       </div>
@@ -550,10 +677,84 @@
                     通过浏览器 OAuth 授权完成登录，授权后凭证自动保存到本机。
                   {/if}
                 </p>
-                <div class="panel-actions">
-                  <button class="btn-outline" onclick={() => startLogin(v.id)}>立即检测</button>
-                  <button class="btn-primary" onclick={() => startLogin(v.id)}>{v.loginLabel ?? "登录"}</button>
-                </div>
+                {#if v.id === "copilot" && copilotLogin}
+                  <!-- Device Flow 进度 -->
+                  <div class="device-flow">
+                    {#if copilotLogin.phase === "requesting"}
+                      <p class="df-status">正在向 GitHub 请求设备码…</p>
+                    {:else if copilotLogin.phase === "authorize" || copilotLogin.phase === "polling"}
+                      <p class="df-status">请在浏览器中输入以下验证码完成授权：</p>
+                      <div class="df-code">{copilotLogin.userCode ?? "…"}</div>
+                      <p class="df-hint">
+                        浏览器未自动打开？
+                        <button class="df-link" onclick={() => copilotLogin?.verificationUrl && open(copilotLogin.verificationUrl).catch(() => {})}>手动打开授权页面</button>
+                      </p>
+                      <p class="df-polling">等待授权中…</p>
+                    {:else if copilotLogin.phase === "success"}
+                      <p class="df-status df-ok">✓ 登录成功，已保存凭证</p>
+                    {:else if copilotLogin.phase === "error"}
+                      <p class="df-status df-err">登录失败：{copilotLogin.error}</p>
+                    {/if}
+                  </div>
+                  {#if copilotLogin.phase === "error"}
+                    <div class="panel-actions">
+                      <button class="btn-primary" onclick={() => startLogin(v.id)}>重新登录</button>
+                    </div>
+                  {/if}
+                {:else if v.id === "codex" && codexLogin}
+                  <!-- Codex OAuth Login Flow -->
+                  <div class="device-flow">
+                    {#if codexLogin.phase === "requesting"}
+                      <p class="df-status">正在启动 codex login…</p>
+                    {:else if codexLogin.phase === "authorize"}
+                      <p class="df-status">请在浏览器中完成 OpenAI 授权：</p>
+                      <div class="df-code">{codexLogin.loginUrl ?? "…"}</div>
+                      <p class="df-hint">
+                        浏览器未自动打开？
+                        <button class="df-link" onclick={() => codexLogin?.loginUrl && open(codexLogin.loginUrl).catch(() => {})}>手动打开授权页面</button>
+                      </p>
+                      <p class="df-polling">等待授权完成…</p>
+                    {:else if codexLogin.phase === "success"}
+                      <p class="df-status df-ok">✓ 登录成功，已保存凭证</p>
+                    {:else if codexLogin.phase === "error"}
+                      <p class="df-status df-err">登录失败：{codexLogin.error}</p>
+                    {/if}
+                  </div>
+                  {#if codexLogin.phase === "error"}
+                    <div class="panel-actions">
+                      <button class="btn-primary" onclick={() => startLogin(v.id)}>重新登录</button>
+                    </div>
+                  {/if}
+                {:else if v.id === "claude" && VENDOR_PANEL.claude}
+                  <button class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL.claude.pageLabel} 页面</button>
+                  <p class="panel-note">{VENDOR_PANEL.claude.hint}</p>
+                  <div class="fields">
+                    {#each fieldsFor(v) as f (f.key)}
+                      <label class="field">
+                        <span class="flabel">{f.label}</span>
+                        {#if f.type === "textarea"}
+                          <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="2" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                        {/if}
+                      </label>
+                    {/each}
+                  </div>
+                  {#if saveError[v.id]}
+                    <p class="save-err">{saveError[v.id]}</p>
+                  {/if}
+                  <div class="panel-actions">
+                    <button class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                    <button class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
+                      {saving[v.id] ? "检查中…" : "保存"}
+                    </button>
+                  </div>
+                {:else}
+                  <div class="panel-actions">
+                    {#if v.authType === "detect"}
+                      <button class="btn-outline" onclick={() => startLogin(v.id)}>立即检测</button>
+                    {/if}
+                    <button class="btn-primary" onclick={() => startLogin(v.id)}>{v.loginLabel ?? "登录"}</button>
+                  </div>
+                {/if}
               {:else}
                 {#if VENDOR_PANEL[v.id]}
                   <button class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
@@ -589,8 +790,10 @@
                   {/each}
                 </div>
                 <div class="panel-actions">
-                  <button class="btn-outline" onclick={() => toggle(v.id)}>取消</button>
-                  <button class="btn-primary" onclick={() => save(v.id)}>保存</button>
+                  <button class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                  <button class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
+                    {saving[v.id] ? "检查中…" : "保存"}
+                  </button>
                 </div>
                 {#if saveError[v.id]}
                   <p class="save-err">{saveError[v.id]}</p>
@@ -609,7 +812,7 @@
     <span class="title-stat">{active.size} / {VENDORS.length} 已启用</span>
   </div>
 
-  <div class="section-box" style="margin-top:16px">
+  <div class="section-box" style="margin-top:8px">
     <div class="group-head">全局设置</div>
     <div class="box-row">
       <div class="lab">刷新频率<div class="hint">额度数据刷新间隔</div></div>
@@ -632,8 +835,13 @@
     </div>
   </div>
 
-  <div class="section-box" style="margin-top:16px">
+  <div class="section-box" style="margin-top:12px">
     <div class="group-head">厂商管理</div>
+    <div class="icon-legend">
+      <span class="legend-item">启用</span>
+      <span class="legend-item">上移</span>
+      <span class="legend-item">下移</span>
+    </div>
     {#each ordered as id, i (id)}
       {@const v = VENDORS.find(x => x.id === id)}
       {#if v}
@@ -657,7 +865,7 @@
           </span>
           <span class="tright">
             <!-- 启用 toggle：选中→验证绑定状态，未选中→已停用（状态持久化） -->
-            <button class="ibtn" class:on={active.has(id)} title={active.has(id) ? '已启用' : '已停用'}
+            <button class="ibtn ibtn-toggle" class:on={active.has(id)} title={active.has(id) ? '已启用' : '已停用'}
               onclick={() => {
                 const next = new Set(active);
                 if (active.has(id)) next.delete(id); else next.add(id);
@@ -704,7 +912,7 @@
     font-size: 15px;
     color: var(--amber);
     margin-top: 20px;
-    margin-bottom: 8px;
+    margin-bottom: 2px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -744,6 +952,7 @@
   }
   .arow:hover { background: var(--surface-tint); }
   .arow-last { border-bottom: none !important; }
+  .panel-last { border-bottom: none !important; }
   .arow.open { border-bottom: none; }
 
   .ainfo { flex: 1; min-width: 0; }
@@ -818,6 +1027,52 @@
   .cookie-mgr-actions { display: flex; gap: 6px; margin-top: 6px; }
   .panel-hint { font-size: 11px; color: var(--text-faint); margin: 4px 0 10px; line-height: 1.6; }
 
+  /* ── Copilot device-flow login ── */
+  .device-flow {
+    padding: 10px 12px;
+    margin: 0 0 10px;
+    border: 1px dashed var(--border-dim);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .df-status { font-size: 12px; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
+  .df-status.df-ok { color: var(--lime); margin: 0; }
+  .df-status.df-err { color: var(--coral); margin: 0; }
+  .df-code {
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--amber);
+    text-align: center;
+    padding: 8px 0;
+    background: rgba(232, 176, 75, 0.08);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    user-select: all;
+  }
+  .df-hint { font-size: 11px; color: var(--text-faint); margin: 0 0 6px; }
+  .df-link {
+    background: none;
+    border: none;
+    color: var(--amber);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .df-polling {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 0;
+    animation: df-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes df-pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
   .fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .field { display: flex; flex-direction: column; gap: 3px; }
   .flabel { font-size: 10.5px; color: var(--text-faint); }
@@ -882,6 +1137,20 @@
     transition: opacity 0.15s;
   }
   .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary:disabled:hover { opacity: 0.5; }
+  .btn-outline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-outline:disabled:hover {
+    border-color: var(--border-dim);
+    color: var(--text-dim);
+    background: var(--surface-tint-strong);
+  }
 
   .btn-open {
     display: inline-flex;
@@ -1010,6 +1279,8 @@
     flex-shrink: 0;
   }
 
+  /* ── icon legend ── */
+
   /* ── icon buttons (shared with Collection.svelte) ── */
   .ibtn {
     display: inline-flex;
@@ -1034,5 +1305,30 @@
   .ibtn.on { color: var(--amber); }
   .ibtn.on:hover { background: rgba(232,176,75,0.08); }
 
+  /* ── toggle button（启用）视觉宽度匹配文字）── */
+  .ibtn-toggle {
+    margin-right: 4px;
+  }
+
   .loading, .empty { font-size: 11px; color: var(--text-faint); padding: 8px 0; }
+
+  .icon-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 0;
+  }
+  .icon-legend .legend-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1;
+  }
 </style>

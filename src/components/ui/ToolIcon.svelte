@@ -11,7 +11,7 @@
   //   badge  — if true, render as 28px colored badge; else 14px inline icon
   //   size   — custom icon size in px (only for inline mode)
 
-  import { toolMeta, vendorIcon } from "./toolMeta";
+  import { toolMeta, vendorIcon } from "../../lib/meta/tools";
 
   let {
     tool,

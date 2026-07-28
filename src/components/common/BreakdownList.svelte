@@ -1,9 +1,9 @@
 <script lang="ts">
   import BreakdownBar from "./BreakdownBar.svelte";
   import { formatCost, splitTokens } from "../../lib/format";
-  import { modelVendor, vendorIdForModel } from "../../lib/modelMeta";
-  import { toolMeta, vendorIcon } from "../../lib/toolMeta";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
+  import { modelVendor, vendorIdForModel } from "../../lib/meta/models";
+  import { toolMeta, vendorIcon } from "../../lib/meta/tools";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { api, type Breakdown, type BreakdownEntry, type Currency, type Dimension } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
 

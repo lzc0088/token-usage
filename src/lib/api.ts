@@ -134,6 +134,20 @@ export interface QuotaWindow {
   used_pct: number;
   /** Absolute reset time (RFC3339/ISO-8601). Frontend computes live countdown. */
   resets_at?: string;
+  /** Used value (e.g. credits consumed) for "X / Y" display. */
+  used_value?: number;
+  /** Total value (e.g. credits limit) for "X / Y" display. */
+  total_value?: number;
+  /** Individual quota items within this window (e.g. each resource package). */
+  sub_items?: QuotaWindowSubItem[];
+}
+
+export interface QuotaWindowSubItem {
+  name: string;
+  used: number;
+  total: number;
+  pct: number;
+  expires_at?: string;
 }
 
 export interface QuotaBalance {
@@ -291,6 +305,14 @@ export const api = {
   /** Remove specific fields from a stored credential, keeping the rest. */
   clearCredentialFields: (vendor: string, fields: string[]) =>
     invoke<void>("clear_credential_fields", { vendor, fields }),
+
+  /** Run the GitHub Copilot OAuth Device Flow. Emits `copilot:login_status`
+   *  events as it progresses; resolves to the GitHub access token on success. */
+  copilotLogin: () => invoke<string>("copilot_login"),
+
+  /** Run `codex login` OAuth flow. Emits `codex:login_status` events as it
+   *  progresses; the frontend opens the authorize URL when detected. */
+  codexLogin: () => invoke<void>("codex_login"),
 
   getTokscaleStatus: () => invoke<TokscaleStatus>("get_tokscale_status"),
 

@@ -230,6 +230,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             label: label.into(),
             used_pct: pct.clamp(0.0, 100.0),
             resets_at,
+            ..Default::default()
         });
     }
     if windows.is_empty() {
@@ -351,6 +352,7 @@ fn parse_ark_response(
             label: "Ark".into(),
             used_pct,
             resets_at,
+            ..Default::default()
         }];
     }
 
@@ -369,6 +371,7 @@ fn parse_ark_response(
                 label: "Ark".into(),
                 used_pct: 0.0, // Token-only probe (no limit without ratelimit headers).
                 resets_at,
+                ..Default::default()
             }];
         }
     }
@@ -1014,11 +1017,13 @@ mod tests {
                     label: "5h".into(),
                     used_pct: 10.0,
                     resets_at: Some("2026-07-25T03:00:00Z".into()),
+                    ..Default::default()
                 },
                 QuotaWindow {
                     label: "周".into(),
                     used_pct: 20.0,
                     resets_at: None,
+                    ..Default::default()
                 },
             ],
             balance: None,

@@ -12,7 +12,7 @@ use chrono::Datelike;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::config;
-use crate::credentials;
+use crate::auth::credentials;
 use crate::quota::scheduler;
 use crate::quota::{Quota, QuotaBalance, VendorId};
 use crate::state::AppState;
@@ -48,6 +48,14 @@ fn adapter_for(id: &str) -> Option<VendorId> {
         "mimo" => Some(VendorId::Mimo),
         "stepfun" => Some(VendorId::Stepfun),
         "iflytek" => Some(VendorId::Iflytek),
+        "zai_team" => Some(VendorId::GlmTeam),
+        "qoder" => Some(VendorId::Qoder),
+        "cursor" => Some(VendorId::Cursor),
+        "copilot" => Some(VendorId::Copilot),
+        "ollama" => Some(VendorId::Ollama),
+        "opencode" => Some(VendorId::Opencode),
+        "claude" => Some(VendorId::Claude),
+        "codex" => Some(VendorId::Codex),
         _ => None,
     }
 }
@@ -112,13 +120,10 @@ pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
 
     let mut out = Vec::new();
     for row in rows {
-        let (vendor, data) = row.map_err(|e| e.to_string())?;
-        // Apply active-vendor filter
-        if let Some(ref active) = active_set {
-            if !active.contains(&vendor) {
-                continue;
-            }
-        }
+        let (_vendor, data) = row.map_err(|e| e.to_string())?;
+        // Include all cached vendors. `quota_active_vendors` is used for
+        // display ordering only — filtering would hide newly-added vendors
+        // (e.g. Claude, Codex) from existing configs that predate them.
         if let Ok(q) = serde_json::from_str::<Quota>(&data) {
             out.push(q);
         }
@@ -255,4 +260,12 @@ pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppH
     };
     let _ = app.emit("quota:updated", ());
     Ok(())
+}
+
+/// Run `codex login` OAuth flow. Spawns the CLI, streams stdout to find the
+/// authorize URL, emits `codex:login_status` events. Frontend opens the URL
+/// for the user to complete OAuth in their browser.
+#[tauri::command]
+pub async fn codex_login(app: AppHandle) -> Result<(), String> {
+    crate::quota::codex::codex_login(&app).await
 }

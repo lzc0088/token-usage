@@ -48,7 +48,7 @@
 
 <nav class="segbar">
   {#each segments as s (s.key)}
-    <button class:active={active === s.key} onclick={() => setSegment(s.key)}>{s.label}</button>
+    <button class:active={active === s.key} aria-current={active === s.key ? "page" : undefined} onclick={() => setSegment(s.key)}>{s.label}</button>
   {/each}
 </nav>
 

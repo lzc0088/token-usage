@@ -1,18 +1,16 @@
 // Entry point. M6: Tauri-native system tray + auto-hide on blur.
 #![allow(unexpected_cfgs)]
 
+pub mod auth;
 pub mod collector;
 pub mod commands;
 pub mod config;
-pub mod credentials;
-pub mod install_probe;
-pub mod paths;
 pub mod query;
 pub mod quota;
 pub mod state;
 pub mod storage;
-pub mod tray;
-pub mod window_ctl;
+pub mod ui;
+pub mod utils;
 
 use state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -155,7 +153,7 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
         let state = app.state::<AppState>();
         if let Ok(conn) = state.db.lock() {
             if let Ok(cfg) = config::load(&conn) {
-                crate::window_ctl::apply_drag_mode(app, cfg.window_display_mode == "fixed");
+                crate::ui::window::apply_drag_mode(app, cfg.window_display_mode == "fixed");
             }
         }
 
@@ -282,7 +280,7 @@ pub fn run() {
                     .load_config()
                     .map(|c| c.show_in_dock)
                     .unwrap_or(false);
-                window_ctl::apply_dock_visibility(app.handle(), show);
+                ui::window::apply_dock_visibility(app.handle(), show);
             }
 
             // Initialize positioner plugin for tray-relative window positioning
@@ -324,7 +322,7 @@ pub fn run() {
                             .map(|c| c.trigger_mode == "hover")
                             .unwrap_or(false);
                         if hover {
-                            window_ctl::cancel_hover_hide(); // re-hover cancels pending hide
+                            ui::window::cancel_hover_hide(); // re-hover cancels pending hide
                             if let Some(w) = app.get_webview_window("main") {
                                 if !w.is_visible().unwrap_or(false) {
                                     show_main_under_tray(app);
@@ -339,7 +337,7 @@ pub fn run() {
                             .map(|c| c.trigger_mode == "hover")
                             .unwrap_or(false);
                         if hover {
-                            window_ctl::schedule_hover_hide(app.clone());
+                            ui::window::schedule_hover_hide(app.clone());
                         }
                     }
 
@@ -438,7 +436,7 @@ pub fn run() {
             // Dock policy was applied early above; the rest is safe to set now.
             {
                 let conn = db.lock().expect("db poisoned");
-                window_ctl::apply_window_features(app.handle(), &conn);
+                ui::window::apply_window_features(app.handle(), &conn);
             }
 
             Ok(())
@@ -469,6 +467,8 @@ pub fn run() {
             commands::settings::update_cookie,
             commands::settings::get_credential_fields,
             commands::settings::clear_credential_fields,
+            commands::settings::copilot_login,
+            commands::quota::codex_login,
             commands::window_cmd::open_settings,
             commands::window_cmd::close_settings,
             commands::exchange::get_exchange_rate,
@@ -533,7 +533,7 @@ pub fn run() {
                                     if cfg.tray_display != mode {
                                         cfg.tray_display = mode.to_string();
                                         let _ = config::save(c, &cfg);
-                                        crate::tray::refresh_from_db(app, c);
+                                        crate::ui::tray::refresh_from_db(app, c);
                                     }
                                 }
                             }

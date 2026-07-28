@@ -12,8 +12,9 @@ use tokio::sync::mpsc;
 
 use super::{scheduler, tokscale, watcher};
 use crate::query::summary;
-use crate::tray;
-use crate::{paths, storage};
+use crate::ui::tray;
+use crate::utils::paths;
+use crate::storage;
 
 /// Start the collector pipeline. Best-effort: any setup failure (no tokscale,
 /// no watchable dirs) logs and returns silently rather than crashing the app —

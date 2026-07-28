@@ -127,7 +127,7 @@
   .item {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
     background: transparent;
     border: none;
     border-radius: 7px;
@@ -135,7 +135,7 @@
     color: var(--text-dim);
     cursor: pointer;
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: 14px;
     transition: 0.15s;
     text-align: left;
     -webkit-app-region: no-drag;
@@ -149,10 +149,10 @@
     color: var(--amber);
   }
   .item .si {
-    font-size: 14px;
-    width: 18px;
+    font-size: 16px;
+    width: 20px;
     text-align: center;
-    opacity: 0.85;
+    opacity: 0.9;
   }
 
   .setpanel {

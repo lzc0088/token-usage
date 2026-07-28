@@ -4,8 +4,8 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::db;
 use crate::config::Config;
-use crate::credentials;
-use crate::quota::VendorId;
+use crate::auth::credentials;
+use crate::quota::{copilot, VendorId};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -18,7 +18,7 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
     let conn = db(&state);
     crate::config::save(&conn, &config).map_err(|e| e.to_string())?;
     // Apply window-behaviour settings live (dock, drag, hotkey, tray).
-    crate::window_ctl::apply_window_config(&app, &conn);
+    crate::ui::window::apply_window_config(&app, &conn);
     // Notify all windows (e.g. the main popover) so layout/currency changes
     // apply live without waiting for a manual refresh.
     let _ = app.emit("config:changed", ());
@@ -56,6 +56,14 @@ pub async fn set_credential(
         "mimo" => Some(VendorId::Mimo),
         "stepfun" => Some(VendorId::Stepfun),
         "iflytek" => Some(VendorId::Iflytek),
+        "zai_team" => Some(VendorId::GlmTeam),
+        "qoder" => Some(VendorId::Qoder),
+        "cursor" => Some(VendorId::Cursor),
+        "copilot" => Some(VendorId::Copilot),
+        "ollama" => Some(VendorId::Ollama),
+        "opencode" => Some(VendorId::Opencode),
+        "claude" => Some(VendorId::Claude),
+        "codex" => Some(VendorId::Codex),
         _ => None,
     };
 
@@ -192,4 +200,19 @@ pub fn clear_credential_fields(
         return Ok(());
     }
     credentials::set(&conn, &vendor, &v.to_string()).map_err(|e| e.to_string())
+}
+
+/// Run the GitHub Copilot OAuth Device Flow.
+///
+/// Emits `copilot:login_status` events as the flow progresses:
+///   `{phase: "authorize", user_code, verification_url, expires_in}` — frontend
+///   opens the browser (shell plugin) and shows the user code.
+///   `{phase: "polling"}` / `{phase: "success"}` — progress updates.
+/// Returns the GitHub access token on success; the frontend then stores it via
+/// `set_credential("copilot", token)`.
+#[tauri::command]
+pub async fn copilot_login(app: AppHandle) -> Result<String, String> {
+    copilot::run_device_flow(&app)
+        .await
+        .map_err(|e| crate::quota::format_validate_error(&e.to_string()))
 }

@@ -3891,6 +3891,7 @@ dependencies = [
  "keyring",
  "notify",
  "objc",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

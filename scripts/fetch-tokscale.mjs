@@ -4,16 +4,19 @@
 //
 // Env:
 //   TOKSCALE_REGISTRY  override npm registry (default: https://registry.npmmirror.com)
-//   TOKSCALE_VERSION   override version (default: read from tokscale.rs::TOKSCALE_VERSION)
+//   TOKSCALE_VERSION   override version (default: read from tokscale.rs)
 //   TAURI_TARGET       rust target triple, e.g. aarch64-apple-darwin (overrides host)
 // Argv:
 //   --target=<triple>  same as TAURI_TARGET
 //   --registry=<url>   same as TOKSCALE_REGISTRY
 //   --version=<x.y.z>  same as TOKSCALE_VERSION
+//   --latest           query npm for the latest version (ignores pinned version)
 //
-// Idempotent: skips if the output already exists (delete to re-fetch).
+// Without --latest: idempotent — skips if the output already exists.
+// With --latest: always re-fetches and writes the resolved version back to
+// tokscale.rs so the Rust runtime install fallback stays in sync.
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, renameSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -33,8 +36,10 @@ function parseOpts() {
     version: process.env.TOKSCALE_VERSION || null,
     registry: process.env.TOKSCALE_REGISTRY || DEFAULT_REGISTRY,
     target: process.env.TAURI_TARGET || null,
+    latest: false,
   };
   for (const a of process.argv.slice(2)) {
+    if (a === "--latest") { opts.latest = true; continue; }
     const m = /^--([^=]+)=(.*)$/.exec(a);
     if (!m) continue;
     const [, k, v] = m;
@@ -52,6 +57,54 @@ function pinnedVersion() {
   const m = /pub const TOKSCALE_VERSION:\s*&str\s*=\s*"([^"]+)"/.exec(src);
   if (!m) throw new Error(`cannot find TOKSCALE_VERSION in ${RS_PATH}`);
   return m[1];
+}
+
+// Write a new version back to tokscale.rs (in-place string replace).
+function writePinnedVersion(version) {
+  let src = readFileSync(RS_PATH, "utf8");
+  const re = /pub const TOKSCALE_VERSION:\s*&str\s*=\s*"([^"]+)"/;
+  if (!re.test(src)) throw new Error(`cannot find TOKSCALE_VERSION in ${RS_PATH}`);
+  src = src.replace(re, `pub const TOKSCALE_VERSION: &str = "${version}"`);
+  writeFileSync(RS_PATH, src, "utf8");
+  console.log(`[fetch-tokscale] updated tokscale.rs TOKSCALE_VERSION → ${version}`);
+}
+
+// Query npm registry for the latest version of @tokscale/cli-{triple}.
+async function fetchLatestVersion(registry, triple) {
+  const url = `${registry}/@tokscale/cli-${triple}/latest`;
+  console.log(`[fetch-tokscale] query latest: ${url}`);
+  const body = await getJson(registry, `/@tokscale/cli-${triple}/latest`);
+  const v = body?.version;
+  if (!v) throw new Error(`could not resolve latest version for @tokscale/cli-${triple}`);
+  return v;
+}
+
+// HTTPS GET returning parsed JSON (handles redirects).
+function getJson(registryBase, path) {
+  const url = registryBase + path;
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        // Follow redirect (may be absolute or relative)
+        const loc = res.headers.location;
+        const nextUrl = loc.startsWith("http") ? loc : new URL(loc, registryBase).href;
+        https.get(nextUrl, (r2) => {
+          let data = "";
+          r2.on("data", (c) => (data += c));
+          r2.on("end", () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+        }).on("error", reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
+      let data = "";
+      res.on("data", (c) => (data += c));
+      res.on("end", () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+    }).on("error", reject);
+  });
 }
 
 // rust target triple → npm @tokscale/cli-<suffix>. Mirrors tokscale.rs::platform_triple.
@@ -122,16 +175,28 @@ function extractBinary(tgzPath, binName) {
 
 async function main() {
   const opts = parseOpts();
-  const rsVersion = pinnedVersion();
-  if (opts.version && opts.version !== rsVersion) {
-    console.warn(`[fetch-tokscale] WARN: requested ${opts.version} but tokscale.rs pins ${rsVersion}; using .rs value`);
-  }
-  const version = opts.version && opts.version !== rsVersion ? rsVersion : (opts.version || rsVersion);
 
   const triple = npmTriple(opts.target);
   const win = triple.startsWith("win32-");
   const binName = win ? "tokscale.exe" : "tokscale";
   const outPath = join(OUT_DIR, binName);
+
+  // ── resolve version ──────────────────────────────────────────────────────
+  let version;
+  if (opts.latest) {
+    // Query npm for the latest published version. Fall back to the pinned
+    // constant on any network or parse error so CI/dev still works offline.
+    try {
+      version = await fetchLatestVersion(opts.registry, triple);
+      // Delete stale binary so we always re-download on --latest.
+      rmSync(outPath, { force: true });
+    } catch (e) {
+      console.warn(`[fetch-tokscale] latest check failed: ${e.message}; falling back to pinned version`);
+      version = pinnedVersion();
+    }
+  } else {
+    version = opts.version || pinnedVersion();
+  }
 
   if (existsSync(outPath)) {
     console.log(`[fetch-tokscale] exists: ${outPath} (delete to re-fetch)`);
@@ -156,7 +221,12 @@ async function main() {
   rmSync(tgz, { force: true });
   // cleanup the temp extract dir (rename moved the file out)
   rmSync(join(tmpdir(), `tokscale-extract-${process.pid}`), { recursive: true, force: true });
-  console.log(`[fetch-tokscale] installed: ${outPath}`);
+  console.log(`[fetch-tokscale] installed: ${outPath} (v${version})`);
+
+  // ── sync Rust constant ───────────────────────────────────────────────────
+  if (opts.latest) {
+    writePinnedVersion(version);
+  }
 }
 
 main().catch((e) => {

@@ -243,6 +243,7 @@ fn build_quota(
             label: plan_label.clone(),
             used_pct: limits.plan_used_pct.unwrap_or(0.0),
             resets_at: limits.plan_resets_at.clone(),
+            ..Default::default()
         });
     }
 
@@ -252,6 +253,7 @@ fn build_quota(
             label: "5h".into(),
             used_pct: limits.five_h_used_pct.unwrap_or(0.0),
             resets_at: limits.five_h_resets_at.clone(),
+            ..Default::default()
         });
     }
 
@@ -261,6 +263,7 @@ fn build_quota(
             label: "周".into(),
             used_pct: limits.weekly_used_pct.unwrap_or(0.0),
             resets_at: limits.weekly_resets_at.clone(),
+            ..Default::default()
         });
     }
 

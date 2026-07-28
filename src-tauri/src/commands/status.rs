@@ -3,8 +3,8 @@
 use serde::Serialize;
 
 use crate::collector::tokscale;
-use crate::install_probe;
-use crate::paths;
+use crate::utils::probe;
+use crate::utils::paths;
 
 /// One tool's tracking status, for the 采集 segment / hero tool dots.
 #[derive(Debug, Clone, Serialize)]
@@ -28,14 +28,9 @@ pub async fn get_tools_status(app: tauri::AppHandle) -> Result<Vec<ClientStatus>
         .clients
         .into_iter()
         .map(|c| {
-            // "Installed" = the tool is on the machine: either it has session
-            // data, tokscale's known sessions dir exists, or a curated install
-            // probe (macOS .app bundle / config dir) matches. This fixes tools
-            // like Warp (installed GUI app, no sessions yet) and zcode (data
-            // under a non-standard path) that previously showed as 未安装.
             let installed = c.sessions_path_exists
                 || c.message_count > 0
-                || install_probe::is_installed(&c.client);
+                || probe::is_installed(&c.client);
             let status = if c.message_count > 0 {
                 "active"
             } else if installed {

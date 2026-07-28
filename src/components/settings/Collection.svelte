@@ -3,7 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import type { Config } from "../../lib/api";
   import { api, type ClientStatus, type TokscaleStatus } from "../../lib/api";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   let tools = $state<ClientStatus[] | null>(null);
@@ -139,7 +139,7 @@
 
     <div class="box-row">
       <div class="lab">会话保留<div class="hint">来源工具删除或清除会话后，仍保留会话总量与已观测的每日活动</div></div>
-      <button class="tg" class:on={keepDeleted} onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })} aria-label="会话保留"></button>
+      <button class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label="会话保留" onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
     </div>
 
     <div class="box-row">
@@ -180,6 +180,12 @@
     </span>
   </div>
   <div class="section-box">
+    <div class="icon-legend">
+      <span class="legend-item">追踪</span>
+      <span class="legend-item">显示</span>
+      <span class="legend-item">上移</span>
+      <span class="legend-item">下移</span>
+    </div>
 
     {#if tools === null}
       <div class="skel-list">
@@ -221,7 +227,7 @@
             </div>
             <span class="tright">
               <!-- 追踪 toggle -->
-              <button class="ibtn" title={tracked.has(t.client) ? '已追踪' : '未追踪'} onclick={() => toggleTracked(t.client)}>
+              <button class="ibtn ibtn-toggle" title={tracked.has(t.client) ? '已追踪' : '未追踪'} onclick={() => toggleTracked(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if tracked.has(t.client)}
                     <rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="9 12 11 14 16 8"/>
@@ -231,7 +237,7 @@
                 </svg>
               </button>
               <!-- 可见 eye -->
-              <button class="ibtn" class:on={visible.has(t.client)} title={visible.has(t.client) ? '显示中' : '已隐藏'} onclick={() => toggleVisible(t.client)}>
+              <button class="ibtn ibtn-vis" class:on={visible.has(t.client)} title={visible.has(t.client) ? '显示中' : '已隐藏'} onclick={() => toggleVisible(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if visible.has(t.client)}
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -378,6 +384,8 @@
     flex-shrink: 0;
   }
 
+  /* ── icon legend ── */
+
   /* ── basic section ── */
   .box-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); gap: 16px; }
   .box-row:first-child { padding-top: 2px; }
@@ -461,6 +469,14 @@
   .ibtn.on { color: var(--amber); }
   .ibtn.on:hover { background: rgba(232,176,75,0.08); }
 
+  /* ── special icon buttons（视觉宽度匹配文字）── */
+  .ibtn-toggle {
+    margin-right: 2px;
+  }
+  .ibtn-vis {
+    margin-right: 4px;
+  }
+
   /* ── tokscale inline (inside 基本 box-row) ── */
   /* ── tokscale inline (inside 基本 box-row) ── */
   .tok-inline { display: flex; align-items: center; gap: 8px; }
@@ -472,4 +488,24 @@
   .tok-badge { font-size: 10.5px; color: var(--text-dim); background: rgba(255,255,255,0.05); padding: 2px 7px; border-radius: 5px; }
 
   .empty { font-size: 11px; color: var(--text-faint); padding: 12px 0; }
+
+  .icon-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 0;
+  }
+  .icon-legend .legend-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1;
+  }
 </style>

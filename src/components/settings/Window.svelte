@@ -31,16 +31,39 @@
 
   // ── 快捷键录制 ──
   const MODIFIER_NAMES = new Set(["Alt", "Meta", "Shift", "Control"]);
-  // accelerator 名 → 显示符号
-  const SYMBOLS: Record<string, string> = {
-    Alt: "⌥",
-    Meta: "⌘",
-    Command: "⌘",
-    Shift: "⇧",
-    Control: "⌃",
+  // 根据运行平台决定修饰键的显示名称
+  const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform ?? "");
+  // accelerator 名 → 键盘按键显示名（全小写 key 做匹配）
+  const KEY_LABELS: Record<string, string> = {
+    alt:     isMac ? "OPT" : "ALT",    // Mac 物理键是 Option，Win/Linux 是 Alt
+    option:  "OPT",
+    meta:    isMac ? "CMD" : "WIN",    // Mac ⌘，Windows 徽标键
+    command: "CMD",
+    cmd:     "CMD",
+    shift:   "SHIFT",
+    control: "CTRL",
+    ctrl:    "CTRL",
   };
 
   let recording = $state(false);
+
+  /**
+   * 将 accelerator 字符串（如 "Meta+Alt+T"）渲染为平台对应的键盘按键名。
+   * 修饰键按平台映射，主键（字母/数字/功能键）保持大写。
+   */
+  function formatHotkey(hotkey: string): string[] {
+    if (!hotkey) return [];
+    return hotkey
+      .split("+")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const label = KEY_LABELS[part.toLowerCase()];
+        if (label) return label;
+        if (part.length === 1) return part.toUpperCase();
+        return part;
+      });
+  }
 
   function onSelect<K extends keyof Config>(key: K, value: Config[K]): void {
     onUpdate({ [key]: value } as Partial<Config>);
@@ -52,14 +75,6 @@
 
   function cancelRecording(): void {
     recording = false;
-  }
-
-  // 将 accelerator 字符串渲染为符号（用于展示）。
-  function formatHotkey(hotkey: string): string[] {
-    if (!hotkey) return [];
-    return hotkey
-      .split("+")
-      .map((part) => SYMBOLS[part] ?? (part.length === 1 ? part.toUpperCase() : part));
   }
 
   // 录制：keydown 组合 modifier + 主键。Escape 取消，Backspace（无主键时）清除。
@@ -82,11 +97,22 @@
     if (e.altKey) parts.push("Alt");
     if (e.shiftKey) parts.push("Shift");
 
-    // 主键归一化：单字符大写，功能键原样。
-    let main = e.key;
-    if (main === " ") main = "Space";
-    else if (main.length === 1) main = main.toUpperCase();
+    // 主键归一化：优先使用 e.code（物理按键，跨键盘布局一致），回退到 e.key。
+    let main = e.code.replace(/^Key/, "").replace(/^Digit/, "").replace(/^Numpad/, "Numpad");
+    if (!main || main.length > 2) {
+      // e.code 异常时，用 e.key 兜底。
+      main = e.key;
+      if (!main || main.length > 2) return;
+    }
+    if (main === " ") {
+      main = "Space";
+    } else if (main.length === 1) {
+      // 确保单个字符总是大写
+      main = main.toUpperCase();
+    }
     parts.push(main);
+
+    console.log("[Hotkey Debug]", { eKey: e.key, eCode: e.code, eKeyCode: e.keyCode, finalHotkey: parts.join("+") });
 
     onUpdate({ hotkey: parts.join("+") });
     recording = false;
@@ -208,8 +234,10 @@
       <button
         class="tg"
         class:on={!!config.show_in_dock}
-        onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
+        role="switch"
+        aria-checked={!!config.show_in_dock}
         aria-label="程序坞图标"
+        onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
       ></button>
     </div>
   </div>

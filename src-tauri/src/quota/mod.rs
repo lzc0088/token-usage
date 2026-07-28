@@ -11,12 +11,20 @@
 //! reference; other adapters land incrementally. Dispatch is by [`VendorId`]
 //! (no trait objects, no async-trait dep).
 
+pub mod claude;
+pub mod codex;
+pub mod copilot;
+pub mod cursor;
 pub mod deepseek;
 pub mod glm;
+pub mod glm_team;
 pub mod iflytek;
 pub mod kimi;
 pub mod mimo;
 pub mod minimax;
+pub mod ollama;
+pub mod opencode;
+pub mod qoder;
 pub mod scheduler;
 pub mod stepfun;
 pub mod types;
@@ -46,10 +54,14 @@ pub enum VendorId {
     Mimo,
     Stepfun,
     Iflytek,
-    // V1 stubs — adapters land incrementally:
-    // Claude, Codex, Grok,          // subscription
-    // Copilot,                      // api key
-    // Qoder, Ollama, GlmTeam,       // cookie
+    GlmTeam,
+    Qoder,
+    Cursor,
+    Copilot,
+    Ollama,
+    Opencode,
+    Claude,
+    Codex,
 }
 
 impl VendorId {
@@ -63,6 +75,14 @@ impl VendorId {
             VendorId::Mimo => "MiMo",
             VendorId::Stepfun => "StepFun",
             VendorId::Iflytek => "iFlytek",
+            VendorId::GlmTeam => "GLM Team",
+            VendorId::Qoder => "Qoder ( 阿里 )",
+            VendorId::Cursor => "Cursor ( Anysphere )",
+            VendorId::Copilot => "GitHub Copilot",
+            VendorId::Ollama => "Ollama ( Ollama Cloud )",
+            VendorId::Opencode => "OpenCode ( OpenCode AI )",
+            VendorId::Claude => "Claude Code",
+            VendorId::Codex => "Codex",
         }
     }
 
@@ -73,14 +93,17 @@ impl VendorId {
             | VendorId::Minimax
             | VendorId::Kimi
             | VendorId::Volcengine
-            | VendorId::Mimo => CredentialCategory::ApiKey,
-            // stepfun / iflytek quota is read via the console cookie API.
-            VendorId::Stepfun | VendorId::Iflytek => CredentialCategory::Cookie,
+            | VendorId::Mimo
+            | VendorId::GlmTeam => CredentialCategory::ApiKey,
+            // stepfun / iflytek / qoder / cursor / copilot / ollama / opencode / claude / codex use cookie / OAuth token.
+            VendorId::Stepfun | VendorId::Iflytek | VendorId::Qoder | VendorId::Cursor | VendorId::Copilot | VendorId::Ollama | VendorId::Opencode | VendorId::Claude | VendorId::Codex => {
+                CredentialCategory::Cookie
+            }
         }
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum VendorError {
     #[error("network: {0}")]
     Network(String),
@@ -141,6 +164,14 @@ pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorEr
         VendorId::Mimo => mimo::fetch(credential).await,
         VendorId::Stepfun => stepfun::fetch(credential).await,
         VendorId::Iflytek => iflytek::fetch(credential).await,
+        VendorId::GlmTeam => glm_team::fetch(credential).await,
+        VendorId::Qoder => qoder::fetch(credential).await,
+        VendorId::Cursor => cursor::fetch(credential).await,
+        VendorId::Copilot => copilot::fetch(credential).await,
+        VendorId::Ollama => ollama::fetch(credential).await,
+        VendorId::Opencode => opencode::fetch(credential).await,
+        VendorId::Claude => claude::fetch(credential).await,
+        VendorId::Codex => codex::fetch(credential).await,
     }
 }
 

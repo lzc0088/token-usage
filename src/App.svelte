@@ -346,7 +346,7 @@
     min-width: 32px;
     min-height: 32px;
   }
-  .fbtn-gear { font-size: 17px; }
+  .fbtn-gear { font-size: 21px; }
   .fbtn:hover {
     color: var(--amber);
     border-color: var(--amber-soft);

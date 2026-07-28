@@ -9,52 +9,52 @@
 
 // ── SVG imports (Vite ?raw → string) ──────────────────────────────────────
 
-import claudeIcon from "./icons/tools/claude.svg?raw";
-import codexIcon from "./icons/tools/codex.svg?raw";
-import zcodeIcon from "./icons/tools/zcode.svg?raw";
-import opencodeIcon from "./icons/tools/opencode.svg?raw";
-import cursorIcon from "./icons/tools/cursor.svg?raw";
-import clineIcon from "./icons/tools/cline.svg?raw";
-import grokIcon from "./icons/tools/grok.svg?raw";
-import kimiIcon from "./icons/tools/kimi.svg?raw";
-import copilotIcon from "./icons/tools/copilot.svg?raw";
-import zedIcon from "./icons/tools/zed.svg?raw";
-import kiroIcon from "./icons/tools/kiro.svg?raw";
-import qoderIcon from "./icons/tools/qoder.svg?raw";
-import traeIcon from "./icons/tools/trae.svg?raw";
-import workbuddyIcon from "./icons/tools/workbuddy.svg?raw";
-import codebuddyIcon from "./icons/tools/codebuddy.svg?raw";
-import aideIcon from "./icons/tools/aide.svg?raw";
-import crushIcon from "./icons/tools/crush.svg?raw";
-import piecesIcon from "./icons/tools/pieces.svg?raw";
-import tabnineIcon from "./icons/tools/tabnine.svg?raw";
-import aicodeIcon from "./icons/tools/aicode.svg?raw";
-import smoreIcon from "./icons/tools/smore.svg?raw";
-import auggieIcon from "./icons/tools/auggie.svg?raw";
-import antigravityIcon from "./icons/tools/antigravity.svg?raw";
-import geminiIcon from "./icons/tools/gemini.svg?raw";
-import kilocodeIcon from "./icons/tools/kilocode.svg?raw";
-import openclawIcon from "./icons/tools/openclaw.svg?raw";
-import hermesIcon from "./icons/tools/hermes.svg?raw";
-import qwenIcon from "./icons/tools/qwen.svg?raw";
-import piIcon from "./icons/tools/pi.svg?raw";
-import promaIcon from "./icons/tools/proma.svg?raw";
-import warpIcon from "./icons/tools/warp.svg?raw";
-import muxIcon from "./icons/tools/mux.svg?raw";
-import jetbrainsIcon from "./icons/tools/jetbrains.svg?raw";
+import claudeIcon from "../icons/tools/claude.svg?raw";
+import codexIcon from "../icons/tools/codex.svg?raw";
+import zcodeIcon from "../icons/tools/zcode.svg?raw";
+import opencodeIcon from "../icons/tools/opencode.svg?raw";
+import cursorIcon from "../icons/tools/cursor.svg?raw";
+import clineIcon from "../icons/tools/cline.svg?raw";
+import grokIcon from "../icons/tools/grok.svg?raw";
+import kimiIcon from "../icons/tools/kimi.svg?raw";
+import copilotIcon from "../icons/tools/copilot.svg?raw";
+import zedIcon from "../icons/tools/zed.svg?raw";
+import kiroIcon from "../icons/tools/kiro.svg?raw";
+import qoderIcon from "../icons/tools/qoder.svg?raw";
+import traeIcon from "../icons/tools/trae.svg?raw";
+import workbuddyIcon from "../icons/tools/workbuddy.svg?raw";
+import codebuddyIcon from "../icons/tools/codebuddy.svg?raw";
+import aideIcon from "../icons/tools/aide.svg?raw";
+import crushIcon from "../icons/tools/crush.svg?raw";
+import piecesIcon from "../icons/tools/pieces.svg?raw";
+import tabnineIcon from "../icons/tools/tabnine.svg?raw";
+import aicodeIcon from "../icons/tools/aicode.svg?raw";
+import smoreIcon from "../icons/tools/smore.svg?raw";
+import auggieIcon from "../icons/tools/auggie.svg?raw";
+import antigravityIcon from "../icons/tools/antigravity.svg?raw";
+import geminiIcon from "../icons/tools/gemini.svg?raw";
+import kilocodeIcon from "../icons/tools/kilocode.svg?raw";
+import openclawIcon from "../icons/tools/openclaw.svg?raw";
+import hermesIcon from "../icons/tools/hermes.svg?raw";
+import qwenIcon from "../icons/tools/qwen.svg?raw";
+import piIcon from "../icons/tools/pi.svg?raw";
+import promaIcon from "../icons/tools/proma.svg?raw";
+import warpIcon from "../icons/tools/warp.svg?raw";
+import muxIcon from "../icons/tools/mux.svg?raw";
+import jetbrainsIcon from "../icons/tools/jetbrains.svg?raw";
 
 // Vendor icons for model breakdown
-import deepseekVendorIcon from "./icons/vendors/deepseek.svg?raw";
-import stepfunVendorIcon from "./icons/vendors/stepfun.svg?raw";
-import minimaxVendorIcon from "./icons/vendors/minimax.svg?raw";
-import volcengineVendorIcon from "./icons/vendors/volcengine.svg?raw";
-import mimoVendorIcon from "./icons/vendors/mimo.svg?raw";
-import iflytekVendorIcon from "./icons/vendors/iflytek.svg?raw";
-import doubaoVendorIcon from "./icons/vendors/doubao.svg?raw";
-import hunyuanVendorIcon from "./icons/vendors/hunyuan.svg?raw";
-import ollamaVendorIcon from "./icons/vendors/ollama.svg?raw";
+import deepseekVendorIcon from "../icons/vendors/deepseek.svg?raw";
+import stepfunVendorIcon from "../icons/vendors/stepfun.svg?raw";
+import minimaxVendorIcon from "../icons/vendors/minimax.svg?raw";
+import volcengineVendorIcon from "../icons/vendors/volcengine.svg?raw";
+import mimoVendorIcon from "../icons/vendors/mimo.svg?raw";
+import iflytekVendorIcon from "../icons/vendors/iflytek.svg?raw";
+import doubaoVendorIcon from "../icons/vendors/doubao.svg?raw";
+import hunyuanVendorIcon from "../icons/vendors/hunyuan.svg?raw";
+import ollamaVendorIcon from "../icons/vendors/ollama.svg?raw";
 
-import { modelVendor, VENDOR_NAME_TO_ID } from "./modelMeta";
+import { modelVendor, VENDOR_NAME_TO_ID } from "./models";
 
 const ICONS: Record<string, string> = {
   // ── Tools ──
@@ -122,15 +122,15 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   claude:    { label: "Claude Code",  icon: ICONS.claude,    color: "var(--amber)" },
   codex:     { label: "Codex",        icon: ICONS.codex,     color: "var(--violet)" },
   zcode:     { label: "ZCode",        icon: ICONS.zcode,     color: "var(--cyan)" },
-  opencode:  { label: "OpenCode",     icon: ICONS.opencode,  color: "var(--lime)" },
-  cursor:    { label: "Cursor",       icon: ICONS.cursor,    color: "var(--coral)" },
+  opencode:  { label: "OpenCode ( OpenCode AI )",     icon: ICONS.opencode,  color: "var(--lime)" },
+  cursor:    { label: "Cursor ( Anysphere )",       icon: ICONS.cursor,    color: "var(--coral)" },
   cline:     { label: "Cline",        icon: ICONS.cline,     color: "var(--text-dim)" },
   grok:      { label: "Grok",         icon: ICONS.grok,      color: "var(--coral)" },
   kimi:      { label: "Kimi",         icon: ICONS.kimi,      color: "var(--cyan)" },
   copilot:   { label: "Copilot",      icon: ICONS.copilot,   color: "var(--text-dim)" },
   zed:       { label: "Zed",          icon: ICONS.zed,       color: "var(--text-dim)" },
   kiro:      { label: "Kiro",         icon: ICONS.kiro,      color: "var(--text-dim)" },
-  qoder:     { label: "Qoder",        icon: ICONS.qoder,     color: "var(--amber)" },
+  qoder:     { label: "Qoder ( 阿里 )",        icon: ICONS.qoder,     color: "var(--amber)" },
   trae:      { label: "Trae",         icon: ICONS.trae,      color: "var(--lime)" },
   workbuddy: { label: "WorkBuddy",    icon: ICONS.workbuddy, color: "#64b4ff" },
   codebuddy: { label: "CodeBuddy",    icon: ICONS.codebuddy, color: "var(--lime)" },
@@ -154,7 +154,7 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   micode:      { label: "MiMo Code",   icon: ICONS.micode,      color: "#FF6900" },
   mimo:        { label: "MiMo",        icon: ICONS.mimo,        color: "#FF6900" },
   junie:       { label: "Junie",       icon: ICONS.jetbrains,   color: "#FE2857" },
-  ollama:      { label: "Ollama",      icon: ICONS.ollama,      color: "var(--text-dim)" },
+  ollama:      { label: "Ollama ( Ollama Cloud )",      icon: ICONS.ollama,      color: "var(--text-dim)" },
   zai_team:    { label: "GLM Team",   icon: ICONS.zai_team,   color: "var(--amber)" },
   // model-level keys (used by model breakdown — vendor icon for the model)
   "glm-5.2":        { label: "glm-5.2",        icon: ICONS["glm-5.2"]        || zcodeIcon,         color: "var(--amber)" },

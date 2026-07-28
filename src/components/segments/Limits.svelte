@@ -5,13 +5,21 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-shell";
   import { api, type Config, type Quota, type QuotaBalance } from "../../lib/api";
-  import ToolIcon from "../../lib/ToolIcon.svelte";
-  import { VENDOR_LABELS } from "../../lib/vendorLabels";
-  import { VENDOR_PANEL, resolvePanelUrl } from "../../lib/vendorPanel";
+  import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import { VENDOR_LABELS } from "../../lib/meta/vendors";
+  import { VENDOR_PANEL, resolvePanelUrl } from "../../lib/meta/panels";
 
   let quotas = $state<Quota[] | null>(null);
   let config = $state<Config | null>(null);
   let nowMs = $state(Date.now());
+  /** Tracks which windows are expanded (key = window label). */
+  let expandedWindows = $state<Map<string, boolean>>(new Map());
+
+  function toggleWindow(label: string): void {
+    const cur = expandedWindows.get(label) ?? false;
+    expandedWindows.set(label, !cur);
+    expandedWindows = new Map(expandedWindows); // trigger reactivity
+  }
 
   // Tick every 30s so reset countdowns stay live (local only, no API calls).
   $effect(() => {
@@ -98,22 +106,35 @@
     if (hours > 0) return `Reset ${hours}h ${mins}min`;
     return `Reset ${mins}min`;
   }
-  /** Find the nearest future subscription expiry — prefer `expires_at`
-   *  (plan end), else fall back to scanning window `resets_at`. Returns the
-   *  epoch ms or `undefined` when none. */
-  function nearestExpiry(q: Quota, now: number): number | undefined {
-    if (q.expires_at) {
-      const t = Date.parse(q.expires_at);
-      if (Number.isFinite(t) && t > now) return t;
-    }
-    let nearest: number | undefined;
-    for (const w of q.windows) {
-      if (!w.resets_at) continue;
-      const t = Date.parse(w.resets_at);
-      if (!Number.isFinite(t) || t <= now) continue;
-      if (nearest === undefined || t < nearest) nearest = t;
-    }
-    return nearest;
+
+  /** Format a credits number: integers as "1,500", floats as "1,234.5". */
+  function fmtCredits(n: number | undefined | null): string {
+    if (n == null) return "—";
+    const isInt = n % 1 === 0;
+    const s = isInt ? String(n) : n.toFixed(1);
+    const parts = s.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join(".");
+  }
+
+  /** Full expiry date: "2026-12-31" or "" if absent/unparseable.
+   *  Caller appends "到期". */
+  function formatShortExpiry(iso: string): string {
+    const target = Date.parse(iso);
+    if (!Number.isFinite(target)) return "";
+    const d = new Date(target);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  /** Plan-level subscription expiry. Only `expires_at` is considered — per-window
+   *  `resets_at` is a rolling quota reset (already shown in each window row),
+   *  not a subscription end date. Returns epoch ms or `undefined`. */
+  function nearestExpiry(q: Quota, _now: number): number | undefined {
+    if (!q.expires_at) return undefined;
+    const t = Date.parse(q.expires_at);
+    return (Number.isFinite(t) && t > _now) ? t : undefined;
   }
   /** "2026-10-19到期 · 剩余86d 10h 22m" or "" if no upcoming expiry. */
   function formatExpiry(q: Quota, now: number): string {
@@ -218,6 +239,7 @@
                 placeholder="粘贴新 Cookie…"
                 rows="3"
                 disabled={cookieSaving}
+                aria-label="Cookie"
               ></textarea>
               <div class="qcookie-actions">
                 <button
@@ -272,17 +294,50 @@
         {#each q.windows as w (w.label)}
           {@const showPct = progressMode === "用量" ? Math.round(w.used_pct) : Math.round(100 - w.used_pct)}
           {@const showLabel = progressMode === "用量" ? "用量" : "剩余"}
-          {@const resetText = formatReset(w.resets_at, nowMs)}
-          <!-- 窗口：标签 + 进度条 + 百分比( 用量/剩余 )同行 → 重置时间(下行) -->
+          {@const summaryCredits = w.used_value != null && w.total_value != null
+            ? `${fmtCredits(w.used_value)} / ${fmtCredits(w.total_value)}`
+            : null}
+          {@const hasSub = w.sub_items && w.sub_items.length > 0}
+          {@const subExpanded = expandedWindows.get(w.label) ?? false}
           <div class="qitem-window">
-            <div class="qiw-row">
-              <span class="qiw-label">{windowLabel(w.label)}</span>
-              <span class="qiw-bar-wrap"><span class="qiw-bar"><span class="qiw-fill f-{showPct <= 20 ? 'danger' : showPct <= 50 ? 'low' : 'ok'}" style="width:{Math.min(100, Math.max(0, showPct))}%"></span></span></span>
+            <!-- 汇总行：label | 进度条列(进度条 + credits说明) | 类型 | 百分比 -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <div class="qiw-row" class:clickable={hasSub} role={hasSub ? "button" : undefined} tabindex={hasSub ? 0 : undefined} onkeydown={hasSub ? (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleWindow(w.label); } } : undefined} onclick={hasSub ? () => toggleWindow(w.label) : undefined}>
+              <span class="qiw-label">
+                {#if hasSub}
+                  <span class="qiw-chevron" class:open={subExpanded}>▸</span>
+                {/if}
+                {windowLabel(w.label)}
+              </span>
+              <span class="qiw-bar-col">
+                <span class="qiw-bar"><span class="qiw-fill f-{showPct <= 20 ? 'danger' : showPct <= 50 ? 'low' : 'ok'}" style="width:{Math.min(100, Math.max(0, showPct))}%"></span></span>
+                {#if summaryCredits}
+                  <span class="qiw-bar-caption">{summaryCredits}</span>
+                {/if}
+              </span>
               <span class="qiw-mode-tag" class:tag-remaining={showLabel === "剩余"} class:tag-usage={showLabel === "用量"}>{showLabel}</span>
               <span class="qiw-pct">{showPct}%</span>
             </div>
-            {#if resetText}
-              <div class="qiw-reset">{resetText}</div>
+            <!-- 子项列表（可折叠）：credits | 进度条列(进度条 + 到期日) | 百分比 -->
+            {#if hasSub && subExpanded}
+              <div class="qiw-sub">
+                {#each w.sub_items! as item (item.name + (item.expires_at ?? ''))}
+                  {@const itemShowPct = progressMode === "用量" ? Math.round(item.pct) : Math.round(100 - item.pct)}
+                  <div class="qsub-row">
+                    <span class="qsub-credits">{fmtCredits(item.used)} / {fmtCredits(item.total)}</span>
+                    <span class="qiw-bar-col">
+                      <span class="qiw-bar qsub-bar"><span class="qiw-fill f-{itemShowPct <= 20 ? 'danger' : itemShowPct <= 50 ? 'low' : 'ok'}" style="width:{Math.min(100, Math.max(0, itemShowPct))}%"></span></span>
+                      {#if item.expires_at}
+                        <span class="qiw-bar-caption">{formatShortExpiry(item.expires_at)}到期</span>
+                      {/if}
+                    </span>
+                    <span class="qsub-tag-spacer"></span>
+                    <span class="qsub-pct">{itemShowPct}%</span>
+                  </div>
+                {/each}
+              </div>
+            {:else if w.resets_at}
+              <div class="qiw-reset">{formatReset(w.resets_at, nowMs)}</div>
             {/if}
           </div>
         {/each}
@@ -478,17 +533,59 @@
     white-space: nowrap;
     flex-shrink: 0;
     width: 60px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
-  .qiw-bar-wrap {
+  /* Chevron for expandable windows */
+  .qiw-chevron {
+    display: inline-block;
+    font-size: 13px;
+    color: var(--text-faint);
+    transition: transform 0.15s;
+    width: 12px;
+    text-align: center;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .qiw-chevron.open {
+    transform: rotate(90deg);
+  }
+  /* Clickable summary row */
+  .qiw-row.clickable {
+    cursor: pointer;
+  }
+  .qiw-row.clickable:hover .qiw-label {
+    color: var(--text);
+  }
+  /* Bar column: the bar defines the row's vertical center line so the label,
+     bar, tag and pct all sit on the same horizontal axis. The caption (credits
+     / expiry) is absolutely positioned below the bar so it doesn't shift the
+     bar off that center line. */
+  .qiw-bar-col {
     flex: 1;
+    min-width: 160px;
+    position: relative;
     display: flex;
-    justify-content: center;
-    padding: 0 8px;
+    align-items: center;
+    padding: 0 6px;
+  }
+  .qiw-bar-caption {
+    position: absolute;
+    top: 100%;
+    left: 6px;
+    right: 6px;
+    margin-top: 2px;
+    font-size: 9px;
+    color: var(--text-faint);
+    font-family: "JetBrains Mono", var(--font-mono);
+    text-align: center;
+    line-height: 1.2;
+    white-space: nowrap;
   }
   .qiw-bar {
     width: 100%;
-    max-width: 100%;
-    height: 6px;
+    height: 5px;
     background: var(--bar-track);
     border-radius: 3px;
     overflow: hidden;
@@ -669,5 +766,53 @@
     color: var(--text-faint);
     margin: 6px 0 0;
     line-height: 1.6;
+  }
+
+  /* ── Sub-items (individual quota_detail entries) ──
+     Column widths mirror the summary row (label/credits 60px, mode-tag/spacer
+     52px, pct 34px) so the progress bar's right edge and the percentage both
+     right-align with the summary row. A left border + padding gives the
+     visual indent without shifting the right edge. */
+  .qiw-sub {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+  }
+  .qsub-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding-left: 10px;
+    border-left: 1px solid var(--border-dim);
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .qsub-credits {
+    flex: 0 0 60px;
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: "JetBrains Mono", var(--font-mono);
+    text-align: right;
+    white-space: nowrap;
+    flex-shrink: 0;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .qsub-tag-spacer {
+    flex: 0 0 52px;
+    flex-shrink: 0;
+  }
+  .qsub-bar {
+    height: 3px;
+  }
+  .qsub-pct {
+    flex: 0 0 34px;
+    font-size: 9.5px;
+    font-family: "JetBrains Mono", var(--font-mono);
+    color: var(--text-dim);
+    text-align: right;
+    flex-shrink: 0;
   }
 </style>

@@ -109,9 +109,10 @@ pub fn app_bin_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("token-usage").join("tokscale-bin"))
 }
 
-/// tokscale version we target for install. Pinned for reproducibility; bump
-/// deliberately (verified 2026-07-17).
-pub const TOKSCALE_VERSION: &str = "4.5.3";
+/// tokscale version used for install fallback. Automatically bumped by
+/// `scripts/fetch-tokscale.mjs --latest` at build time (reads npm registry
+/// for the latest published @tokscale/cli-{triple} and writes back here).
+pub const TOKSCALE_VERSION: &str = "4.7.0";
 
 /// tokscale platform package suffix for the current compile target, matching
 /// `@tokscale/cli-<suffix>` optionalDependencies.

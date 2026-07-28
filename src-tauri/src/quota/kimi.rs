@@ -428,6 +428,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             label: label.into(),
             used_pct: pct,
             resets_at: reset_iso(&detail.reset_time),
+            ..Default::default()
         });
     }
 
@@ -440,6 +441,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
                     label: if session { "5h" } else { "周" }.into(),
                     used_pct: pct,
                     resets_at: reset_iso(&usage.reset_time),
+                    ..Default::default()
                 });
             }
         }
@@ -502,6 +504,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
                 label: "5h".into(),
                 used_pct,
                 resets_at: reset_iso(&rl.reset_time),
+                ..Default::default()
             });
         }
     }
@@ -515,6 +518,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
                 label: "周".into(),
                 used_pct,
                 resets_at: reset_iso(&rl.reset_time),
+                ..Default::default()
             });
         }
     }
@@ -532,6 +536,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
                     label: "月".into(),
                     used_pct,
                     resets_at: reset_iso(&sb.expire_time),
+                    ..Default::default()
                 });
             }
         }
@@ -586,6 +591,7 @@ fn parse_web_usage(body: &str) -> Vec<QuotaWindow> {
                         label: if sess { "5h".into() } else { "周".into() },
                         used_pct: pct,
                         resets_at: reset_iso(&d.reset_time),
+                        ..Default::default()
                     });
                     if sess {
                         have_session = true;
@@ -603,6 +609,7 @@ fn parse_web_usage(body: &str) -> Vec<QuotaWindow> {
                             label: if sess { "5h" } else { "周" }.into(),
                             used_pct: pct,
                             resets_at: reset_iso(&usage.reset_time),
+                            ..Default::default()
                         });
                     }
                 }

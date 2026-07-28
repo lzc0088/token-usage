@@ -257,6 +257,7 @@ pub fn parse_plan(
             },
             used_pct: 0.0,   // Will be filled from usage
             resets_at: None, // Plan expiry goes to Quota.expires_at, not here
+            ..Default::default()
         },
         plan_code,
         resets_at, // plan expiry (currentPeriodEnd) → surfaced as Quota.expires_at

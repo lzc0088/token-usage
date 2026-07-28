@@ -215,7 +215,7 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">开机自启动<div class="hint">登录时自动启动并驻留菜单栏</div></div>
-      <button class="tg" class:on={autoStartEnabled} onclick={toggleAutoStart} disabled={autoStartToggling} aria-label="开机自启动"></button>
+      <button class="tg" class:on={autoStartEnabled} role="switch" aria-checked={autoStartEnabled} aria-label="开机自启动" onclick={toggleAutoStart} disabled={autoStartToggling}></button>
     </div>
   </div>
 

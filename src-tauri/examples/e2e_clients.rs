@@ -2,7 +2,7 @@
 //   TOKSCALE_REGISTRY=https://registry.npmmirror.com cargo run --example e2e_clients
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use token_usage_lib::{collector::tokscale, paths};
+    use token_usage_lib::{collector::tokscale, utils::paths};
     let data = tokscale::app_bin_dir().ok_or("no data dir")?;
     let bin = match tokscale::resolve_bin(None, &data) {
         Ok(b) => b,

@@ -16,7 +16,7 @@ use tokio::time::Duration;
 use std::collections::HashSet;
 
 use crate::config;
-use crate::credentials;
+use crate::auth::credentials;
 use crate::quota::{Quota, QuotaBalance, VendorId};
 
 /// All vendor ids the account page can bind.
@@ -108,6 +108,14 @@ fn adapter_for(id: &str) -> Option<VendorId> {
         "mimo" => Some(VendorId::Mimo),
         "stepfun" => Some(VendorId::Stepfun),
         "iflytek" => Some(VendorId::Iflytek),
+        "zai_team" => Some(VendorId::GlmTeam),
+        "qoder" => Some(VendorId::Qoder),
+        "cursor" => Some(VendorId::Cursor),
+        "copilot" => Some(VendorId::Copilot),
+        "ollama" => Some(VendorId::Ollama),
+        "opencode" => Some(VendorId::Opencode),
+        "claude" => Some(VendorId::Claude),
+        "codex" => Some(VendorId::Codex),
         _ => None,
     }
 }
@@ -117,7 +125,7 @@ fn adapter_for(id: &str) -> Option<VendorId> {
 /// vendors must NOT be permanently silenced on an auth failure — each refresh
 /// cycle retries them so a freshly-updated cookie takes effect on the next tick.
 fn is_cookie_vendor(id: &str) -> bool {
-    matches!(id, "mimo" | "stepfun" | "kimi" | "iflytek")
+    matches!(id, "mimo" | "stepfun" | "kimi" | "iflytek" | "qoder" | "cursor" | "ollama" | "opencode" | "claude" | "codex")
 }
 
 fn placeholder(id: &str, auth_failed: bool) -> Quota {
