@@ -1,6 +1,7 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { api, type Breakdown, type Currency, type Quota, type Summary } from "../../lib/api";
+  import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
@@ -10,6 +11,9 @@
 
   interface OverviewConfig {
     layout_overview_sub?: string[] | null;
+    overview_quota_vendors?: string[] | null;
+    quota_active_vendors?: string[] | null;
+    quota_progress_mode?: string;
   }
 
   let {
@@ -22,32 +26,38 @@
   let toolB = $state<Breakdown | null>(null);
   let modelB = $state<Breakdown | null>(null);
   let quotas = $state<Quota[]>([]);
-  let overviewQuotaVendors = $state<string[] | null>(null);
-  let activeVendors = $state<string[] | null>(null);
-  let progressMode = $state<"用量" | "剩余">("剩余");
   let nowMs = $state(Date.now());
+
+  // Derive quota filter/display state from the parent config prop so it stays
+  // in sync with App.svelte's live reload (no separate api.getConfig() needed).
+  let overviewQuotaVendors = $derived(config?.overview_quota_vendors ?? null);
+  let activeVendors = $derived(config?.quota_active_vendors ?? null);
+  let progressMode = $derived((config?.quota_progress_mode as "用量" | "剩余") ?? "剩余");
+
+  // Generation counter prevents a slow initial fetch from overwriting fresher
+  // quota data delivered by a later `quota:updated` event re-fetch.
+  let loadGen = 0;
 
   $effect(() => {
     const p = periodValue();
     let cancelled = false;
+    const myGen = ++loadGen;
     (async () => {
       try {
-        const [t, m, q, cfg] = await Promise.all([
+        const [t, m, q] = await Promise.all([
           api.getBreakdown(p, "tool"),
           api.getBreakdown(p, "model"),
           api.getQuotas(),
-          api.getConfig(),
         ]);
-        if (!cancelled) {
-          toolB = t;
-          modelB = m;
-          quotas = q;
-          overviewQuotaVendors = cfg?.overview_quota_vendors ?? null;
-          activeVendors = cfg?.quota_active_vendors ?? null;
-          progressMode = (cfg?.quota_progress_mode as "用量" | "剩余") ?? "剩余";
-        }
+        if (cancelled || myGen !== loadGen) return;
+        toolB = t;
+        modelB = m;
+        quotas = q;
       } catch {
-        if (!cancelled) { toolB = null; modelB = null; quotas = []; }
+        if (cancelled || myGen !== loadGen) return;
+        toolB = null;
+        modelB = null;
+        quotas = [];
       }
     })();
     return () => { cancelled = true; };
@@ -58,11 +68,27 @@
   });
 
   // Live-update quotas when the background scheduler finishes a refresh cycle.
+  // Debounce: the scheduler may emit several quota:updated events in quick
+  // succession (one per vendor in a batch), so coalesce them into one re-fetch.
+  let quotaGen = 0;
   $effect(() => {
-    const unlisten_promise = listen<void>("quota:updated", () => {
-      api.getQuotas().then((q) => { quotas = q; }).catch(console.error);
+    let t: number | undefined;
+    const un_quota = listen<void>("quota:updated", () => {
+      if (t !== undefined) clearTimeout(t);
+      t = window.setTimeout(async () => {
+        const myGen = ++quotaGen;
+        try {
+          const q = await api.getQuotas();
+          if (myGen !== quotaGen) return;
+          quotas = q;
+        } catch {}
+        t = undefined;
+      }, 200);
     });
-    return () => { unlisten_promise.then((un) => un()); };
+    return () => {
+      if (t !== undefined) clearTimeout(t);
+      un_quota.then((un) => un());
+    };
   });
 
   // On mount: if cached quota is older than the configured cadence
@@ -76,17 +102,17 @@
   const visibleQuotas = $derived.by(() => {
     if (quotas.length === 0) return [];
     let filtered = quotas;
-    if (activeVendors) {
+    // Filter by activeVendors (global enable) if configured.
+    if (activeVendors && activeVendors.length > 0) {
       const set = new Set(activeVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
     }
-    if (filtered.length === 0) return [];
-    if (overviewQuotaVendors) {
+    // Filter + sort by overviewQuotaVendors (preview config) if configured.
+    // This is an intersection with activeVendors, so a vendor disabled
+    // globally won't appear in the Overview even if listed here.
+    if (overviewQuotaVendors && overviewQuotaVendors.length > 0) {
       const set = new Set(overviewQuotaVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
-    }
-    if (filtered.length === 0) return [];
-    if (overviewQuotaVendors) {
       const order = new Map(overviewQuotaVendors.map((v, i) => [v, i]));
       filtered = [...filtered].sort((a, b) => (order.get(a.vendor) ?? 999) - (order.get(b.vendor) ?? 999));
     }
@@ -101,7 +127,7 @@
   // All sections are shown by default (visibility controlled by subOrder)
   // The sections themselves handle empty state internally.
 
-  const palette = ["var(--amber)", "var(--lime)", "var(--cyan)", "var(--violet)", "var(--coral)"];
+  const palette = PALETTE;
 
 </script>
 <div class="ov-body">
@@ -133,12 +159,12 @@
 
     {#if sectionKey === "overview_tools"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>工具</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && setSegment("tools")}>全部</span></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>工具</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("tools"); } }}>全部</span></div>
         {#if toolB && toolB.entries.length > 0}
           {#each toolB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
-            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && setSegment("tools")}>
-              <span class="rk" style="background:{toolMeta(e.key).color};color:#1a1408">{@html toolMeta(e.key).icon}</span>
+            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("tools"); } }}>
+              <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
               <span class="nm">{toolMeta(e.key).label}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {s.value}<span class="su">{s.unit}</span></span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[i % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
@@ -153,13 +179,13 @@
 
     {#if sectionKey === "overview_models"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>模型</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && setSegment("models")}>全部</span></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>模型</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("models"); } }}>全部</span></div>
         {#if modelB && modelB.entries.length > 0}
           {#each modelB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
             {@const mv = modelVendor(e.key)}
-            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && setSegment("models")}>
-              <span class="rk" style="background:{toolMeta(e.key).color};color:#1a1408">{@html toolMeta(e.key).icon}</span>
+            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("models"); } }}>
+              <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
               <span class="nm">{toolMeta(e.key).label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {e.messages} 会话</span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[(i + 2) % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
@@ -174,10 +200,10 @@
 
     {#if sectionKey === "overview_quotas"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>额度</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("limit")} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && setSegment("limit")}>全部</span></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>额度</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("limit")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("limit"); } }}>全部</span></div>
         <div class="qcard-list">
           {#each visibleQuotas as q (q.vendor)}
-            <QuotaCard quota={q} {progressMode} {nowMs} />
+            <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} />
           {/each}
         </div>
       </section>
@@ -205,7 +231,7 @@
   .sec-h .more { color: var(--amber); cursor: pointer; font-size: 13px; font-weight: 600; }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .scell {
-    background: rgba(255,255,255,.025); border: 1px solid var(--border-dim);
+    background: var(--surface-tint); border: 1px solid var(--border-dim);
     border-radius: 9px; padding: 10px 11px;
   }
   .scell .k { font-size: 11px; color: var(--text-faint); }
@@ -264,6 +290,5 @@
     gap: 10px;
   }
   .empty { margin: 0; font-size: 12px; color: var(--text-faint); }
-  .muted { margin: 0; color: var(--text-dim); font-size: 13px; }
   .muted { margin: 0; color: var(--text-dim); font-size: 13px; }
 </style>

@@ -51,7 +51,7 @@
 {#if badge}
   <span
     class="ti-badge"
-    style="width:{iconSize}px;height:{iconSize}px;background:{meta.color};color:#1a1408"
+    style="width:{iconSize}px;height:{iconSize}px;background:{meta.color};color:var(--badge-text)"
     title={meta.label}
   >
     {@html svg}

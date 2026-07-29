@@ -32,6 +32,50 @@ pub mod volcengine;
 
 pub use types::{Quota, QuotaBalance, QuotaStatus, QuotaWindow};
 
+/// All vendor ids the account page can bind. Single source of truth — imported
+/// by `commands/quota.rs` and `quota/scheduler.rs` to avoid duplication.
+pub const TRACKED_VENDORS: &[&str] = &[
+    "claude",
+    "codex",
+    "cursor",
+    "deepseek",
+    "minimax",
+    "glm",
+    "kimi",
+    "volcengine",
+    "stepfun",
+    "iflytek",
+    "copilot",
+    "mimo",
+    "opencode",
+    "zai_team",
+    "qoder",
+    "ollama",
+];
+
+/// Map vendor string IDs to `VendorId` enum variants.
+pub fn adapter_for(id: &str) -> Option<VendorId> {
+    match id {
+        "deepseek" => Some(VendorId::Deepseek),
+        "glm" => Some(VendorId::Glm),
+        "minimax" => Some(VendorId::Minimax),
+        "kimi" => Some(VendorId::Kimi),
+        "volcengine" => Some(VendorId::Volcengine),
+        "mimo" => Some(VendorId::Mimo),
+        "stepfun" => Some(VendorId::Stepfun),
+        "iflytek" => Some(VendorId::Iflytek),
+        "zai_team" => Some(VendorId::GlmTeam),
+        "qoder" => Some(VendorId::Qoder),
+        "cursor" => Some(VendorId::Cursor),
+        "copilot" => Some(VendorId::Copilot),
+        "ollama" => Some(VendorId::Ollama),
+        "opencode" => Some(VendorId::Opencode),
+        "claude" => Some(VendorId::Claude),
+        "codex" => Some(VendorId::Codex),
+        _ => None,
+    }
+}
+
 /// Credential binding category (design.md §F9, settings→账号 UI).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialCategory {
@@ -183,7 +227,7 @@ pub async fn validate(vendor: VendorId, credential: &str) -> Result<(), String> 
         Ok(_) => Ok(()),
         Err(e) => {
             let msg = e.to_string();
-            eprintln!("[quota:validate] {vendor:?} failed: {msg}");
+            tracing::warn!(vendor = ?vendor, error = %msg, "quota validation failed");
             Err(format_validate_error(&msg))
         }
     }

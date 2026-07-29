@@ -1,10 +1,20 @@
 <script lang="ts">
-  // 工具 segment (T4.2). Loads get_breakdown(period, "tool") into BreakdownList.
+  // 用量细分 segment (T4.2). 泛型组件：dim="tool" | "model"
   import BreakdownList from "../common/BreakdownList.svelte";
   import { api, type Breakdown, type Currency } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
 
-  let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
+  let {
+    dim,
+    currency,
+    cnyRate = 7.2,
+    title,
+  }: {
+    dim: "tool" | "model";
+    currency: Currency;
+    cnyRate?: number;
+    title: string;
+  } = $props();
 
   let data = $state<Breakdown | null>(null);
 
@@ -13,10 +23,9 @@
     let cancelled = false;
     (async () => {
       try {
-        const b = await api.getBreakdown(p, "tool");
+        const b = await api.getBreakdown(p, dim);
         if (!cancelled) data = b;
-      } catch (e) {
-        console.error("tools breakdown failed", e);
+      } catch {
         if (!cancelled) data = null;
       }
     })();
@@ -28,7 +37,7 @@
 
 <div class="seg-body">
   {#if data}
-    <BreakdownList entries={data.entries} {currency} {cnyRate} title="工具用量" dim="tool" />
+    <BreakdownList entries={data.entries} {currency} {cnyRate} {title} {dim} />
   {:else}
     <p class="loading">加载中…</p>
   {/if}

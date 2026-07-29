@@ -24,11 +24,21 @@
         const allClients = [...t]
           .sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"))
           .map((c) => c.client);
+        const allSet = new Set(allClients);
         // Restore from config, fall back to all/auto
         tracked = new Set(config?.collection_tracked ?? allClients);
         visible = new Set(config?.collection_visible ?? allClients);
         ordered = [...(config?.collection_ordered ?? allClients)];
-      } catch (e) { console.error("collection load", e); }
+        // Append newly discovered tools (e.g. from a tokscale upgrade) that are
+        // not yet in the saved order so they appear at the bottom of the list.
+        for (const c of allClients) {
+          if (!ordered.includes(c)) ordered.push(c);
+        }
+        // Prune tools that no longer exist (e.g. renamed/removed by tokscale).
+        for (let i = ordered.length - 1; i >= 0; i--) {
+          if (!allSet.has(ordered[i]!)) ordered.splice(i, 1);
+        }
+      } catch { /* handled by UI state */ }
     })();
     return () => { cancelled = true; };
   });
@@ -94,7 +104,7 @@
     try {
       archivedCount = await api.getArchivedSessionCount();
     } catch (e) {
-      console.error("archived count load", e);
+      /* archived count load failed — non-critical */
     }
   }
 
@@ -106,7 +116,7 @@
       await api.clearArchivedSessions();
       await loadArchivedCount();
     } catch (e) {
-      console.error("clear archived", e);
+      /* clear archived failed — UI state handles this */
     } finally {
       clearing = false;
     }
@@ -139,7 +149,7 @@
 
     <div class="box-row">
       <div class="lab">会话保留<div class="hint">来源工具删除或清除会话后，仍保留会话总量与已观测的每日活动</div></div>
-      <button class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label="会话保留" onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
+      <button type="button" class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label="会话保留" onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
     </div>
 
     <div class="box-row">
@@ -147,7 +157,7 @@
         <div class="lab">归档会话</div>
         <div class="hint" style="margin-top:2px">目前保留 <strong>{archivedCount ?? "…"}</strong> 个已归档会话</div>
       </div>
-      <button class="btn-outline" onclick={clearArchived} disabled={clearing || !archivedCount}>
+      <button type="button" class="btn-outline" onclick={clearArchived} disabled={clearing || !archivedCount}>
         {clearing ? "清除中…" : "清除保留数据"}
       </button>
     </div>
@@ -172,11 +182,11 @@
   <!-- ══ 工具 ══ -->
   <div class="section-title">工具
     <span class="fbar">
-      <button class="fbtn" class:on={filter === "all"} onclick={() => (filter = "all")}>全部 {totalCount}</button>
-      <button class="fbtn" class:on={filter === "tracking"} onclick={() => (filter = "tracking")}>追踪中 {trackingCount}</button>
-      <button class="fbtn" class:on={filter === "waiting"} onclick={() => (filter = "waiting")}>等待数据 {waitingCount}</button>
-      <button class="fbtn" class:on={filter === "disabled"} onclick={() => (filter = "disabled")}>已停用 {disabledCount}</button>
-      <button class="fbtn" class:on={filter === "missing"} onclick={() => (filter = "missing")}>未安装 {missingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "all"} onclick={() => (filter = "all")}>全部 {totalCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "tracking"} onclick={() => (filter = "tracking")}>追踪中 {trackingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "waiting"} onclick={() => (filter = "waiting")}>等待数据 {waitingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "disabled"} onclick={() => (filter = "disabled")}>已停用 {disabledCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "missing"} onclick={() => (filter = "missing")}>未安装 {missingCount}</button>
     </span>
   </div>
   <div class="section-box">
@@ -218,7 +228,9 @@
             <div class="tleft">
               <ToolIcon vendor={t.client} size={22} />
               <div class="tinfo">
-                <span class="tname">{t.label}</span>
+                <span class="tname">{t.label}{#if t.diagnostics?.length}
+                  <span class="t-diag" title={t.diagnostics.map(d => d.message).join("\n")}>ℹ</span>
+                {/if}</span>
                 <div class="trow-meta">
                   <span class="tstatus" class:s-active={t.status === "active"} class:s-waiting={t.status === "waiting"} class:s-missing={t.status !== "active" && t.status !== "waiting"}>{t.status === "active" ? "追踪中" : t.status === "waiting" ? "等待数据" : "未安装"}</span>
                   <span class="tmsg">{t.message_count} 条</span>
@@ -227,7 +239,7 @@
             </div>
             <span class="tright">
               <!-- 追踪 toggle -->
-              <button class="ibtn ibtn-toggle" title={tracked.has(t.client) ? '已追踪' : '未追踪'} onclick={() => toggleTracked(t.client)}>
+              <button type="button" class="ibtn ibtn-toggle" title={tracked.has(t.client) ? '已追踪' : '未追踪'} aria-label={tracked.has(t.client) ? '取消追踪' : '开始追踪'} onclick={() => toggleTracked(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if tracked.has(t.client)}
                     <rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="9 12 11 14 16 8"/>
@@ -237,7 +249,7 @@
                 </svg>
               </button>
               <!-- 可见 eye -->
-              <button class="ibtn ibtn-vis" class:on={visible.has(t.client)} title={visible.has(t.client) ? '显示中' : '已隐藏'} onclick={() => toggleVisible(t.client)}>
+              <button class="ibtn ibtn-vis" class:on={visible.has(t.client)} title={visible.has(t.client) ? '显示中' : '已隐藏'} aria-label={visible.has(t.client) ? '隐藏' : '显示'} onclick={() => toggleVisible(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if visible.has(t.client)}
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -247,12 +259,12 @@
                 </svg>
               </button>
               <!-- 排序 -->
-              <button class="ibtn" title="上移" disabled={i === 0} onclick={() => move(i, -1)}>
+              <button type="button" class="ibtn" title="上移" aria-label="上移" disabled={i === 0} onclick={() => move(i, -1)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
                 </svg>
               </button>
-              <button class="ibtn" title="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
+              <button type="button" class="ibtn" title="下移" aria-label="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                 </svg>
@@ -268,28 +280,20 @@
 </div>
 
 <style>
+
   .sc { display: flex; flex-direction: column; }
 
   .section-title {
-    font-family: var(--font-ui);
-    font-weight: 700;
     font-size: 15px;
-    color: var(--amber);
     margin-top: 20px;
     margin-bottom: 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
   .section-title:first-of-type { margin-top: 24px; }
-  .section-title { flex-wrap: wrap; row-gap: 6px; }
-
-  .section-box {
-    background: rgba(0,0,0,0.02);
-    border: 1px solid var(--border-dim);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
 
   .fbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
   .fbtn {
@@ -351,6 +355,7 @@
     flex: 1;
   }
   .tname { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-diag { font-size: 11px; color: var(--amber); margin-left: 4px; cursor: help; }
   .tinfo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .trow-meta { display: flex; align-items: center; gap: 6px; }
   .tstatus {
@@ -387,98 +392,7 @@
   /* ── icon legend ── */
 
   /* ── basic section ── */
-  .box-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); gap: 16px; }
-  .box-row:first-child { padding-top: 2px; }
-  .box-row:last-child { border-bottom: none; padding-bottom: 2px; }
   .box-row.tok-row { align-items: center; }
-  .lab { font-size: 13px; color: var(--text); }
-  .lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-  .hint { font-size: 11px; color: var(--text-faint); }
-  .hint strong { color: var(--text); font-weight: 600; }
-
-  .sel {
-    background: rgba(255,255,255,.03);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 7px;
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
-    min-width: 130px;
-    height: 32px;
-  }
-  .sel:hover { border-color: var(--amber); }
-  .sel:focus { outline: none; border-color: var(--amber); }
-
-  .tg {
-    width: 38px; height: 22px;
-    background: var(--glass-3);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    position: relative;
-    cursor: pointer;
-    flex-shrink: 0;
-    display: block;
-  }
-  .tg.on { background: var(--amber); border-color: var(--amber); }
-  .tg::after {
-    content:""; position:absolute; top:2px; left:2px;
-    width:16px; height:16px;
-    background:var(--text); border-radius:50%; transition:.18s;
-  }
-  .tg.on::after { left:18px; background:#1a1408; }
-
-  .btn-outline {
-    background: rgba(255,255,255,.04);
-    border: 1px solid var(--border-dim);
-    color: var(--text-dim);
-    padding: 5px 12px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 11.5px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn-outline:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); background: rgba(232,176,75,0.08); }
-  .btn-outline:disabled { opacity: 0.5; cursor: default; }
-  .btn-outline:disabled:hover { border-color: var(--border-dim); color: var(--text-dim); background: rgba(255,255,255,.04); }
-
-  /* ── icon buttons (shared with MainView pattern) ── */
-  .ibtn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    cursor: pointer;
-    padding: 0;
-    flex-shrink: 0;
-    color: var(--text-faint);
-    transition: all 0.15s;
-  }
-  .ibtn:hover:not(:disabled) {
-    background: rgba(255,255,255,0.06);
-    color: var(--amber);
-  }
-  .ibtn:disabled { opacity: 0.15; cursor: default; }
-  .ibtn:disabled:hover { background: none; color: var(--text-faint); }
-  .ibtn.on { color: var(--amber); }
-  .ibtn.on:hover { background: rgba(232,176,75,0.08); }
-
-  /* ── special icon buttons（视觉宽度匹配文字）── */
-  .ibtn-toggle {
-    margin-right: 2px;
-  }
-  .ibtn-vis {
-    margin-right: 4px;
-  }
-
-  /* ── tokscale inline (inside 基本 box-row) ── */
-  /* ── tokscale inline (inside 基本 box-row) ── */
   .tok-inline { display: flex; align-items: center; gap: 8px; }
   .tok-loading { font-size: 11px; color: var(--text-faint); }
   .tok-tag { font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }

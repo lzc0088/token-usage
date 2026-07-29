@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::storage::StorageError;
+use crate::utils::time::now_ms;
 
 /// Display currency for cost fields (design.md §F10). Default 双显.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -182,10 +183,18 @@ fn default_quota_progress_mode() -> String {
 // Stable config keys.
 const KEY_CONFIG: &str = "config";
 
-/// Load the whole [`Config`] blob. Missing → defaults.
+/// Load the whole [`Config`] blob. Missing → defaults. Corrupted JSON → logs
+/// the raw value and falls back to defaults so the user does not lose all
+/// settings silently.
 pub fn load(conn: &Connection) -> Result<Config, StorageError> {
     match get_raw(conn, KEY_CONFIG)? {
-        Some(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
+        Some(json) => match serde_json::from_str(&json) {
+            Ok(cfg) => Ok(cfg),
+            Err(e) => {
+                tracing::warn!(error = %e, raw_len = json.len(), "config JSON corrupted, falling back to defaults");
+                Ok(Config::default())
+            }
+        },
         None => Ok(Config::default()),
     }
 }
@@ -238,15 +247,6 @@ pub fn set_raw(conn: &Connection, key: &str, value: &str) -> Result<(), StorageE
         rusqlite::params![key, value, now_ms()],
     )?;
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    // SystemTime → epoch ms. std-only; the collector elsewhere uses tokio clocks,
-    // but config persistence just needs a monotone-ish timestamp.
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

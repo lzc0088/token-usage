@@ -134,12 +134,9 @@ pub fn ingest_sessions(
 /// `installed` list means "nothing is currently installed" → every session is
 /// archived. Used by the 归档会话 count in 采集追踪 settings.
 pub fn archived_count(conn: &Connection, installed: &[String]) -> Result<i64, StorageError> {
-    if installed.is_empty() {
-        return Ok(conn.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?);
-    }
-    let placeholders = installed.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!("SELECT COUNT(*) FROM sessions WHERE tool NOT IN ({placeholders})");
-    let params: Vec<&dyn rusqlite::ToSql> = installed.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    use crate::storage::not_in_clause;
+    let (clause, params) = not_in_clause(installed, "tool");
+    let sql = format!("SELECT COUNT(*) FROM sessions WHERE {clause}");
     Ok(conn.query_row(&sql, params.as_slice(), |r| r.get(0))?)
 }
 
@@ -147,12 +144,12 @@ pub fn archived_count(conn: &Connection, installed: &[String]) -> Result<i64, St
 /// the number of rows deleted. An empty `installed` list is a no-op (refuses to
 /// delete everything — that would wipe legitimate data when detection fails).
 pub fn prune_uninstalled(conn: &Connection, installed: &[String]) -> Result<usize, StorageError> {
+    use crate::storage::not_in_clause;
     if installed.is_empty() {
         return Ok(0);
     }
-    let placeholders = installed.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!("DELETE FROM sessions WHERE tool NOT IN ({placeholders})");
-    let params: Vec<&dyn rusqlite::ToSql> = installed.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let (clause, params) = not_in_clause(installed, "tool");
+    let sql = format!("DELETE FROM sessions WHERE {clause}");
     Ok(conn.execute(&sql, params.as_slice())?)
 }
 

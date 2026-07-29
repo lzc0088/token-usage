@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, type Currency, type ProjectDetailRow, type ProjectVm } from "../../lib/api";
+  import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { toolMeta } from "../../lib/meta/tools";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
@@ -11,6 +12,12 @@
   let expanded = $state<string | null>(null);
   let copyFeedback = $state<string | null>(null);
   let loading = $state(true);
+
+  // Timer cleanup
+  const timeouts = new Set<number>();
+  $effect(() => {
+    return () => { for (const id of timeouts) clearTimeout(id); };
+  });
 
   // Sort key: token | cost | name | latest
   type SortKey = "token" | "cost" | "name" | "latest";
@@ -25,11 +32,12 @@
     try {
       await navigator.clipboard.writeText(path);
       copyFeedback = path;
-      setTimeout(() => {
+      const id = window.setTimeout(() => {
         copyFeedback = null;
       }, 2000);
+      timeouts.add(id);
     } catch (err) {
-      console.error("Failed to copy:", err);
+      /* clipboard write failed */
     }
   }
 
@@ -72,7 +80,7 @@
   /** Max tokens across all projects — used as progress bar baseline. */
   const maxTokens = $derived(projects ? projects.reduce((max, p) => Math.max(max, p.tokens), 0) : 0);
 
-  const palette = ["var(--amber)", "var(--lime)", "var(--cyan)", "var(--violet)", "var(--coral)"];
+  const palette = PALETTE;
 
   /** Left-ellipsis a long path so the rightmost part (leaf name) stays visible. */
   function ellipsisLeft(full: string | null): string {
@@ -130,7 +138,7 @@
         role="button"
         tabindex="0"
         onclick={() => toggleExpand(rowKey)}
-        onkeydown={(e: KeyboardEvent) => e.key === "Enter" && toggleExpand(rowKey)}
+        onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(rowKey); } }}
       >
         <span class="pk">📁</span>
         <div class="p-main">
@@ -289,7 +297,7 @@
   }
   .bd-count {
     font-family: var(--font-mono); font-size: 11px; font-weight: 600;
-    color: var(--amber); background: rgba(232,176,75,.12);
+    color: var(--amber); background: var(--amber-bg);
     padding: 1px 8px; border-radius: 10px;
     line-height: 1.4;
   }
@@ -316,7 +324,7 @@
   }
   .bd-sort button.on {
     background: var(--amber);
-    color: #1a1408;
+    color: var(--badge-text);
   }
 
   .prow {
@@ -428,15 +436,7 @@
     flex-direction: column;
     gap: 4px;
     border-bottom: 1px solid var(--border-dim);
-    background: rgba(0, 0, 0, 0.08);
-  }
-  .det-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--text-faint);
-    gap: 8px;
+    background: var(--overlay-dark);
   }
   .det-row > span:first-child {
     flex-shrink: 0;
@@ -475,7 +475,7 @@
     height: 20px;
   }
   .copy-btn:hover {
-    background: rgba(232, 176, 75, 0.15);
+    background: var(--amber-bg-strong);
     border-color: var(--amber);
     color: var(--amber);
   }
@@ -490,47 +490,12 @@
     text-overflow: ellipsis;
     direction: rtl; /* ellipsis on LEFT */
   }
-  .det-sep {
-    height: 0;
-    border-top: 1px solid var(--border-dim);
-    margin: 8px 0;
-  }
-  .det-sub {
-    font-size: 11px;
-    align-items: center;
-    display: grid;
-    grid-template-columns: 1fr 100px 50px 55px;
-    gap: 8px;
-  }
-  .det-label {
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  /* Per-segment overrides on the shared .det-* base (breakdown.css) */
   .det-bar {
     height: 6px;
-    background: var(--bar-track);
     border-radius: 3px;
-    overflow: hidden;
-    align-self: center;
   }
   .det-bar i {
-    display: block;
-    height: 100%;
     border-radius: 3px;
-  }
-  .det-pct {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    text-align: right;
-  }
-  .det-tok {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-dim);
-    text-align: right;
   }
 </style>

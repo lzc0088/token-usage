@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability set for the main popover and settings windows",
   "windows": ["main", "settings"],
-  "permissions": ["core:default", "shell:default", "shell:allow-open"]
+  "permissions": ["core:default", "shell:default"]
 }

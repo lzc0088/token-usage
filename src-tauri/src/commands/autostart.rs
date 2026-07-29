@@ -8,6 +8,7 @@
 
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
+use tracing::{debug, warn};
 
 use crate::commands::db;
 use crate::config;
@@ -26,11 +27,11 @@ pub fn set_auto_start(
     // 1. Apply to the OS-level autostart registration.
     if enabled {
         if let Err(e) = manager.enable() {
-            eprintln!("[autostart] enable failed: {e}");
+            warn!("autostart enable failed: {e}");
             return Err(format!("启用开机启动失败: {e}"));
         }
     } else if let Err(e) = manager.disable() {
-        eprintln!("[autostart] disable failed: {e}");
+        warn!("autostart disable failed: {e}");
         return Err(format!("关闭开机启动失败: {e}"));
     }
 
@@ -41,7 +42,7 @@ pub fn set_auto_start(
         if cfg.auto_start != enabled {
             cfg.auto_start = enabled;
             if let Err(e) = config::save(&conn, &cfg) {
-                eprintln!("[autostart] persist config failed: {e}");
+                warn!("autostart persist config failed: {e}");
             }
         }
     }
@@ -63,21 +64,21 @@ pub fn get_auto_start(app: AppHandle) -> Result<bool, String> {
 pub fn sync_auto_start_on_boot(app: &AppHandle) {
     let want = {
         let state = app.state::<AppState>();
-        let conn = state.db.lock().expect("db poisoned");
+        let conn = state.db_guard();
         config::load(&conn).map(|c| c.auto_start).unwrap_or(false)
     };
 
     let manager = app.autolaunch();
     let current = manager.is_enabled().unwrap_or(false);
     if want && !current {
-        eprintln!("[autostart] boot-sync: enabling (config=true, os=false)");
+        debug!("boot-sync: enabling (config=true, os=false)");
         if let Err(e) = manager.enable() {
-            eprintln!("[autostart] boot-sync enable failed: {e}");
+            warn!("boot-sync enable failed: {e}");
         }
     } else if !want && current {
-        eprintln!("[autostart] boot-sync: disabling (config=false, os=true)");
+        debug!("boot-sync: disabling (config=false, os=true)");
         if let Err(e) = manager.disable() {
-            eprintln!("[autostart] boot-sync disable failed: {e}");
+            warn!("boot-sync disable failed: {e}");
         }
     }
 }

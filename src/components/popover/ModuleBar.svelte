@@ -61,7 +61,7 @@
   .mtog.on {
     color: var(--amber);
     border-color: var(--amber-soft);
-    background: rgba(232, 176, 75, 0.08);
+    background: var(--amber-hover);
   }
   .mtog.on .dot {
     background: var(--amber);

@@ -1,0 +1,154 @@
+/* Shared breakdown-list styles used by BreakdownList, Projects, and Sessions.
+   Import in app.css or component <style> blocks that need these patterns. */
+
+/* ── Sort header ── */
+.bd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 12px;
+}
+.bd-title {
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.bd-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber);
+  background: rgba(232, 176, 75, 0.12);
+  padding: 1px 8px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+.bd-sort {
+  display: inline-flex;
+  gap: 1px;
+  background: var(--glass-3);
+  border-radius: 8px;
+  padding: 2px;
+}
+.bd-sort button {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.bd-sort button:hover {
+  color: var(--text-dim);
+}
+.bd-sort button.on {
+  background: var(--amber);
+  color: var(--badge-text);
+}
+
+/* ── Detail rows ── */
+.bd-detail {
+  padding: 8px 24px 10px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px dashed var(--border-dim);
+  background: rgba(0, 0, 0, 0.08);
+}
+.det-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-faint);
+  gap: 8px;
+}
+.det-val {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.det-sub {
+  font-size: 11px;
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr 100px 50px 55px;
+  gap: 8px;
+}
+.det-label {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  gap: 4px;
+}
+.det-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.det-bar {
+  height: 4px;
+  background: var(--bar-track);
+  border-radius: 2px;
+  overflow: hidden;
+  align-self: center;
+}
+.det-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+.det-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.det-tok {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.det-sep {
+  height: 0;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+/* ── Shared outline button ── */
+.btn-outline {
+  background: var(--surface-tint-strong);
+  border: 1px solid var(--border-dim);
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(232, 176, 75, 0.08);
+}
+.btn-outline:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn-outline:disabled:hover {
+  border-color: var(--border-dim);
+  color: var(--text-dim);
+  background: var(--surface-tint-strong);
+}

@@ -14,82 +14,49 @@ use tauri::{AppHandle, Emitter, State};
 use crate::config;
 use crate::auth::credentials;
 use crate::quota::scheduler;
-use crate::quota::{Quota, QuotaBalance, VendorId};
+use crate::quota::{Quota, QuotaBalance, adapter_for};
 use crate::state::AppState;
-
-/// All vendor ids the account page can bind.
-pub const TRACKED_VENDORS: &[&str] = &[
-    "claude",
-    "codex",
-    "cursor",
-    "deepseek",
-    "minimax",
-    "glm",
-    "kimi",
-    "volcengine",
-    "stepfun",
-    "iflytek",
-    "copilot",
-    "mimo",
-    "opencode",
-    "zai_team",
-    "qoder",
-    "ollama",
-];
-
-/// True when this vendor has a working quota adapter.
-fn adapter_for(id: &str) -> Option<VendorId> {
-    match id {
-        "deepseek" => Some(VendorId::Deepseek),
-        "glm" => Some(VendorId::Glm),
-        "minimax" => Some(VendorId::Minimax),
-        "kimi" => Some(VendorId::Kimi),
-        "volcengine" => Some(VendorId::Volcengine),
-        "mimo" => Some(VendorId::Mimo),
-        "stepfun" => Some(VendorId::Stepfun),
-        "iflytek" => Some(VendorId::Iflytek),
-        "zai_team" => Some(VendorId::GlmTeam),
-        "qoder" => Some(VendorId::Qoder),
-        "cursor" => Some(VendorId::Cursor),
-        "copilot" => Some(VendorId::Copilot),
-        "ollama" => Some(VendorId::Ollama),
-        "opencode" => Some(VendorId::Opencode),
-        "claude" => Some(VendorId::Claude),
-        "codex" => Some(VendorId::Codex),
-        _ => None,
-    }
-}
 
 /// Debug command: test credential parsing and API call for a vendor.
 /// Returns detailed logs about what happened during the fetch.
 #[tauri::command]
 pub async fn test_credential(vendor: String, credential: String) -> Result<String, String> {
-    eprintln!("=== test_credential called ===");
-    eprintln!("vendor: {}", vendor);
-    eprintln!("credential length: {}", credential.len());
-    eprintln!(
-        "credential (first 100 chars): {}",
-        &credential[..credential.len().min(100)]
-    );
+    #[cfg(debug_assertions)]
+    {
+        tracing::debug!(vendor = %vendor, len = credential.len(), "test_credential called");
+        tracing::debug!(
+            "credential (first 100 chars): {}",
+            &credential[..credential.len().min(100)]
+        );
+    }
 
     let vid = adapter_for(&vendor).ok_or_else(|| format!("no adapter for vendor: {vendor}"))?;
 
     match crate::quota::fetch(vid, &credential).await {
         Ok(quota) => {
-            let result = format!(
-                "SUCCESS\nvendor: {}\nstatus: {:?}\nwindows: {}\nplan_label: {:?}\nbalance: {:?}",
-                quota.vendor,
-                quota.status,
-                quota.windows.len(),
-                quota.plan_label,
-                quota.balance
-            );
-            eprintln!("{}", result);
-            Ok(result)
+            #[cfg(debug_assertions)]
+            {
+                let result = format!(
+                    "SUCCESS\nvendor: {}\nstatus: {:?}\nwindows: {}\nplan_label: {:?}\nbalance: {:?}",
+                    quota.vendor,
+                    quota.status,
+                    quota.windows.len(),
+                    quota.plan_label,
+                    quota.balance
+                );
+                tracing::debug!("{result}");
+                Ok(result)
+            }
+            #[cfg(not(debug_assertions))]
+            Ok(format!(
+                "SUCCESS\nvendor: {}\nstatus: {:?}",
+                quota.vendor, quota.status
+            ))
         }
         Err(e) => {
             let error = format!("FAILED: {e}");
-            eprintln!("{}", error);
+            #[cfg(debug_assertions)]
+            tracing::debug!("{error}");
             Err(error)
         }
     }
@@ -102,7 +69,7 @@ pub async fn test_credential(vendor: String, credential: String) -> Result<Strin
 /// the quota was fetched successfully, so presence here implies "connected".
 #[tauri::command]
 pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
-    let conn = state.db.lock().expect("db poisoned");
+    let conn = state.db_guard();
     let cfg = config::load(&conn).unwrap_or_default();
     let active_set = cfg.quota_active_vendors;
 
@@ -184,18 +151,26 @@ pub async fn refresh_quotas_if_stale(
 
     // Decide staleness from the freshest cache row + the configured interval.
     let (stale, db) = {
-        let conn = state.db.lock().expect("db poisoned");
+        let conn = state.db_guard();
         let cfg = config::load(&conn).unwrap_or_default();
         let interval = scheduler::parse_interval_secs(&cfg.quota_refresh_interval);
-        let max_fetched: Option<i64> = conn
-            .query_row("SELECT MAX(fetched_at) FROM quota_cache", [], |r| r.get(0))
+        // Use MIN rather than MAX: a single stale vendor should trigger a
+        // refresh even if others were recently updated (e.g. app restart
+        // where only some vendors got refreshed before shutdown). Exclude
+        // rows with fetched_at=0 (failed placeholders that never succeeded).
+        let min_fetched: Option<i64> = conn
+            .query_row(
+                "SELECT MIN(fetched_at) FROM quota_cache WHERE fetched_at > 0",
+                [],
+                |r| r.get(0),
+            )
             .ok();
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         (
-            scheduler::is_stale(max_fetched, interval, now_ms),
+            scheduler::is_stale(min_fetched, interval, now_ms),
             state.db.clone(),
         )
     };
@@ -213,11 +188,11 @@ pub async fn refresh_quotas_if_stale(
 #[tauri::command]
 pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let cred = {
-        let conn = state.db.lock().expect("db poisoned");
+        let conn = state.db_guard();
         credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
     };
     let (_cfg, now, today, month_start) = {
-        let conn = state.db.lock().expect("db poisoned");
+        let conn = state.db_guard();
         let cfg = config::load(&conn).unwrap_or_default();
         let now = chrono::Utc::now();
         let today = now.format("%Y-%m-%d").to_string();
@@ -252,7 +227,7 @@ pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppH
                 q
             }
             Err(e) => {
-                eprintln!("[quota] {vendor} refresh failed: {e}");
+                tracing::warn!(vendor = %vendor, error = %e, "quota refresh failed");
                 return Err(e.to_string());
             }
         },

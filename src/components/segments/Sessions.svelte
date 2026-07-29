@@ -1,9 +1,12 @@
 <script lang="ts">
   import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
+  import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+
+  const DETAIL_CAPABLE_TOOLS = ["claude", "codex", "opencode"] as const;
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
@@ -89,7 +92,7 @@
     return s.project_name ?? toolMeta(s.tool).label;
   }
 
-  const palette = ["var(--amber)", "var(--lime)", "var(--cyan)", "var(--violet)", "var(--coral)"];
+  const palette = PALETTE;
 
   function composeDetail(dr: SessionDetailRow): { label: string; tokens: number; pct: number; color: string }[] {
     const t = dr.tokens || 1;
@@ -105,7 +108,7 @@
   {#if viewing}
     <!-- ── session detail page ── -->
     <div class="view-header">
-      <button class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
+      <button type="button" class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
       <span class="view-title">会话详情<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
       <div class="rd-sort">
         {#each [["time", "时间"], ["token", "TOKEN"]] as [k, label] (k)}
@@ -170,19 +173,20 @@
         {@const st = splitTokens(s.tokens)}
         {@const open = expanded === `${s.tool}:${s.session_id}`}
         {@const ml = modelLabel(s.model_count, s.models)}
+        {@const tc = toolMeta(s.tool).color}
         <div
           class="srow"
           role="button"
           tabindex="0"
           onclick={() => toggleExpand(s.tool, s.session_id)}
-          onkeydown={(e: KeyboardEvent) => e.key === "Enter" && toggleExpand(s.tool, s.session_id)}
+          onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(s.tool, s.session_id); } }}
         >
           <div class="s-main">
             <div class="s-line s-l1"><span class="s-proj">{projectLabel(s)}</span></div>
             <div class="s-line s-l2"><span class="s-id">{s.session_id}</span></div>
             <div class="s-line s-l3">
               <ToolIcon tool={s.tool} badge={false} size={9} />
-              <span class="s-tool-name">{toolMeta(s.tool).label}</span>
+              <span class="s-tool-tag model-colored" style="color:{tc};background:{tc}18;border-color:{tc}33">{toolMeta(s.tool).label}</span>
               {#if ml.color && !ml.isCount}
                 <span class="s-model-tag model-colored" style="color:{ml.color};background:{ml.color}18;border-color:{ml.color}33">{ml.tag}</span>
               {:else}
@@ -199,7 +203,7 @@
               <span class="s-cost">{formatCost(s.cost_usd, currency, cnyRate)}</span>
               <span class="s-tokens">{st.value}<span class="tku">{st.unit}</span></span>
             </div>
-            {#if s.tool === "claude" || s.tool === "codex" || s.tool === "opencode"}
+            {#if (DETAIL_CAPABLE_TOOLS as readonly string[]).includes(s.tool)}
               <button
                 class="s-arr"
                 title="查看详情"
@@ -250,11 +254,11 @@
 
   .bd-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 12px; }
   .bd-title { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }
-  .bd-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: rgba(232,176,75,.12); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
+  .bd-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-bg); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
   .bd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
   .bd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
   .bd-sort button:hover { color: var(--text-dim); }
-  .bd-sort button.on { background: var(--amber); color: #1a1408; }
+  .bd-sort button.on { background: var(--amber); color: var(--badge-text); }
 
   /* ── list row ── */
   .srow { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; padding: 10px 16px; border-bottom: 1px dashed var(--border-dim); cursor: pointer; }
@@ -264,7 +268,8 @@
   .s-l1 .s-proj { font-size: 13px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .s-l3 { display: flex; align-items: center; gap: 4px; }
-  .s-tool-name { font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+  .s-tool-tag { font-size: 10px; white-space: nowrap; }
+  .s-tool-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }
   .s-model-tag { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
   .s-model-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }
   .s-model-tag.tag-count { color: var(--text-faint); background: var(--glass-3); padding: 0px 5px; border-radius: 3px; line-height: 1.6; }
@@ -286,30 +291,29 @@
   .s-arr:hover { color: var(--amber); }
 
   /* ── inline expand ── */
-  .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: rgba(0,0,0,.08); }
-  .det-entry { margin-bottom: 8px; }
-  .det-entry:last-child { margin-bottom: 0; }
+  .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: var(--overlay-dark); }
+  .det-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-dim); }
+  .det-entry:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .det-model-row { display: flex; align-items: center; gap: 3px; padding: 2px 0; }
   .det-model-name { font-size: 12px; color: var(--text); flex: 1; }
   .det-model-tokens { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-right: 8px; }
   .det-model-cost { font-family: var(--font-mono); font-size: 10px; color: var(--amber); }
   .det-comp-row { display: grid; grid-template-columns: 1fr 100px 50px 56px; align-items: center; gap: 8px; padding: 2px 0; }
   .det-bar-label { font-size: 10px; color: var(--text-faint); text-align: left; display: flex; align-items: center; gap: 4px; }
+  /* Per-segment overrides on the shared .det-* base (breakdown.css) */
   .det-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-  .det-bar { height: 3px; background: var(--bar-track); border-radius: 1.5px; overflow: hidden; }
-  .det-bar i { display: block; height: 100%; border-radius: 1.5px; }
-  .det-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
-  .det-tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
+  .det-bar { height: 3px; border-radius: 1.5px; }
+  .det-bar i { border-radius: 1.5px; }
   .pct-u { font-size: 7px; margin-left: 1px; }
 
   /* ── detail page ── */
   .view-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-dim); }
   .view-title { font-size: 13px; color: var(--text-dim); flex: 1; display: flex; align-items: center; gap: 7px; }
-  .rounds-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: rgba(232,176,75,.12); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
+  .rounds-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-bg); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
   .rd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
   .rd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
   .rd-sort button:hover { color: var(--text-dim); }
-  .rd-sort button.on { background: var(--amber); color: #1a1408; }
+  .rd-sort button.on { background: var(--amber); color: var(--badge-text); }
   .back-btn { background: none; border: none; color: var(--amber); font-size: 16px; cursor: pointer; padding: 2px 4px; line-height: 1; }
   .back-btn:hover { color: var(--text); }
   .view-body { flex: 1; }

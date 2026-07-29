@@ -6,9 +6,10 @@
 <script lang="ts">
   import { VENDOR_PANEL } from "../../lib/meta/panels";
   import ToolIcon from "../ui/ToolIcon.svelte";
-  import { VENDOR_LABELS } from "../../lib/meta/vendors";
-  import { open } from "@tauri-apps/plugin-shell";
-  import { api } from "../../lib/api";
+  import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
+  import { api, type Currency } from "../../lib/api";
+  import { formatRefreshed, formatExpiry, expiryUrgency, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
+  import { formatCost } from "../../lib/format";
   import type { Quota } from "../../lib/api";
 
   type ProgressMode = "用量" | "剩余";
@@ -17,36 +18,96 @@
     quota,
     progressMode = $bindable("用量"),
     nowMs = 0,
+    currency = "cny" as Currency,
+    cnyRate = 7.2,
   }: {
     quota: Quota;
     progressMode: ProgressMode;
     nowMs: number;
+    currency?: Currency;
+    cnyRate?: number;
   } = $props();
 
   // ── Inline cookie editor (per-card state) ──
-  let editingCookie = $state(false);
+  // `null` = not editing, string = vendor being edited (supports per-vendor
+  // editing when multiple cards share the same component instance).
+  let editingCookie = $state<string | null>(null);
   let cookieDraft = $state("");
   let cookieSaving = $state(false);
+  /** Validation/refresh error surfaced to the user (e.g. invalid cookie). */
+  let cookieError = $state<string>("");
 
-  function startEditCookie(): void {
-    editingCookie = true;
+  // Region/site selector: shown when the vendor credential defines a `select`
+  // field other than the cookie (e.g. Volcengine region, Qoder site, GLM region).
+  /** Vendor's editable non-cookie select fields (region/site). */
+  const regionFields: FieldDef[] = $derived.by(() => {
+    const v = VENDORS.find(x => x.id === quota.vendor);
+    if (!v) return [];
+    return fieldsFor(v).filter(f => f.type === "select");
+  });
+  /** Current values of those select fields (region/site/projid). */
+  let regionValues = $state<Record<string, string>>({});
+  /** Snapshot at edit-start so we only persist changed fields. */
+  let regionInitial = $state<Record<string, string>>({});
+
+  function startEditCookie(vendor: string): void {
+    editingCookie = vendor;
     cookieDraft = "";
+    cookieError = "";
+    // Pre-fill region fields from the stored credential (non-secret values).
+    if (regionFields.length > 0) {
+      api.getCredentialFieldValues(vendor)
+        .then((vals) => {
+          const picked: Record<string, string> = {};
+          for (const f of regionFields) {
+            picked[f.key] = vals[f.key] ?? f.default ?? f.options?.[0] ?? "";
+          }
+          regionValues = picked;
+          regionInitial = { ...picked };
+        })
+        .catch(() => {
+          const picked: Record<string, string> = {};
+          for (const f of regionFields) {
+            picked[f.key] = f.default ?? f.options?.[0] ?? "";
+          }
+          regionValues = picked;
+          regionInitial = { ...picked };
+        });
+    }
   }
   function cancelEditCookie(): void {
-    editingCookie = false;
+    editingCookie = null;
     cookieDraft = "";
+    cookieError = "";
   }
   async function saveCookie(): Promise<void> {
     const draft = cookieDraft.trim();
     if (!draft) return;
     cookieSaving = true;
+    cookieError = "";
+    // Only send region fields that the user actually changed.
+    const extra: Record<string, string> = {};
+    for (const f of regionFields) {
+      const cur = regionValues[f.key] ?? "";
+      if (cur !== (regionInitial[f.key] ?? "")) {
+        extra[f.key] = cur;
+      }
+    }
     try {
-      await api.updateCookie(quota.vendor, draft);
-      editingCookie = false;
+      await api.updateCookie(quota.vendor, draft, Object.keys(extra).length > 0 ? extra : undefined);
+      // refreshQuota re-validates with the new cookie. If it errors, the
+      // cookie is invalid (or the region is wrong) — surface the message.
+      try {
+        await api.refreshQuota(quota.vendor);
+      } catch (refreshErr) {
+        cookieError = refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+        cookieSaving = false;
+        return;
+      }
+      editingCookie = null;
       cookieDraft = "";
-      await api.refreshQuota(quota.vendor);
     } catch (e) {
-      console.error("update cookie failed", e instanceof Error ? e.message : String(e));
+      cookieError = e instanceof Error ? e.message : String(e);
     } finally {
       cookieSaving = false;
     }
@@ -61,94 +122,6 @@
     expandedWindows = new Map(expandedWindows);
   }
 
-  // ── Helpers (passed from parent or computed here) ──
-  function formatRefreshed(iso: string | undefined, now: number): string {
-    if (!iso) return "";
-    const then = Date.parse(iso);
-    if (isNaN(then)) return "";
-    const secs = Math.floor((now - then) / 1000);
-    if (secs < 0) return "Updated just now";
-    if (secs < 60) return `Updated ${secs}s ago`;
-    const mins = Math.floor(secs / 60);
-    if (mins < 60) return `Updated ${mins}min ago`;
-    const hrs = Math.floor(mins / 60);
-    return `Updated ${hrs}h ago`;
-  }
-  function formatExpiry(q: Quota, now: number): string {
-    if (!q.expires_at) return "";
-    const nearest = Date.parse(q.expires_at);
-    if (!Number.isFinite(nearest)) return "";
-    if (nearest <= now) return "已到期";
-    const d = new Date(nearest);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const secs = Math.floor((nearest - now) / 1000);
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    const mins = Math.floor((secs % 3600) / 60);
-    let remain: string;
-    if (days > 0) remain = `${days}d ${hours}h ${mins}m`;
-    else if (hours > 0) remain = `${hours}h ${mins}m`;
-    else remain = `${mins}m`;
-    return `${yyyy}-${mm}-${dd}到期 · 剩余${remain}`;
-  }
-  function expiryUrgency(q: Quota, now: number): string {
-    if (!q.expires_at) return "";
-    const nearest = Date.parse(q.expires_at);
-    if (!Number.isFinite(nearest)) return "";
-    const days = (nearest - now) / 86400000;
-    if (days <= 3) return "exp-critical";
-    if (days <= 7) return "exp-soon";
-    if (days <= 30) return "exp-warn";
-    return "exp-ok";
-  }
-  function fmtCredits(n: number | undefined | null): string {
-    if (n == null) return "—";
-    const isInt = n % 1 === 0;
-    const s = isInt ? String(n) : n.toFixed(1);
-    const parts = s.split(".");
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return parts.join(".");
-  }
-  function formatReset(resetsAt: string | undefined, now: number): string {
-    if (!resetsAt) return "";
-    const target = Date.parse(resetsAt);
-    if (!Number.isFinite(target)) return "";
-    const secs = Math.floor((target - now) / 1000);
-    if (secs <= 0) return "Reset now";
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    const mins = Math.floor((secs % 3600) / 60);
-    if (days > 0) return `Reset ${days}d ${hours}h`;
-    if (hours > 0) return `Reset ${hours}h ${mins}min`;
-    return `Reset ${mins}min`;
-  }
-  function formatShortExpiry(iso: string): string {
-    const target = Date.parse(iso);
-    if (!Number.isFinite(target)) return "";
-    const d = new Date(target);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  const WINDOW_LABELS: Record<string, string> = {
-    "5h": "5小时", "周": "7天", "月": "每月", "MCP 月": "MCP 每月",
-  };
-  function windowLabel(raw: string): string {
-    return WINDOW_LABELS[raw] ?? raw;
-  }
-  function openPanelUrl(vendor: string): void {
-    const panel = VENDOR_PANEL[vendor];
-    if (!panel) return;
-    const url = typeof panel.url === "string" ? panel.url : Object.values(panel.url.map)[0] ?? "";
-    if (url) open(url).catch(() => {});
-  }
-  function formatBalance(b: NonNullable<Quota["balance"]>): string {
-    const sym = b.currency === "CNY" ? "¥" : b.currency === "USD" ? "$" : "";
-    return `${sym}${b.amount.toFixed(2)}`;
-  }
 </script>
 
 <div class="qcard" data-status={quota.status}>
@@ -162,18 +135,18 @@
       {/if}
     </div>
     <div class="qhead-line">
-      <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs) || "Updated just now"}</span>
+      <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs) || "刚刚刷新"}</span>
       {#if quota.error}
         <span class="qerror">{quota.error}</span>
       {/if}
-      {#if !quota.cookie_error && formatExpiry(quota, nowMs)}
-        <span class="qexpiry {expiryUrgency(quota, nowMs)}">{formatExpiry(quota, nowMs)}</span>
+      {#if !quota.cookie_error && formatExpiry(quota.expires_at ?? undefined, nowMs)}
+        <span class="qexpiry {expiryUrgency(quota.expires_at ?? undefined, nowMs)}">{formatExpiry(quota.expires_at ?? undefined, nowMs)}</span>
       {/if}
     </div>
   </div>
 
   {#if quota.cookie_error}
-  {#if editingCookie}
+  {#if editingCookie === quota.vendor}
     <div class="qcookie-edit">
       <textarea
         bind:value={cookieDraft}
@@ -182,11 +155,28 @@
         disabled={cookieSaving}
         aria-label="Cookie"
       ></textarea>
+      {#if regionFields.length > 0}
+        <div class="qcookie-regions">
+          {#each regionFields as f (f.key)}
+            <label class="qregion-field">
+              <span class="qregion-label">{f.label}</span>
+              <select class="qregion-select" value={regionValues[f.key] ?? ""} disabled={cookieSaving} onchange={(e) => { regionValues = { ...regionValues, [f.key]: (e.target as HTMLSelectElement).value }; }}>
+                {#each (f.options ?? []) as opt (opt)}
+                  <option value={opt}>{opt}</option>
+                {/each}
+              </select>
+            </label>
+          {/each}
+        </div>
+      {/if}
+      {#if cookieError}
+        <p class="qcookie-err">⚠ {cookieError}</p>
+      {/if}
       <div class="qcookie-actions">
-        <button class="qcookie-save" onclick={saveCookie} disabled={cookieSaving || !cookieDraft.trim()}>
+        <button type="button" class="qcookie-save" onclick={saveCookie} disabled={cookieSaving || !cookieDraft.trim()}>
           {cookieSaving ? "保存中…" : "保存"}
         </button>
-        <button class="qcookie-cancel" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
+        <button type="button" class="qcookie-cancel" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
       </div>
       {#if VENDOR_PANEL[quota.vendor]}
         <p class="qcookie-hint">{VENDOR_PANEL[quota.vendor].hint}</p>
@@ -197,9 +187,9 @@
       <span class="qcookie-text">⚠ {quota.cookie_error}</span>
       <div class="qcookie-bar-actions">
         {#if VENDOR_PANEL[quota.vendor]}
-          <button class="qcookie-open" onclick={() => openPanelUrl(quota.vendor)}>打开控制台</button>
+          <button type="button" class="qcookie-open" onclick={() => openPanelUrl(quota.vendor)}>打开控制台</button>
         {/if}
-        <button class="qcookie-btn" onclick={startEditCookie}>更新 Cookie</button>
+        <button type="button" class="qcookie-btn" onclick={() => startEditCookie(quota.vendor)}>更新 Cookie</button>
       </div>
     </div>
     {#if VENDOR_PANEL[quota.vendor]}
@@ -211,13 +201,16 @@
 {#if quota.balance}
   <div class="qitem-balance">
     <span class="qibl-label">余额</span>
-    <span class="qibl-amount">{formatBalance(quota.balance)}</span>
+    <span class="qibl-amount">{formatBalance(quota.balance.currency ?? "USD", quota.balance.amount)}</span>
   </div>
   {#if quota.balance.today_consumption != null}
     <div class="qconsumption">
-      <span>今日: ${(quota.balance.today_consumption ?? 0).toFixed(2)}</span>
+      <span class="qcons-label">今日</span>
+      <span class="qcons-value">{formatCost(quota.balance.today_consumption ?? 0, currency, cnyRate)}</span>
       {#if quota.balance.month_consumption != null}
-        <span>本月: ${(quota.balance.month_consumption ?? 0).toFixed(2)}</span>
+        <span class="qcons-sep">·</span>
+        <span class="qcons-label">本月</span>
+        <span class="qcons-value">{formatCost(quota.balance.month_consumption ?? 0, currency, cnyRate)}</span>
       {/if}
     </div>
   {/if}
@@ -334,7 +327,7 @@
     font-size: 10px;
     color: var(--text-dim);
     font-family: "JetBrains Mono", var(--font-mono);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--glass-subtle);
     border: 1px solid var(--border-dim);
     padding: 1px 7px;
     border-radius: 5px;
@@ -360,7 +353,7 @@
     font-size: 10px;
     color: var(--text-dim);
     font-family: "JetBrains Mono", var(--font-mono);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--glass-subtle);
     border: 1px solid var(--border-dim);
     padding: 1px 7px;
     border-radius: 5px;
@@ -369,22 +362,22 @@
   .qexpiry.exp-critical {
     color: var(--coral);
     border-color: var(--coral);
-    background: rgba(234, 84, 85, 0.14);
+    background: var(--coral-bg-strong);
   }
   .qexpiry.exp-soon {
-    color: #e8834a;
-    border-color: #e8834a;
-    background: rgba(232, 131, 74, 0.12);
+    color: var(--orange);
+    border-color: var(--orange);
+    background: var(--orange-bg);
   }
   .qexpiry.exp-warn {
     color: var(--amber);
     border-color: var(--amber);
-    background: rgba(232, 176, 75, 0.12);
+    background: var(--amber-bg);
   }
   .qexpiry.exp-ok {
     color: var(--lime);
     border-color: var(--lime);
-    background: rgba(108, 199, 116, 0.12);
+    background: var(--lime-bg);
   }
 
   /* ── 余额 ── */
@@ -403,10 +396,17 @@
   }
   .qconsumption {
     display: flex;
-    gap: 14px;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 4px;
     font-size: 10.5px;
-    color: var(--text-faint);
   }
+  .qcons-label { color: var(--text-faint); }
+  .qcons-value {
+    font-family: "JetBrains Mono", var(--font-mono);
+    color: var(--text-dim);
+  }
+  .qcons-sep { color: var(--text-faint); margin: 0 2px; }
 
   /* ── 窗口 ── */
   .qitem-window {
@@ -500,11 +500,11 @@
     text-align: right;
   }
   .qiw-mode-tag.tag-remaining {
-    background: rgba(108, 199, 116, 0.12);
+    background: var(--lime-bg);
     color: var(--lime);
   }
   .qiw-mode-tag.tag-usage {
-    background: rgba(224, 108, 117, 0.12);
+    background: var(--coral-bg);
     color: var(--coral);
   }
   .qiw-reset {
@@ -526,8 +526,8 @@
     gap: 8px;
     padding: 6px 9px;
     border-radius: 6px;
-    background: rgba(234, 84, 85, 0.10);
-    border: 1px solid rgba(234, 84, 85, 0.40);
+    background: var(--coral-bg-soft);
+    border: 1px solid var(--coral-border);
   }
   .qcookie-text {
     font-size: 10.5px;
@@ -540,7 +540,7 @@
     font-size: 10.5px;
     font-weight: 600;
     color: var(--coral);
-    background: rgba(234, 84, 85, 0.18);
+    background: var(--coral-bg-strong);
     border: 1px solid rgba(234, 84, 85, 0.45);
     padding: 2px 9px;
     border-radius: 5px;
@@ -555,8 +555,8 @@
     gap: 6px;
     padding: 8px 9px;
     border-radius: 6px;
-    background: rgba(234, 84, 85, 0.08);
-    border: 1px solid rgba(234, 84, 85, 0.40);
+    background: var(--coral-bg-soft);
+    border: 1px solid var(--coral-border);
   }
   .qcookie-edit textarea {
     width: 100%;
@@ -592,7 +592,7 @@
   }
   .qcookie-save {
     background: var(--lime);
-    color: #14310f;
+    color: var(--lime-text-on-bg);
     border-color: var(--lime);
   }
   .qcookie-save:hover:not(:disabled) { opacity: 0.9; }
@@ -616,7 +616,7 @@
     font-size: 10.5px;
     font-weight: 600;
     color: var(--amber);
-    background: rgba(232, 176, 75, 0.10);
+    background: var(--amber-hover);
     border: 1px solid rgba(232, 176, 75, 0.35);
     padding: 2px 10px;
     border-radius: 5px;
@@ -634,6 +634,46 @@
     color: var(--text-faint);
     margin: 6px 0 0;
     line-height: 1.6;
+  }
+
+  /* ── Cookie validation error ── */
+  .qcookie-err {
+    font-size: 10.5px;
+    color: var(--coral);
+    margin: 4px 0 0;
+    line-height: 1.5;
+  }
+
+  /* ── Region/site selectors inside the cookie editor ── */
+  .qcookie-regions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .qregion-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+  }
+  .qregion-label {
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+  .qregion-select {
+    font-size: 10.5px;
+    font-family: inherit;
+    background: var(--glass-2);
+    border: 1px solid var(--border-dim);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .qregion-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   /* ── Sub-items (individual quota_detail entries) ── */

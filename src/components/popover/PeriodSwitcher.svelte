@@ -63,7 +63,7 @@
   }
   .seg button.active {
     background: var(--amber);
-    color: #1a1408;
+    color: var(--badge-text);
     font-weight: 700;
   }
 </style>

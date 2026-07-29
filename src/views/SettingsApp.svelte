@@ -91,7 +91,7 @@
   </div>
 
   <!-- floating close button, bottom-right corner -->
-  <button class="fclose" onclick={close} aria-label="关闭" title="关闭设置">✕</button>
+  <button type="button" class="fclose" onclick={close} aria-label="关闭" title="关闭设置">✕</button>
 </div>
 
 <style>

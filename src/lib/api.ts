@@ -113,11 +113,18 @@ export interface ProjectVm {
 
 export type ToolStatus = "active" | "waiting" | "missing";
 
+export interface ClientDiagnostic {
+  code: string;
+  severity: string;
+  message: string;
+}
+
 export interface ClientStatus {
   client: string;
   label: string;
   status: ToolStatus;
   message_count: number;
+  diagnostics?: ClientDiagnostic[];
 }
 
 export interface TokscaleStatus {
@@ -294,13 +301,18 @@ export const api = {
 
   deleteCredential: (vendor: string) => invoke<void>("delete_credential", { vendor }),
 
-  /** Update only the cookie field of an existing credential (preserves key/secret). */
-  updateCookie: (vendor: string, cookie: string) =>
-    invoke<void>("update_cookie", { vendor, cookie }),
+  /** Update the cookie field (and optionally region/site) of an existing
+   *  credential, preserving key/secret. Triggers a quota:updated event. */
+  updateCookie: (vendor: string, cookie: string, extraFields?: Record<string, string>) =>
+    invoke<void>("update_cookie", { vendor, cookie, extraFields }),
 
   /** Non-empty field names in a stored credential (e.g. ["key","secret","cookie"]). */
   getCredentialFields: (vendor: string) =>
     invoke<string[]>("get_credential_fields", { vendor }),
+
+  /** Values of NON-SECRET scalar fields (region, site, …) — secrets excluded. */
+  getCredentialFieldValues: (vendor: string) =>
+    invoke<Record<string, string>>("get_credential_field_values", { vendor }),
 
   /** Remove specific fields from a stored credential, keeping the rest. */
   clearCredentialFields: (vendor: string, fields: string[]) =>
@@ -338,6 +350,12 @@ export const api = {
 
   getAutoStart: () => invoke<boolean>("get_auto_start"),
 
+  getAppVersion: () => invoke<string>("get_app_version"),
+
   checkUpdate: (repo: string, currentVersion: string) =>
     invoke<UpdateInfo>("check_update", { repo, currentVersion }),
+
+  /** Open an external URL in the system browser. Only http/https URLs are
+   *  allowed — javascript:, file:, and other schemes are rejected server-side. */
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
 };

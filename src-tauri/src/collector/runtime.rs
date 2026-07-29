@@ -90,19 +90,25 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
             match ev {
                 scheduler::CollectionEvent::Graph(v) => {
                     if let Ok(mut conn) = db.lock() {
-                        let _ = storage::daily_usage::ingest_graph(&mut conn, &v);
+                        if let Err(e) = storage::daily_usage::ingest_graph(&mut conn, &v) {
+                            tracing::warn!(error = %e, "ingest_graph failed");
+                        }
                     }
                 }
                 scheduler::CollectionEvent::Sessions(v) => {
                     if let Ok(mut conn) = db.lock() {
-                        let _ = storage::sessions::ingest_sessions(&mut conn, &v);
+                        if let Err(e) = storage::sessions::ingest_sessions(&mut conn, &v) {
+                            tracing::warn!(error = %e, "ingest_sessions failed");
+                        }
                         // 会话保留 OFF → prune sessions whose tool is no longer
                         // installed (auto-cleanup). ON (default) keeps everything.
                         let keep = crate::config::load(&conn)
                             .map(|c| c.session_archive_enabled)
                             .unwrap_or(true);
                         if !keep {
-                            let _ = storage::sessions::prune_uninstalled(&conn, &installed_clients);
+                            if let Err(e) = storage::sessions::prune_uninstalled(&conn, &installed_clients) {
+                                tracing::warn!(error = %e, "prune_uninstalled failed");
+                            }
                         }
                     }
                 }
@@ -114,7 +120,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                         let _ = app.emit("today:updated", s);
                     }
                 }
-                scheduler::CollectionEvent::ScanError(_) => {}
+                scheduler::CollectionEvent::ScanError(msg) => {
+                    // Surface scan failures to the frontend so the UI can show
+                    // a degraded state instead of silently stale data.
+                    let _ = app.emit("collection:error", msg);
+                }
             }
         }
     });

@@ -6,6 +6,7 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::GITEE_TOKEN;
 use crate::state::AppState;
 
 /// Response from the update check.
@@ -95,7 +96,7 @@ pub fn check_update(
 
     // Private Gitee repos require an access_token.
     if platform == Platform::Gitee {
-        let token = std::env::var("GITEE_TOKEN").unwrap_or_default();
+        let token = GITEE_TOKEN;
         if !token.is_empty() {
             url = format!("{}?access_token={}", url, token);
         }
@@ -272,6 +273,12 @@ fn asset_url(asset: &serde_json::Value) -> Option<String> {
         .or_else(|| asset.get("download_url"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+/// Return the current app version (from Cargo.toml).
+#[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 /// Simple semver comparison: strips "v" prefix and compares major.minor.patch.

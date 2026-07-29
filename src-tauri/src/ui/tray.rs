@@ -68,7 +68,7 @@ fn load_mode(conn: &Connection) -> String {
     config::load(conn)
         .map(|c| c.tray_display)
         .unwrap_or_else(|e| {
-            eprintln!("[tray] config load failed: {e}");
+            tracing::warn!("tray config load failed: {e}");
             String::from("today_both")
         })
 }
@@ -109,7 +109,7 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
         ) {
             Ok(total) => total,
             Err(e) => {
-                eprintln!("[tray] total summary query failed: {e}");
+                tracing::warn!("tray total summary query failed: {e}");
                 today.clone()
             }
         }

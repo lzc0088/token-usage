@@ -12,6 +12,28 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+/// Build a parameterized `NOT IN (...)` SQL fragment and matching param slice
+/// from a list of values. Returns `(sql_fragment, params)` where `sql_fragment`
+/// is e.g. `"tool NOT IN (?,?,?)"` or `"1=1"` when `items` is empty.
+///
+/// The returned fragment can be dropped directly into a WHERE clause:
+/// `format!("WHERE {}", not_in_clause(&items).0)`.
+///
+/// # Safety
+/// All values are bound via `?` placeholders — never interpolated into SQL.
+pub fn not_in_clause<'a, T: rusqlite::ToSql>(
+    items: &'a [T],
+    column: &'a str,
+) -> (String, Vec<&'a dyn rusqlite::ToSql>) {
+    if items.is_empty() {
+        return ("1=1".into(), Vec::new());
+    }
+    let placeholders = items.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("{column} NOT IN ({placeholders})");
+    let params: Vec<&'a dyn rusqlite::ToSql> = items.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    (sql, params)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
     #[error("sqlite: {0}")]

@@ -42,6 +42,13 @@ import promaIcon from "../icons/tools/proma.svg?raw";
 import warpIcon from "../icons/tools/warp.svg?raw";
 import muxIcon from "../icons/tools/mux.svg?raw";
 import jetbrainsIcon from "../icons/tools/jetbrains.svg?raw";
+import ampIcon from "../icons/tools/amp.svg?raw";
+import droidIcon from "../icons/tools/droid.svg?raw";
+import gooseIcon from "../icons/tools/goose.svg?raw";
+import gjcIcon from "../icons/tools/gjc.svg?raw";
+import jcodeIcon from "../icons/tools/jcode.svg?raw";
+import commandcodeIcon from "../icons/tools/commandcode.svg?raw";
+import devinIcon from "../icons/tools/devin.svg?raw";
 
 // Vendor icons for model breakdown
 import deepseekVendorIcon from "../icons/vendors/deepseek.svg?raw";
@@ -91,6 +98,13 @@ const ICONS: Record<string, string> = {
   warp: warpIcon,
   mux: muxIcon,
   jetbrains: jetbrainsIcon,
+  amp: ampIcon,
+  droid: droidIcon,
+  goose: gooseIcon,
+  gjc: gjcIcon,
+  jcode: jcodeIcon,
+  commandcode: commandcodeIcon,
+  devin: devinIcon,
   // micode (MiMo Code CLI) → shares the Xiaomi/MiMo vendor brand icon
   // (mimo itself is already mapped in the vendor-icons block above).
   micode: mimoVendorIcon,
@@ -154,6 +168,13 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   micode:      { label: "MiMo Code",   icon: ICONS.micode,      color: "#FF6900" },
   mimo:        { label: "MiMo",        icon: ICONS.mimo,        color: "#FF6900" },
   junie:       { label: "Junie",       icon: ICONS.jetbrains,   color: "#FE2857" },
+  amp:         { label: "Amp",         icon: ICONS.amp,         color: "var(--violet)" },
+  droid:       { label: "Droid",       icon: ICONS.droid,       color: "var(--lime)" },
+  goose:       { label: "Goose",       icon: ICONS.goose,       color: "#64b4ff" },
+  gjc:         { label: "9Router",     icon: ICONS.gjc,         color: "var(--violet)" },
+  jcode:       { label: "Jcode",       icon: ICONS.jcode,       color: "var(--amber)" },
+  commandcode: { label: "Command Code", icon: ICONS.commandcode, color: "var(--lime)" },
+  devin:       { label: "Devin",       icon: ICONS.devin,       color: "#FE2857" },
   ollama:      { label: "Ollama ( Ollama Cloud )",      icon: ICONS.ollama,      color: "var(--text-dim)" },
   zai_team:    { label: "GLM Team",   icon: ICONS.zai_team,   color: "var(--amber)" },
   // model-level keys (used by model breakdown — vendor icon for the model)
@@ -179,6 +200,8 @@ const ALIASES: Record<string, string> = {
   "opencodereview": "opencode",
   "devin-cli": "devin",
   "devin-desktop": "devin",
+  "9router": "gjc",
+  "roocode": "kilocode", // Roo Code shares Kilo Code icon
 };
 
 /** Look up display name & icon for a raw key (case-insensitive fallback).

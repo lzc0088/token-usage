@@ -55,8 +55,8 @@ pub fn query(
                 COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
                 COALESCE(SUM(cost_usd), 0) AS cost,
                 COALESCE(SUM(message_count), 0) AS messages,
-                COUNT(DISTINCT model) AS model_count,
-                COALESCE(GROUP_CONCAT(DISTINCT model), '') AS models,
+                COUNT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END) AS model_count,
+                COALESCE(GROUP_CONCAT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END), '') AS models,
                 MAX(last_used_at) AS last_used_at
          FROM sessions
          GROUP BY tool, session_id
@@ -100,7 +100,7 @@ pub fn query_detail(
                 cost_usd,
                 message_count
          FROM sessions
-         WHERE tool = ? AND session_id = ?
+         WHERE tool = ? AND session_id = ? AND model NOT IN ('<synthetic>')
          ORDER BY tokens DESC",
     )?;
     let out = stmt
@@ -177,7 +177,7 @@ pub fn session_model_totals_public(
                 COALESCE(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens, 0),
                 COALESCE(cost_usd, 0)
          FROM sessions
-         WHERE tool = ? AND session_id = ?",
+         WHERE tool = ? AND session_id = ? AND model NOT IN ('<synthetic>')",
     )?;
     let rows = stmt.query_map(rusqlite::params![tool, session_id], |r| {
         Ok((
@@ -732,6 +732,54 @@ mod tests {
         let v = query(&conn, None).unwrap();
         assert_eq!(v.len(), 3); // all 3 sessions, no filtering
         assert!(v.iter().any(|s| s.session_id == "s_old"));
+    }
+
+    #[test]
+    fn query_detail_excludes_synthetic() {
+        let conn = seeded();
+        let now = chrono::Utc::now().timestamp_millis();
+        // Insert a <synthetic> model row alongside real models.
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
+             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,{now})"
+        ))
+        .unwrap();
+        let rows = query_detail(&conn, "claude", "s_syn").unwrap();
+        assert!(rows.is_empty(), "<synthetic> model should be filtered from detail");
+    }
+
+    #[test]
+    fn query_list_excludes_synthetic_from_models() {
+        let conn = seeded();
+        let now = chrono::Utc::now().timestamp_millis();
+        // s_syn has only a <synthetic> model — should not appear in model list.
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
+             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,{now})"
+        ))
+        .unwrap();
+        // s_mix has a real model and a <synthetic> one — only real should show.
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
+             VALUES ('claude','s_mix','<synthetic>',0,0,0,0,0.0,0,{now}),
+                    ('claude','s_mix','gpt-4',100,0,0,0,0.2,3,{now})"
+        ))
+        .unwrap();
+        let v = query(&conn, None).unwrap();
+        let s_syn = v.iter().find(|s| s.session_id == "s_syn");
+        // s_syn still appears (it has real tool/session_id), but with zero
+        // models and zero tokens since <synthetic> is filtered from aggregation.
+        assert!(s_syn.is_some(), "<synthetic>-only session stays in list (with zero model info)");
+        let syn = s_syn.unwrap();
+        assert_eq!(syn.model_count, 0);
+        assert_eq!(syn.models, "");
+        assert_eq!(syn.tokens, 0);
+        let s_mix = v.iter().find(|s| s.session_id == "s_mix");
+        assert!(s_mix.is_some());
+        let mix = s_mix.unwrap();
+        assert!(!mix.models.contains("<synthetic>"), "models string should not contain <synthetic>");
+        assert!(mix.models.contains("gpt-4"), "models string should contain real model");
+        assert_eq!(mix.model_count, 1, "model_count should count only real models");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
   "name": "token-usage",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Cross-platform menu bar app for tracking AI agent token usage",
   "scripts": {
@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
     "fetch-tokscale": "node scripts/fetch-tokscale.mjs",
     "pretauri": "npm run fetch-tokscale -- --latest",
     "tauri": "tauri"
@@ -20,10 +21,12 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tauri-apps/cli": "^2.11.0",
+    "jsdom": "^30.0.0",
     "svelte": "^5.56.0",
     "svelte-check": "^4.0.0",
     "tslib": "^2.6.0",
     "typescript": "^5.9.0",
-    "vite": "^8.1.0"
+    "vite": "^8.1.0",
+    "vitest": "^4.1.10"
   }
 }

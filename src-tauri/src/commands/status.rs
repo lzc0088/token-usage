@@ -14,6 +14,17 @@ pub struct ClientStatus {
     /// `active` (installed + has data) | `waiting` (installed, no data yet) | `missing`.
     pub status: &'static str,
     pub message_count: i64,
+    /// Diagnostic notices from tokscale (v4.7.0+), e.g. unused stats-cache.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<ClientDiagnostic>,
+}
+
+/// A tokscale client diagnostic message.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClientDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
 }
 
 #[tauri::command]
@@ -43,6 +54,15 @@ pub async fn get_tools_status(app: tauri::AppHandle) -> Result<Vec<ClientStatus>
                 label: c.label,
                 status,
                 message_count: c.message_count,
+                diagnostics: c
+                    .diagnostics
+                    .iter()
+                    .map(|d| ClientDiagnostic {
+                        code: d.code.clone(),
+                        severity: d.severity.clone(),
+                        message: d.message.clone(),
+                    })
+                    .collect(),
             }
         })
         .collect())

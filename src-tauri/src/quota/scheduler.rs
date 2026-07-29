@@ -6,73 +6,61 @@
 //!
 //! Also provides a one-shot refresh for manual "刷新" triggers.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chrono::Datelike;
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter};
 use tokio::time::Duration;
+use tracing::{debug, warn};
 
 use std::collections::HashSet;
 
 use crate::config;
 use crate::auth::credentials;
-use crate::quota::{Quota, QuotaBalance, VendorId};
-
-/// All vendor ids the account page can bind.
-const TRACKED_VENDORS: &[&str] = &[
-    "claude",
-    "codex",
-    "cursor",
-    "deepseek",
-    "minimax",
-    "glm",
-    "kimi",
-    "volcengine",
-    "stepfun",
-    "iflytek",
-    "copilot",
-    "mimo",
-    "opencode",
-    "zai_team",
-    "qoder",
-    "ollama",
-];
+use crate::quota::{Quota, QuotaBalance, TRACKED_VENDORS, adapter_for};
 
 /// How long to wait before the first scheduled refresh after startup.
 const INITIAL_DELAY_MS: u64 = 5_000;
 
 /// Map vendor IDs to CLI tool names for consumption queries.
-fn vendor_tools(vendor: &str) -> &[&str] {
+/// Map vendor IDs to model name LIKE patterns for consumption queries.
+/// Each pattern matches model names in `daily_usage` belonging to that vendor.
+/// This is model-based rather than tool-based — a single vendor's models can be
+/// consumed by many tools (e.g. DeepSeek models are used by zcode, trae, etc.).
+fn vendor_model_patterns(vendor: &str) -> &[&str] {
     match vendor {
-        "deepseek" => &["zcode", "deepseek"],
-        "glm" => &["zai", "glm"],
-        "kimi" => &["kimi"],
-        "minimax" => &["minimax"],
-        "volcengine" => &["volcengine"],
-        "mimo" => &["mimo"],
+        "deepseek" => &["deepseek%"],
+        "glm" => &["glm%", "zai%"],
+        "kimi" => &["kimi%", "moonshot%"],
+        "minimax" => &["minimax%"],
+        "volcengine" => &["doubao%", "ep-%"],
+        "mimo" => &["mimo%"],
         _ => &[],
     }
 }
 
-/// Query total cost_usd from daily_usage for a vendor's tool names in a period.
+/// Query total cost_usd from daily_usage for a vendor's models in a period.
+/// Uses LIKE patterns so ALL tools using the vendor's models are counted.
 pub fn query_consumption(conn: &Connection, vendor: &str, since_date: &str) -> Option<f64> {
-    let tools = vendor_tools(vendor);
-    if tools.is_empty() {
+    let patterns = vendor_model_patterns(vendor);
+    if patterns.is_empty() {
         return None;
     }
-    let placeholders: Vec<String> = tools
+    let clauses: Vec<String> = patterns
         .iter()
         .enumerate()
-        .map(|(i, _)| format!("?{}", i + 1))
+        .map(|(i, _)| format!("model LIKE ?{}", i + 1))
         .collect();
     let sql = format!(
-        "SELECT COALESCE(SUM(cost_usd), 0) FROM daily_usage WHERE tool IN ({}) AND date >= ?",
-        placeholders.join(",")
+        "SELECT COALESCE(SUM(cost_usd), 0) FROM daily_usage WHERE ({}) AND date >= ?{}",
+        clauses.join(" OR "),
+        patterns.len() + 1,
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    for t in tools {
-        params.push(Box::new(t.to_string()));
+    for p in patterns {
+        params.push(Box::new(p.to_string()));
     }
     params.push(Box::new(since_date.to_string()));
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -93,31 +81,16 @@ pub fn write_cache(conn: &Connection, vendor: &str, q: &Quota, fetched_at: i64) 
 
 /// Fetch all bound vendors' quotas and cache them. Called for manual refresh.
 /// Uses a fresh silenced set so auth errors retry on manual refresh.
-pub async fn refresh_all(db: &Arc<Mutex<Connection>>) {
+/// Returns false if another refresh was already in progress.
+pub async fn refresh_all(db: &Arc<Mutex<Connection>>) -> bool {
+    if !try_begin_refresh() {
+        debug!("manual refresh skipped — another refresh already in progress");
+        return false;
+    }
     let mut silenced = HashSet::new();
     refresh_all_impl(db, &mut silenced).await;
-}
-
-fn adapter_for(id: &str) -> Option<VendorId> {
-    match id {
-        "deepseek" => Some(VendorId::Deepseek),
-        "glm" => Some(VendorId::Glm),
-        "minimax" => Some(VendorId::Minimax),
-        "kimi" => Some(VendorId::Kimi),
-        "volcengine" => Some(VendorId::Volcengine),
-        "mimo" => Some(VendorId::Mimo),
-        "stepfun" => Some(VendorId::Stepfun),
-        "iflytek" => Some(VendorId::Iflytek),
-        "zai_team" => Some(VendorId::GlmTeam),
-        "qoder" => Some(VendorId::Qoder),
-        "cursor" => Some(VendorId::Cursor),
-        "copilot" => Some(VendorId::Copilot),
-        "ollama" => Some(VendorId::Ollama),
-        "opencode" => Some(VendorId::Opencode),
-        "claude" => Some(VendorId::Claude),
-        "codex" => Some(VendorId::Codex),
-        _ => None,
-    }
+    REFRESHING.store(false, Ordering::Release);
+    true
 }
 
 /// Cookie-based vendors: their credential is a browser session cookie that the
@@ -179,6 +152,9 @@ pub fn is_stale(max_fetched_at_ms: Option<i64>, interval_secs: u64, now_ms: i64)
     now_ms.saturating_sub(last) > (interval_secs as i64) * 1000
 }
 
+/// Prevents concurrent refresh_all_impl executions (e.g. scheduled + manual).
+static REFRESHING: AtomicBool = AtomicBool::new(false);
+
 /// Run the quota refresh scheduler in the background.
 ///
 /// Starts after a short delay, then fires every `quota_refresh_interval` (from
@@ -193,29 +169,51 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
     let mut auth_errored: HashSet<String> = HashSet::new();
 
     // First refresh immediately.
-    refresh_all_impl(&db, &mut auth_errored).await;
+    if try_begin_refresh() {
+        refresh_all_impl(&db, &mut auth_errored).await;
+        REFRESHING.store(false, Ordering::Release);
+    }
     let _ = app.emit("quota:updated", ());
 
     loop {
         // Read current interval from config on each loop iteration.
         let interval_secs = {
-            let conn = db.lock().expect("db poisoned");
+            let conn = db.lock().unwrap_or_else(|e| {
+                warn!("db mutex poisoned in quota scheduler, recovering: {e}");
+                e.into_inner()
+            });
             let cfg = config::load(&conn).unwrap_or_default();
             parse_interval_secs(cfg.quota_refresh_interval.as_str())
         };
 
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
-        refresh_all_impl(&db, &mut auth_errored).await;
+        if try_begin_refresh() {
+            refresh_all_impl(&db, &mut auth_errored).await;
+            REFRESHING.store(false, Ordering::Release);
+        } else {
+            debug!("skipping scheduled refresh — another refresh already in progress");
+        }
         // Notify windows so the "updated" time and quota cards refresh live
         // without the user re-opening the page.
         let _ = app.emit("quota:updated", ());
     }
 }
 
+/// Try to acquire the refresh lock. Returns true if we got it, false if another
+/// refresh is already running.
+fn try_begin_refresh() -> bool {
+    REFRESHING
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_ok()
+}
+
 /// Internal: refresh all vendors, with auth-error silencing.
 async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<String>) {
     let (creds, cfg) = {
-        let conn = db.lock().expect("db poisoned");
+        let conn = db.lock().unwrap_or_else(|e| {
+            warn!("db mutex poisoned in refresh_all_impl, recovering: {e}");
+            e.into_inner()
+        });
         let cfg = config::load(&conn).unwrap_or_default();
         let creds: Vec<(String, String)> = TRACKED_VENDORS
             .iter()
@@ -280,7 +278,12 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
                         // "update cookie" entry (same as StepFun's 401 path).
                         let empty_means_cookie_fail =
                             is_cookie_vendor && matches!(e, super::VendorError::Empty);
-                        let cookie_fail = is_auth || empty_means_cookie_fail;
+                        // Parse errors for cookie vendors also indicate a stale
+                        // session: the API returns a 200 login-page HTML instead
+                        // of valid JSON, so parsing fails.
+                        let parse_means_cookie_fail =
+                            is_cookie_vendor && matches!(e, super::VendorError::Parse(_));
+                        let cookie_fail = is_auth || empty_means_cookie_fail || parse_means_cookie_fail;
                         // Cookie-based vendors can have their credentials refreshed
                         // from the settings UI at any time, so they are never
                         // permanently silenced — every cycle retries them. Only
@@ -295,7 +298,9 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
                         }
                         if let Ok(conn) = db.lock() {
                             let p = placeholder(id, cookie_fail);
-                            write_cache(&conn, id, &p, now_ms);
+                            // fetched_at=0 marks this as a failed attempt so
+                            // staleness checks ignore it and retry next time.
+                            write_cache(&conn, id, &p, 0);
                         }
                     }
                 }
@@ -303,7 +308,7 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
             None => {
                 if let Ok(conn) = db.lock() {
                     let p = placeholder(id, false);
-                    write_cache(&conn, id, &p, now_ms);
+                    write_cache(&conn, id, &p, 0);
                 }
             }
         }

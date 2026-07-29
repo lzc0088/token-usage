@@ -38,8 +38,27 @@ pub struct ClientInfo {
     pub additional_paths: Vec<PathEntry>,
     #[serde(default)]
     pub headless_paths: Vec<PathEntry>,
+    /// Legacy/renamed session directories from older tool versions (v4.7.0+).
+    /// e.g. OpenClaw reports `.clawdbot`, `.moltbot`, `.moldbot` legacy paths.
+    #[serde(default)]
+    pub legacy_paths: Vec<PathEntry>,
     #[serde(default)]
     pub message_count: i64,
+    /// Optional diagnostic messages from tokscale (v4.7.0+).
+    /// e.g. Claude reports stats-cache.json warnings.
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// A tokscale client diagnostic message (v4.7.0+).
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    #[serde(default)]
+    pub paths: Vec<PathEntry>,
 }
 
 /// A secondary path with its existence flag.
@@ -63,9 +82,10 @@ impl ClientInfo {
     }
 }
 
-/// Argv for `tokscale clients --json` (global flags before the subcommand).
+/// Argv for `tokscale clients --json`. `--no-spinner` was removed from the
+/// clients subcommand in tokscale v4.7.0 (still present on graph/report).
 pub fn clients_args() -> Vec<String> {
-    vec!["--no-spinner".into(), "clients".into(), "--json".into()]
+    vec!["clients".into(), "--json".into()]
 }
 
 /// Locations to watch, deduped, using tokscale's reported existence flags
@@ -84,7 +104,12 @@ pub fn watch_paths(report: &ClientsReport) -> Vec<PathBuf> {
         if c.sessions_path_exists {
             push(PathBuf::from(&c.sessions_path), &mut out);
         }
-        for e in c.additional_paths.iter().chain(c.headless_paths.iter()) {
+        for e in c
+            .additional_paths
+            .iter()
+            .chain(c.headless_paths.iter())
+            .chain(c.legacy_paths.iter())
+        {
             if e.exists {
                 push(PathBuf::from(&e.path), &mut out);
             }
@@ -206,6 +231,8 @@ mod tests {
                     exists: true,
                 }],
                 headless_paths: vec![],
+                legacy_paths: vec![],
+                diagnostics: vec![],
                 message_count: 0,
             }],
         };
@@ -213,11 +240,33 @@ mod tests {
     }
 
     #[test]
-    fn clients_args_order_global_flags_first() {
+    fn watch_dirs_includes_legacy_paths() {
+        let r = ClientsReport {
+            headless_roots: vec![],
+            clients: vec![ClientInfo {
+                client: "openclaw".into(),
+                label: "OpenClaw".into(),
+                sessions_path: "/a".into(),
+                sessions_path_exists: false,
+                additional_paths: vec![],
+                headless_paths: vec![],
+                legacy_paths: vec![PathEntry {
+                    path: "/home/u/.clawdbot/agents".into(),
+                    exists: true,
+                }],
+                diagnostics: vec![],
+                message_count: 100,
+            }],
+        };
+        let dirs = watch_paths(&r);
+        assert!(dirs.contains(&PathBuf::from("/home/u/.clawdbot/agents")));
+    }
+
+    #[test]
+    fn clients_args_order_subcommand_first() {
         let a = clients_args();
-        // global --no-spinner must precede the subcommand
-        assert_eq!(a[0], "--no-spinner");
-        assert_eq!(a[1], "clients");
+        // v4.7.0 removed --no-spinner from the clients subcommand.
+        assert_eq!(a[0], "clients");
         assert!(a.contains(&"--json".to_string()));
     }
 }

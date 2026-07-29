@@ -6,7 +6,6 @@
  */
 
 export interface VendorMeta {
-  /** Short vendor label, e.g. "智谱", "OpenAI", "DeepSeek". */
   vendor: string;
   /** Display color for the vendor tag. */
   color: string;
@@ -20,9 +19,9 @@ const RULES: [string[], string, string][] = [
   [["claude", "anthropic"], "Anthropic", "var(--amber)"],
   [["gpt", "o1", "o3", "o4", "chatgpt", "text-embedding", "text-davinci", "davinci"], "OpenAI", "var(--violet)"],
   [["gemini", "gemma"], "Google", "var(--cyan)"],
-  [["deepseek"], "DeepSeek", "var(--cyan)"],
+  [["deepseek"], "深度求索", "var(--cyan)"],
   [["glm", "zai", "zhipu", "chatglm"], "智谱", "var(--amber)"],
-  [["qwen", "qwq", "tongyi"], "阿里 Qwen", "var(--violet)"],
+  [["qwen", "qwq", "tongyi"], "阿里", "var(--violet)"],
   [["step"], "阶跃星辰", "var(--lime)"],
   [["kimi", "moonshot"], "月之暗面", "var(--cyan)"],
   [["llama"], "Meta", "var(--text-dim)"],
@@ -67,9 +66,9 @@ export const VENDOR_NAME_TO_ID: Record<string, string> = {
   "Anthropic": "claude",
   "OpenAI": "codex",
   "Google": "gemini", // fallback
-  "DeepSeek": "deepseek",
+  "深度求索": "deepseek",
   "智谱": "glm",
-  "阿里 Qwen": "qwen",
+  "阿里": "qwen",
   "阶跃星辰": "stepfun",
   "月之暗面": "kimi",
   "Meta": "meta",

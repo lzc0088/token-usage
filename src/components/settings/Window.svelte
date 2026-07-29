@@ -112,8 +112,6 @@
     }
     parts.push(main);
 
-    console.log("[Hotkey Debug]", { eKey: e.key, eCode: e.code, eKeyCode: e.keyCode, finalHotkey: parts.join("+") });
-
     onUpdate({ hotkey: parts.join("+") });
     recording = false;
   }
@@ -181,15 +179,15 @@
       <div class="lab">快捷方式<div class="hint">全局快捷键，随时显示 / 隐藏窗口</div></div>
       <div class="hotkey-wrap">
         {#if recording}
-          <button class="hk recording" onclick={cancelRecording}>按下快捷键…</button>
+          <button type="button" class="hk recording" onclick={cancelRecording}>按下快捷键…</button>
         {:else if config.hotkey}
-          <button class="hk" onclick={startRecording}>
+          <button type="button" class="hk" onclick={startRecording}>
             {#each formatHotkey(config.hotkey) as sym, i (i)}
               <kbd>{sym}</kbd>
             {/each}
           </button>
         {:else}
-          <button class="hk empty" onclick={startRecording}>未设置</button>
+          <button type="button" class="hk empty" onclick={startRecording}>未设置</button>
         {/if}
       </div>
     </div>
@@ -199,7 +197,7 @@
   <div class="section-title">显示</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">窗口显示<div class="hint">弹窗是否可拖动改变位置</div></div>
+      <div class="lab">窗口显示<div class="hint">普通：可拖动，记住位置 | 固定：不可拖动，始终贴托盘</div></div>
       <select
         class="sel"
         value={config.window_display_mode || "normal"}
@@ -231,47 +229,29 @@
 
     <div class="box-row">
       <div class="lab">程序坞图标<div class="hint">在 Dock 中显示应用图标（默认隐藏）</div></div>
-      <button
-        class="tg"
-        class:on={!!config.show_in_dock}
-        role="switch"
-        aria-checked={!!config.show_in_dock}
-        aria-label="程序坞图标"
-        onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
-      ></button>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={!!config.show_in_dock}
+          role="switch"
+          aria-checked={!!config.show_in_dock}
+          aria-label="程序坞图标"
+          onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
+        ></button>
+      </div>
     </div>
   </div>
 
 </div>
 
 <style>
+
   .sc { display: flex; flex-direction: column; }
 
-  /* ── section title ── */
-  .section-title {
-    font-family: var(--font-ui);
-    font-weight: 700;
-    font-size: 15px;
-    color: var(--amber);
-    margin-top: 20px;
-    margin-bottom: 8px;
-  }
-  .section-title:first-of-type { margin-top: 24px; }
-
-  /* ── section box ── */
-  .section-box {
-    background: rgba(0,0,0,0.02);
-    border: 1px solid var(--border-dim);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-
-  /* ── box row ── */
-  .box-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); gap: 16px; }
-  .box-row:first-child { padding-top: 2px; }
-  .box-row:last-child { border-bottom: none; padding-bottom: 2px; }
-  .lab { font-size: 13px; color: var(--text); }
-  .lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+  /* ── Make all right-side controls the same width ── */
+  .sel { width: 150px; min-width: 150px; }
+  .hk { width: 150px; min-width: 150px; }
+  .tg-placeholder { width: 150px; display: flex; justify-content: flex-end; }
 
   /* ── segmented control ── */
   .seg {
@@ -301,48 +281,9 @@
   .seg-btn:hover { color: var(--text); }
   .seg-btn.on {
     background: var(--amber);
-    color: #1a1408;
+    color: var(--badge-text);
     font-weight: 500;
   }
-
-  /* ── select ── */
-  .sel {
-    background: rgba(255,255,255,.03);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 7px;
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
-    min-width: 150px;
-    height: 32px;
-  }
-  .sel:hover { border-color: var(--amber); }
-  .sel:focus { outline: none; border-color: var(--amber); }
-
-  /* ── toggle ── */
-  .tg {
-    width: 38px; height: 22px;
-    background: var(--glass-3);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    position: relative;
-    cursor: pointer;
-    flex-shrink: 0;
-    display: block;
-  }
-  .tg.on { background: var(--amber); border-color: var(--amber); }
-  .tg::after {
-    content:"";
-    position:absolute;
-    top:2px; left:2px;
-    width:16px; height:16px;
-    background:var(--text);
-    border-radius:50%;
-    transition:.18s;
-  }
-  .tg.on::after { left:18px; background:#1a1408; }
 
   /* ── hotkey recorder ── */
   .hotkey-wrap { display: flex; align-items: center; gap: 6px; }
@@ -351,7 +292,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    background: rgba(255,255,255,.04);
+    background: var(--glass-subtle);
     border: 1px solid var(--border-dim);
     color: var(--amber);
     padding: 5px 10px;
@@ -359,7 +300,6 @@
     font-family: inherit;
     font-size: 12px;
     cursor: pointer;
-    min-width: 150px;
     height: 32px;
     box-sizing: border-box;
     transition: all 0.15s;

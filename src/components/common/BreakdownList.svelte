@@ -1,5 +1,6 @@
 <script lang="ts">
   import BreakdownBar from "./BreakdownBar.svelte";
+  import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor, vendorIdForModel } from "../../lib/meta/models";
   import { toolMeta, vendorIcon } from "../../lib/meta/tools";
@@ -17,7 +18,7 @@
 
   const oppDim: Dimension = $derived(dim === "tool" ? "model" : "tool");
 
-  const PALETTE = ["var(--amber)", "var(--lime)", "var(--cyan)", "var(--violet)", "var(--coral)"];
+  // PALETTE imported from constants.ts
 
   type SortKey = "token" | "cost" | "name";
   let sort = $state<SortKey>("token");
@@ -73,8 +74,8 @@
   {@const vid = vendorIdForModel(e.key)}
   {@const rkIcon = (dim === "model" && vid) ? vendorIcon(vid) : meta.icon}
   {@const rkBg = (dim === "model" && vid && mv) ? mv.color : meta.color}
-  <div class="bd-row" role="button" tabindex="0" onclick={() => toggleExpand(e.key)} onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && toggleExpand(e.key)}>
-    <span class="rk" style="background:{rkBg};color:#1a1408" title={meta.label}>{@html rkIcon}</span>
+  <div class="bd-row" role="button" tabindex="0" onclick={() => toggleExpand(e.key)} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(e.key); } }}>
+    <span class="rk" style="background:{rkBg};color:var(--badge-text)" title={meta.label}>{@html rkIcon}</span>
     <div class="bd-main">
       <div class="bd-name">
         <span class="bd-key">{meta.label}</span>
@@ -133,7 +134,7 @@
   }
   .bd-count {
     font-family: var(--font-mono); font-size: 11px; font-weight: 600;
-    color: var(--amber); background: rgba(232,176,75,.12);
+    color: var(--amber); background: var(--amber-bg);
     padding: 1px 8px; border-radius: 10px;
     line-height: 1.4;
   }
@@ -150,7 +151,7 @@
   }
   .bd-sort button:hover { color: var(--text-dim); }
   .bd-sort button.on {
-    background: var(--amber); color: #1a1408;
+    background: var(--amber); color: var(--badge-text);
   }
 
   .bd-row {
@@ -191,49 +192,5 @@
   .bd-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
   .tku { font-size: 8px; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
 
-  /* expanded detail */
-  .bd-detail {
-    padding: 8px 24px 10px 24px;
-    display: flex; flex-direction: column; gap: 4px;
-    border-bottom: 1px dashed var(--border-dim);
-    background: rgba(0,0,0,.08);
-  }
-  .det-row {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 10px; color: var(--text-faint);
-    gap: 8px;
-  }
-  .det-val {
-    color: var(--text-dim); font-family: var(--font-mono); font-size: 10px;
-    text-align: right; flex-shrink: 0;
-  }
-  .det-sub {
-    font-size: 11px;
-    align-items: center;
-    display: grid;
-    grid-template-columns: 1fr 100px 50px 55px;
-    gap: 8px;
-  }
-  .det-label {
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    gap: 4px;
-  }
-  .det-dot {
-    width: 11px;
-    height: 11px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  .det-bar { height: 4px; background: var(--bar-track); border-radius: 2px; overflow: hidden; align-self: center; }
-  .det-bar i { display: block; height: 100%; border-radius: 2px; }
-  .det-pct { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
-  .det-tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); text-align: right; }
-  .det-sep {
-    height: 0; border-top: 1px solid var(--border);
-    margin: 8px 0;
-  }
+  /* expanded detail — uses shared .bd-detail / .det-* from breakdown.css */
 </style>

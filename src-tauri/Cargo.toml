@@ -1,6 +1,6 @@
 [package]
 name = "token-usage"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cross-platform menu bar app for tracking AI agent token usage"
 authors = ["Ze Chuan"]
 edition = "2021"
@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+dotenvy = "0.15"
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
@@ -41,6 +42,10 @@ hmac = "0.12"
 keyring = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 regex = "1"
+open = "5"
+url = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

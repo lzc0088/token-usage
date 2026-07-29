@@ -328,7 +328,18 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     let cookie = format!("Oasis-Token={oasis_token}; Oasis-Webid={oasis_webid}");
 
     let call =
-        |url: &str| -> Result<String, VendorError> { http.connect_rpc(url, &cookie, &oasis_webid) };
+        |url: &str| -> Result<String, VendorError> {
+            let body = http.connect_rpc(url, &cookie, &oasis_webid)?;
+            // When the session cookie is stale, stepfun.com returns 200 with a
+            // login-page HTML redirect instead of a proper HTTP 401. Detect that
+            // early so the scheduler surfaces a cookie_error rather than a
+            // generic parse failure → "额度读取待实现".
+            let trimmed = body.trim();
+            if trimmed.is_empty() || trimmed.starts_with('<') {
+                return Err(VendorError::Auth("Cookie 已过期，请重新获取".into()));
+            }
+            Ok(body)
+        };
 
     // 1. Balance (mandatory).
     let (balance, credit) = parse_balance(&call(BALANCE_URL)?)?;

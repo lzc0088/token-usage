@@ -82,13 +82,13 @@ pub fn apply_hotkey(app: &AppHandle, hotkey: &str) {
     let gs = app.global_shortcut();
     // Always start clean — idempotent if nothing is registered.
     if let Err(e) = gs.unregister_all() {
-        eprintln!("[window_ctl] unregister_all failed: {e}");
+        tracing::warn!("window_ctl: unregister_all failed: {e}");
     }
     if hotkey.trim().is_empty() {
         return;
     }
     let Some(accel) = map_accelerator(hotkey.trim()) else {
-        eprintln!("[window_ctl] invalid hotkey: {hotkey}");
+        tracing::warn!("window_ctl: invalid hotkey: {hotkey}");
         return;
     };
     if let Err(e) = gs.on_shortcut(accel.as_str(), |app, _shortcut, event| {
@@ -96,7 +96,7 @@ pub fn apply_hotkey(app: &AppHandle, hotkey: &str) {
             toggle_main(app);
         }
     }) {
-        eprintln!("[window_ctl] hotkey register failed ({accel}): {e}");
+        tracing::warn!("window_ctl: hotkey register failed ({accel}): {e}");
     }
 }
 
@@ -127,7 +127,7 @@ fn map_accelerator(stored: &str) -> Option<String> {
     // Validate: the last segment must be a recognizable main key.
     let main = mapped.last()?;
     if !is_valid_main_key(main) {
-        eprintln!("[window_ctl] invalid main key in hotkey: {main}");
+        tracing::warn!("window_ctl: invalid main key in hotkey: {main}");
         return None;
     }
     Some(result)
@@ -214,7 +214,7 @@ pub fn apply_window_features(app: &AppHandle, conn: &Connection) {
     let cfg = match config::load(conn) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[window_ctl] config load failed: {e}");
+            tracing::warn!("window_ctl: config load failed: {e}");
             return;
         }
     };
@@ -232,7 +232,7 @@ pub fn apply_window_config(app: &AppHandle, conn: &Connection) {
     let cfg = match config::load(conn) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[window_ctl] config load failed: {e}");
+            tracing::warn!("window_ctl: config load failed: {e}");
             return;
         }
     };

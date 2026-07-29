@@ -1,3 +1,6 @@
+@import "./styles/breakdown.css";
+@import "./styles/settings-shared.css";
+
 :root {
   /* Design tokens — sourced from docs/wireframe.html (final UI baseline) */
   --bg: #0f0e0b;
@@ -34,6 +37,27 @@
   --surface-tint-strong: rgba(255, 255, 255, 0.07);
 
   --radius: 12px;
+
+  /* Semantic color tokens for badges/tags/chips */
+  --badge-text: #1a1408;
+  --amber-bg: rgba(232, 176, 75, 0.12);
+  --amber-bg-strong: rgba(232, 176, 75, 0.15);
+  --amber-hover: rgba(232, 176, 75, 0.08);
+  --lime-bg: rgba(108, 199, 116, 0.12);
+  --lime-bg-soft: rgba(108, 199, 116, 0.08);
+  --lime-text-on-bg: #14310f;
+  --coral-bg: rgba(234, 84, 85, 0.12);
+  --coral-bg-soft: rgba(234, 84, 85, 0.08);
+  --coral-bg-strong: rgba(234, 84, 85, 0.18);
+  --coral-border: rgba(234, 84, 85, 0.40);
+  --orange: #e8834a;
+  --orange-bg: rgba(232, 131, 74, 0.12);
+  --cyan-text: #4fc3f7;
+  --violet-text: #b388ff;
+  --glass-subtle: rgba(255, 255, 255, 0.04);
+  --glass-subtle-strong: rgba(255, 255, 255, 0.06);
+  --overlay-dark: rgba(0, 0, 0, 0.08);
+
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: "Fraunces", serif;
@@ -69,6 +93,25 @@
   /* Subtle dark surface tints: rgba(255,255,255,…) would be invisible here. */
   --surface-tint: rgba(0, 0, 0, 0.05);
   --surface-tint-strong: rgba(0, 0, 0, 0.08);
+
+  --badge-text: #1a1408;
+  --amber-bg: rgba(201, 138, 30, 0.12);
+  --amber-bg-strong: rgba(201, 138, 30, 0.15);
+  --amber-hover: rgba(201, 138, 30, 0.08);
+  --lime-bg: rgba(107, 168, 31, 0.12);
+  --lime-bg-soft: rgba(107, 168, 31, 0.08);
+  --lime-text-on-bg: #14310f;
+  --coral-bg: rgba(212, 96, 58, 0.12);
+  --coral-bg-soft: rgba(212, 96, 58, 0.08);
+  --coral-bg-strong: rgba(212, 96, 58, 0.18);
+  --coral-border: rgba(212, 96, 58, 0.40);
+  --orange: #d4603a;
+  --orange-bg: rgba(232, 131, 74, 0.12);
+  --cyan-text: #2a9fa3;
+  --violet-text: #7c5fb8;
+  --glass-subtle: rgba(0, 0, 0, 0.04);
+  --glass-subtle-strong: rgba(0, 0, 0, 0.06);
+  --overlay-dark: rgba(0, 0, 0, 0.04);
 }
 
 /* ── Animation off → near-instant transitions (0.01ms avoids stuck states) ── */
@@ -90,6 +133,18 @@
 .copyable {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* Global focus-visible: keyboard navigation accessibility. */
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Remove default focus outline for mouse users (focus-visible only shows on keyboard). */
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 html,

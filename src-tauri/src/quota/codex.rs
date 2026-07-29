@@ -13,6 +13,7 @@
 //!   - JSON: `{"access_token":"sk-...","account_id":"acc-..."}`
 
 use regex::Regex;
+use std::sync::LazyLock;
 use serde::Deserialize;
 use std::process::{Command, Stdio};
 use tauri::Emitter;
@@ -357,10 +358,9 @@ mod tests {
 // to extract the OAuth URL, emit events so the frontend can open the browser.
 
 /// Regex to find OpenAI auth URLs in codex login output.
-fn auth_url_regex() -> Regex {
-    Regex::new(r"https://auth\.openai\.com/oauth/authorize[^\s]*")
-        .expect("valid regex")
-}
+static AUTH_URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"https://auth\.openai\.com/oauth/authorize[^\s]*").expect("valid regex")
+});
 
 /// Spawn `codex login` and stream stdout, looking for the OAuth authorize URL.
 /// Emits `codex:login_status` events carrying `{phase, login_url}`.
@@ -393,7 +393,6 @@ pub async fn codex_login(app: &tauri::AppHandle) -> Result<(), String> {
         let mut stderr = child.stderr.take().expect("stderr piped");
 
         // Read stdout line by line, looking for the OAuth URL.
-        let url_re = auth_url_regex();
 
         // Spawn a thread to drain stderr (avoids pipe blocking).
         let _stderr_handle = std::thread::spawn(move || {
@@ -409,7 +408,7 @@ pub async fn codex_login(app: &tauri::AppHandle) -> Result<(), String> {
             match reader.read_line(&mut line) {
                 Ok(0) => break, // EOF
                 Ok(_) => {
-                    if let Some(cap) = url_re.captures(&line) {
+                    if let Some(cap) = AUTH_URL_RE.captures(&line) {
                         if let Some(url_match) = cap.get(0) {
                             let url = url_match.as_str().to_string();
                             let _ = app_handle.emit(

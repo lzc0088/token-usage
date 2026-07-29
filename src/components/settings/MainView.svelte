@@ -278,7 +278,7 @@
           </span>
         <span class="tree-right">
           {#if item.children}
-            <button class="act" title={item.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(item)}>
+            <button type="button" class="act" title={item.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(item)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 {#if item.expanded}
                   <line x1="5" y1="12" x2="19" y2="12"/>
@@ -288,12 +288,12 @@
               </svg>
             </button>
           {/if}
-          <button class="mv" title="上移" disabled={i === 0} onclick={() => moveUp(item)}>
+          <button type="button" class="mv" title="上移" disabled={i === 0} onclick={() => moveUp(item)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
             </svg>
           </button>
-          <button class="mv" title="下移" disabled={i === navItems.length - 1} onclick={() => moveDown(item)}>
+          <button type="button" class="mv" title="下移" disabled={i === navItems.length - 1} onclick={() => moveDown(item)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
             </svg>
@@ -321,7 +321,7 @@
             </span>
             <span class="tree-right">
               {#if child.children}
-                <button class="act" title={child.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(child)}>
+                <button type="button" class="act" title={child.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(child)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                     {#if child.expanded}
                       <line x1="5" y1="12" x2="19" y2="12"/>
@@ -331,12 +331,12 @@
                   </svg>
                 </button>
               {/if}
-              <button class="mv" title="上移" disabled={j === 0} onclick={() => moveUp(child)}>
+              <button type="button" class="mv" title="上移" disabled={j === 0} onclick={() => moveUp(child)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
                 </svg>
               </button>
-              <button class="mv" title="下移" disabled={j === (item.children?.length ?? 1) - 1} onclick={() => moveDown(child)}>
+              <button type="button" class="mv" title="下移" disabled={j === (item.children?.length ?? 1) - 1} onclick={() => moveDown(child)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                 </svg>
@@ -362,12 +362,12 @@
                   <span class="tree-label">{grandchild.label}</span>
                 </span>
                 <span class="tree-right">
-                  <button class="mv" title="上移" disabled={k === 0} onclick={() => moveUp(grandchild)}>
+                  <button type="button" class="mv" title="上移" disabled={k === 0} onclick={() => moveUp(grandchild)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
                     </svg>
                   </button>
-                  <button class="mv" title="下移" disabled={k === (child.children?.length ?? 1) - 1} onclick={() => moveDown(grandchild)}>
+                  <button type="button" class="mv" title="下移" disabled={k === (child.children?.length ?? 1) - 1} onclick={() => moveDown(grandchild)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                     </svg>
@@ -393,43 +393,8 @@
 </div>
 
 <style>
+
   .sc { display: flex; flex-direction: column; }
-
-  .section-title {
-    font-family: var(--font-ui);
-    font-weight: 700;
-    font-size: 15px;
-    color: var(--amber);
-    margin-top: 20px;
-    margin-bottom: 6px;
-  }
-  .section-title:first-of-type { margin-top: 20px; }
-
-  .section-box {
-    background: rgba(0,0,0,0.02);
-    border: 1px solid var(--border-dim);
-    border-radius: 10px;
-    padding: 10px 12px;
-  }
-
-  .box-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; gap: 16px; }
-  .lab { font-size: 13px; color: var(--text); }
-  .lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-
-  .sel {
-    background: rgba(255,255,255,.03);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 7px;
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
-    min-width: 150px;
-    height: 32px;
-  }
-  .sel:hover { border-color: var(--amber); }
-  .sel:focus { outline: none; border-color: var(--amber); }
 
   /* ── tree ── */
   .icon-legend {
@@ -519,7 +484,7 @@
   .vis { color: var(--text-faint); }
 
   .act:hover, .mv:hover:not(:disabled), .vis:hover {
-    background: rgba(255,255,255,0.06);
+    background: var(--glass-subtle-strong);
     color: var(--amber);
     transform: scale(1.05);
   }
@@ -529,5 +494,5 @@
   .mv:disabled { opacity: 0.15; cursor: default; }
   .mv:disabled:hover { background: none; color: var(--text-faint); transform: none; }
   .vis.on { color: var(--amber); }
-  .vis.on:hover { background: rgba(232,176,75,0.08); }
+  .vis.on:hover { background: var(--amber-hover); }
 </style>

@@ -1,33 +1,12 @@
 <script lang="ts">
   // 账号额度: 折叠面板式账号绑定 + 额度查询.
   import { listen } from "@tauri-apps/api/event";
-  import { open } from "@tauri-apps/plugin-shell";
   import { api, type Config } from "../../lib/api";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { VENDOR_PANEL } from "../../lib/meta/panels";
+  import { VENDORS, fieldsFor, CAT_ORDER, GROUPS, type VendorDef } from "../../lib/meta/vendors";
+  import DeviceFlow from "./DeviceFlow.svelte";
 
-  type AuthType = "detect" | "login" | "key" | "cookie";
-  type TagColor = "blue" | "amber" | "purple" | "lime" | "coral" | "gray";
-  interface InfoTag { text: string; color: TagColor; }
-  interface FieldDef { key: string; label: string; placeholder: string; type?: "text" | "password" | "select" | "textarea"; options?: string[]; default?: string; }
-  interface VendorDef {
-    id: string; label: string; cat: "subscription" | "api-key" | "cookie";
-    // A vendor may support multiple billing types (e.g. Kimi: 按量 + Token Plan).
-    billing: string[];  // 按量, Token Plan, Coding Plan, Team Plan, 订阅
-    authType: AuthType; desc: string;
-    tags: InfoTag[];
-    fields?: FieldDef[];
-    loginLabel?: string;
-  }
-
-  const DEFAULT_KEY_FIELD: FieldDef = { key: "key", label: "API Key", placeholder: "sk-…", type: "password" };
-  const DEFAULT_COOKIE_FIELD: FieldDef = { key: "cookie", label: "Cookie", placeholder: "粘贴 Cookie…", type: "textarea" };
-
-  function fieldsFor(v: VendorDef): FieldDef[] {
-    if (v.fields) return v.fields;
-    if (v.authType === "cookie") return [DEFAULT_COOKIE_FIELD];
-    return [DEFAULT_KEY_FIELD];
-  }
   function resolvePanelUrl(id: string): string {
     const panel = VENDOR_PANEL[id];
     if (!panel) return "";
@@ -37,110 +16,8 @@
   }
   function openKeyUrl(id: string): void {
     const url = resolvePanelUrl(id);
-    if (url) open(url).catch(() => {});
+    if (url) api.openExternal(url).catch(() => {});
   }
-
-  // ── 厂商清单（基于 token-monitor limitCollector.js 实测）──
-  const VENDORS: VendorDef[] = [
-    // ① 订阅制 — 自动检测 / Cookie 粘贴
-    { id: "claude",    label: "Claude Code ( Anthropic )", cat: "cookie", billing: ["订阅"], authType: "detect",
-      desc: "未设置 Web 登录时，会自动检测 Claude Code OAuth 与 CLI；添加 Web 登录后，本机 Claude 会改用此来源。Cookie 只会保存在本机。",
-      tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"}],
-      fields: [
-        { key: "cookie", label: "Cookie", placeholder: "粘贴 sessionKey 的值…", type: "textarea" },
-      ],
-      loginLabel: "运行 claude /login" },
-    { id: "codex",     label: "Codex ( OpenAI )",    cat: "subscription", billing: ["订阅"], authType: "detect",
-      desc: "未设置 Codex CLI 登录时，会自动检测本地凭证；添加 Web 登录后，本机会改用此来源。",
-      tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"}],
-      loginLabel: "运行 codex /login" },
-    { id: "cursor",    label: "Cursor ( Anysphere )",             cat: "cookie", billing: ["订阅"], authType: "cookie",
-      desc: "Cursor IDE 订阅，粘贴浏览器 WorkosCursorSessionToken Cookie 值查询用量",
-      tags: [{text:"账单周期",color:"amber"}],
-      fields: [
-        { key: "cookie", label: "Session Token", placeholder: "粘贴 WorkosCursorSessionToken 的值…", type: "textarea" },
-      ] },
-    // ② API Key — 表单填入
-    { id: "deepseek",  label: "DeepSeek ( 深度求索 )",  cat: "api-key", billing: ["按量"], authType: "key",
-      desc: "按量付费，查询账户余额",
-      tags: [{text:"余额",color:"lime"}] },
-    { id: "minimax",   label: "MiniMax ( 稀宇 )",       cat: "api-key", billing: ["Token Plan", "按量"], authType: "key",
-      desc: "Coding Plan，需专用 Coding Key，按 Token 额度统计；亦支持按量付费",
-      tags: [{text:"Coding Key",color:"coral"},{text:"Token Plan",color:"amber"}] },
-    { id: "glm",       label: "GLM ( 智谱 )",           cat: "api-key", billing: ["Coding Plan", "按量"], authType: "key",
-      desc: "Coding Plan，区分国际区 / 国内区，三窗口额度；亦支持按量资源包",
-      tags: [{text:"区域",color:"purple"},{text:"5h",color:"amber"},{text:"周",color:"amber"},{text:"MCP月",color:"lime"}],
-      fields: [
-        { key: "key", label: "API Key", placeholder: "ZAI/GLM Key…", type: "password" },
-        { key: "region", label: "区域", placeholder: "", type: "select", options: ["global", "bigmodel-cn"], default: "bigmodel-cn" },
-      ] },
-    { id: "kimi",      label: "Kimi ( 月之暗面 )",      cat: "cookie", billing: ["按量", "Token Plan"], authType: "cookie",
-      desc: "从浏览器 Application → Cookies 复制 kimi-auth 值，获取 5h/周/月完整额度",
-      tags: [{text:"5h",color:"amber"},{text:"周",color:"amber"},{text:"月",color:"lime"}],
-      fields: [
-        { key: "cookie", label: "Cookie", placeholder: "粘贴 kimi-auth 的值…", type: "textarea" },
-      ] },
-    { id: "volcengine",label: "Volcengine ( 火山方舟 )",  cat: "api-key", billing: ["Coding Plan", "按量"], authType: "key",
-      desc: "Ark Key 读取流量限制 · 可选 Cookie 显示订阅到期日期",
-      tags: [{text:"AK+SK",color:"purple"},{text:"5h",color:"amber"},{text:"周",color:"amber"},{text:"月",color:"lime"},{text:"区域",color:"blue"}],
-      fields: [
-        { key: "key", label: "Ark Key / AK", placeholder: "ark-… 或 AKLT…", type: "password" },
-        { key: "secret", label: "Secret（AK+SK 时需要）", placeholder: "配合 AKLT 使用", type: "password" },
-        { key: "region", label: "区域", placeholder: "", type: "select", options: ["cn-beijing"], default: "cn-beijing" },
-        { key: "cookie", label: "控制台 Cookie（可选）", placeholder: "粘贴 console.volcengine.com 的 Cookie（含 csrfToken），用于显示到期日期", type: "textarea" },
-      ] },
-    { id: "stepfun",   label: "StepFun ( 阶跃星辰 )",    cat: "cookie", billing: ["Step Plan", "按量"], authType: "cookie",
-      desc: "阶跃星辰 StepFun，粘贴 platform.stepfun.com 控制台 Cookie，查询账户余额与 Step Plan Credit",
-      tags: [{text:"Step Plan",color:"amber"},{text:"余额",color:"lime"}],
-      fields: [
-        { key: "cookie", label: "Cookie", placeholder: "粘贴 platform.stepfun.com 的 Cookie（含 Oasis-Token、Oasis-Webid）…", type: "textarea" },
-      ] },
-    { id: "iflytek",   label: "iFlytek ( 讯飞星辰 )",        cat: "cookie", billing: ["Token Plan", "按量"], authType: "cookie",
-      desc: "讯飞星辰 MaaS（Astron），粘贴控制台 Cookie（含 ssoSessionId），获取 Coding Plan 套餐到期与用量",
-      tags: [{text:"Token Plan",color:"amber"},{text:"余额",color:"lime"}],
-      fields: [
-        { key: "cookie", label: "Cookie", placeholder: "粘贴 maas.xfyun.cn 控制台 Cookie（含 ssoSessionId）…", type: "textarea" },
-      ] },
-    { id: "copilot",   label: "GitHub Copilot",     cat: "subscription", billing: ["订阅"], authType: "login",
-      desc: "GitHub 账号 OAuth 授权，显示 Premium / Chat 额度",
-      tags: [{text:"Premium",color:"amber"},{text:"Chat",color:"blue"}],
-      loginLabel: "GitHub 登录" },
-    { id: "mimo",      label: "MiMo ( 小米 )",          cat: "cookie", billing: ["Token Plan", "按量"], authType: "cookie",
-      desc: "小米 MiMo，粘贴浏览器 Cookie 获取余额与套餐额度，支持 Token Plan 与按量",
-      tags: [{text:"余额",color:"lime"},{text:"Token Plan",color:"amber"}] },
-    // ③ Cookie — 粘贴
-    { id: "opencode",  label: "OpenCode ( OpenCode AI )",           cat: "cookie", billing: ["按量"], authType: "cookie",
-      desc: "Go / Zen Web 面板，粘贴会话 Cookie，支持 5h / 周 / 月额度与余额",
-      tags: [{text:"5h 窗口",color:"amber"},{text:"周窗口",color:"amber"},{text:"月窗口",color:"amber"},{text:"余额",color:"lime"}] },
-    { id: "zai_team",  label: "GLM Team ( 智谱团队 )",     cat: "cookie", billing: ["Team Plan"], authType: "cookie",
-      desc: "智谱团队计划，需 Key + 组织 ID + 项目 ID",
-      tags: [{text:"多字段",color:"coral"}],
-      fields: [
-        { key: "key", label: "Team API Key", placeholder: "Team Key…", type: "password" },
-        { key: "orgid", label: "Organization ID", placeholder: "Bigmodel-Organization", type: "text" },
-        { key: "projid", label: "Project ID", placeholder: "Bigmodel-Project", type: "text" },
-      ] },
-    { id: "qoder",     label: "Qoder ( 阿里 )",              cat: "cookie", billing: ["按量"], authType: "cookie",
-      desc: "仪表盘 Cookie，区分国际站 / 中国站",
-      tags: [{text:"区域",color:"amber"}],
-      fields: [
-        { key: "site", label: "站点", placeholder: "", type: "select", options: ["global", "cn"], default: "cn" },
-        { key: "cookie", label: "Cookie", placeholder: "粘贴仪表盘 Cookie…", type: "textarea" },
-      ] },
-    { id: "ollama",    label: "Ollama ( Ollama Cloud )",             cat: "cookie", billing: ["按量"], authType: "cookie",
-      desc: "Ollama Cloud，按周统计用量",
-      tags: [{text:"周窗口",color:"amber"}] },
-  ];
-
-  // 按类别排序：订阅制(OAuth) → API Key → Cookie
-  const CAT_ORDER: Record<string, number> = { subscription: 0, "api-key": 1, cookie: 2 };
-  const sortedVendors = $derived([...VENDORS].sort((a, b) => CAT_ORDER[a.cat] - CAT_ORDER[b.cat]));
-  // 账号区分组
-  const GROUPS: Array<{ cat: string; label: string }> = [
-    { cat: "subscription", label: "OAuth" },
-    { cat: "api-key", label: "API Key" },
-    { cat: "cookie", label: "Cookie" },
-  ];
 
   let bound = $state<Record<string, boolean>>({});
   let expanded = $state<Set<string>>(new Set());
@@ -148,10 +25,11 @@
   let config = $state<Config | null>(null);
   let saveError = $state<Record<string, string>>({});
   let saving = $state<Record<string, boolean>>({});
-  // 厂商排列顺序（从 config 恢复，追加新厂商到末尾）
   let ordered = $state<string[]>([]);
-  // 厂商启用状态（从 config 恢复，默认全部不启用）
   let active = $state<Set<string>>(new Set());
+
+  // Derived: vendors sorted by category order (subscription → api-key → cookie).
+  const sortedVendors = $derived([...VENDORS].sort((a, b) => CAT_ORDER[a.cat] - CAT_ORDER[b.cat]));
 
   // Load config and restore vendor order + active state.
   $effect(() => {
@@ -263,7 +141,7 @@
       bound = { ...bound, [vendor]: fields.length > 0 };
       void loadQuotaErrors();
     } catch (e) {
-      console.error("clear fields failed", e instanceof Error ? e.message : String(e));
+      /* clear fields failed */
     }
   }
 
@@ -399,7 +277,10 @@
       await api.deleteCredential(vendor);
       bound = { ...bound, [vendor]: false };
       credFields = { ...credFields, [vendor]: [] };
-    } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      saveError = { ...saveError, [vendor]: msg };
+    }
   }
 
   // Per-vendor cookie-expired hint (sourced from the quota cache's cookie_error).
@@ -427,142 +308,45 @@
   // Per-vendor refresh state: "loading" | "ok" | "fail" + message.
   let refreshState = $state<Record<string, { status: "loading" | "ok" | "fail"; msg?: string }>>({});
 
+  // Track pending timeouts so they can be cleared on unmount to prevent
+  // state updates on a destroyed component.
+  let timeouts = $state<Set<number>>(new Set());
+  $effect(() => {
+    return () => {
+      for (const id of timeouts) clearTimeout(id);
+    };
+  });
+
   async function refreshQuota(vendor: string): Promise<void> {
     refreshState = { ...refreshState, [vendor]: { status: "loading" } };
     try {
       await api.refreshQuota(vendor);
       refreshState = { ...refreshState, [vendor]: { status: "ok", msg: "刷新成功" } };
-      // A refresh may have resolved (or surfaced) a cookie issue — reload hints.
       void loadQuotaErrors();
-      // Auto-clear success message after 3s.
-      setTimeout(() => {
+      const id = window.setTimeout(() => {
+        timeouts.delete(id);
         const next = { ...refreshState };
         delete next[vendor];
         refreshState = next;
       }, 3000);
+      timeouts.add(id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       refreshState = { ...refreshState, [vendor]: { status: "fail", msg } };
     }
   }
-  // ── Copilot OAuth Device Flow ──
-  // Tracks the device-flow login lifecycle so the panel can show the user code
-  // + verification URL while polling. Only one login runs at a time.
-  interface CopilotLoginState {
-    phase: "requesting" | "authorize" | "polling" | "success" | "error";
-    userCode?: string;
-    verificationUrl?: string;
-    error?: string;
-  }
-  let copilotLogin = $state<CopilotLoginState | null>(null);
 
-  async function startCopilotLogin(): Promise<void> {
-    copilotLogin = { phase: "requesting" };
-    // Listen for progress events emitted by the Rust device-flow driver.
-    const un = await listen<{
-      phase: string;
-      user_code?: string;
-      verification_url?: string;
-    }>("copilot:login_status", (e) => {
-      const p = e.payload;
-      if (p.phase === "authorize") {
-        copilotLogin = {
-          phase: "authorize",
-          userCode: p.user_code,
-          verificationUrl: p.verification_url,
-        };
-        // Open the GitHub verification page in the system browser.
-        if (p.verification_url) open(p.verification_url).catch(() => {});
-      } else if (p.phase === "polling") {
-        copilotLogin = { ...copilotLogin!, phase: "polling" };
-      }
-    });
-    try {
-      const token = await api.copilotLogin();
-      // Persist the token as the copilot credential (validates + caches quota).
-      await api.setCredential("copilot", JSON.stringify({ key: token }));
-      copilotLogin = { phase: "success" };
-      bound = { ...bound, copilot: true };
-      credFields = { ...credFields, copilot: ["key"] };
-      void api.refreshQuota("copilot");
-      void loadQuotaErrors();
-      // Auto-dismiss the success state after a moment.
-      setTimeout(() => {
-        copilotLogin = null;
-      }, 2500);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      copilotLogin = { phase: "error", error: msg };
-    } finally {
-      un();
-    }
-  }
-
-  // ── Codex OAuth Login Flow ──
-  // Mirrors token-monitor: spawn `codex login`, parse stdout for OAuth URL,
-  // emit `codex:login_status` events. Frontend opens the URL for the user.
-  interface CodexLoginState {
-    phase: "requesting" | "authorize" | "success" | "error";
-    loginUrl?: string;
-    error?: string;
-  }
-  let codexLogin = $state<CodexLoginState | null>(null);
-
-  async function startCodexLogin(): Promise<void> {
-    codexLogin = { phase: "requesting" };
-    const un = await listen<{
-      phase: string;
-      login_url?: string;
-      message?: string;
-    }>("codex:login_status", (e) => {
-      const p = e.payload;
-      if (p.phase === "authorize" && p.login_url) {
-        codexLogin = {
-          phase: "authorize",
-          loginUrl: p.login_url,
-        };
-        // Open the OAuth URL in the system browser.
-        open(p.login_url).catch(() => {});
-      } else if (p.phase === "success") {
-        codexLogin = { phase: "success" };
-        bound = { ...bound, codex: true };
-        void api.refreshQuota("codex");
-        void loadQuotaErrors();
-        setTimeout(() => { codexLogin = null; }, 2500);
-      } else if (p.phase === "error") {
-        codexLogin = { phase: "error", error: p.message };
-      }
-    });
-    try {
-      await api.codexLogin();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      codexLogin = { phase: "error", error: msg };
-    } finally {
-      un();
-    }
-  }
-
-  function startLogin(vendor: string): void {
-    if (vendor === "copilot") {
-      void startCopilotLogin();
-      return;
-    }
+  // Dispatch login by vendor id. Returns true if a login was started.
+  async function startLogin(vendor: string): Promise<boolean> {
     if (vendor === "claude") {
-      // Claude detect: read CLI OAuth from local auth files.
-      void api.refreshQuota(vendor).then(() => {
+      await api.refreshQuota(vendor).then(() => {
         bound = { ...bound, [vendor]: true };
       }).catch(() => {
-        console.log("Claude detect: no CLI credentials found");
+        /* no CLI credentials found — expected */
       });
-      return;
+      return true;
     }
-    if (vendor === "codex") {
-      // Codex: run the full OAuth login flow (spawn `codex login`).
-      void startCodexLogin();
-      return;
-    }
-    console.log("start login for", vendor);
+    return false;
   }
 
   async function updateConfig(partial: Partial<Config>): Promise<void> {
@@ -571,7 +355,10 @@
     try {
       await api.setConfig(next);
       config = next;
-    } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      saveError = { ...saveError, _global: msg };
+    }
   }
 </script>
 
@@ -592,7 +379,7 @@
         {#each items as v, rowIdx (v.id)}
           {@const fs = fieldsFor(v)}
           <!-- 主行（可点击展开） -->
-          <button class="arow {rowIdx === items.length - 1 ? 'arow-last' : ''}" class:open={expanded.has(v.id)} onclick={() => toggle(v.id)}>
+          <button type="button" class="arow {rowIdx === items.length - 1 ? 'arow-last' : ''}" class:open={expanded.has(v.id)} onclick={() => toggle(v.id)}>
             <ToolIcon vendor={v.id} size={22} />
             <span class="ainfo">
               <span class="aname">{v.label}</span>
@@ -616,6 +403,10 @@
               {#if bound[v.id]}
                 {#if cookieErrorOf[v.id]}
                   <p class="panel-warn">⚠ {cookieErrorOf[v.id]}，请重新填写并保存</p>
+                  {#if VENDOR_PANEL[v.id]}
+                    <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
+                    <p class="panel-note">{VENDOR_PANEL[v.id].hint}</p>
+                  {/if}
                 {:else if v.id === "stepfun"}
                   <p class="panel-note" style="margin:0 0 8px">💡 Cookie 有效期较短，过期后需重新从浏览器获取。如遇额度刷新失败，请更新 Cookie。</p>
                 {/if}
@@ -631,10 +422,10 @@
                     {#if editingCookieVendor === v.id}
                       <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder="粘贴新 Cookie…" rows="3" disabled={cookieSaving}></textarea>
                       <div class="cookie-mgr-actions">
-                        <button class="btn-primary" onclick={() => saveCookie(v.id)} disabled={cookieSaving || !cookieDraft.trim()}>
+                        <button type="button" class="btn-primary" onclick={() => saveCookie(v.id)} disabled={cookieSaving || !cookieDraft.trim()}>
                           {cookieSaving ? "检查中…" : "保存 Cookie"}
                         </button>
-                        <button class="btn-outline" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
+                        <button type="button" class="btn-outline" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
                       </div>
                     {:else}
                       <div class="cookie-mgr-row">
@@ -647,7 +438,7 @@
                             <span class="cs-none">Cookie 未绑定（可选，用于显示到期日期）</span>
                           {/if}
                         </span>
-                        <button class="btn-outline" onclick={() => startEditCookie(v.id)}>
+                        <button type="button" class="btn-outline" onclick={() => startEditCookie(v.id)}>
                           {(credFields[v.id] ?? []).includes("cookie") ? "更新 Cookie" : "添加 Cookie"}
                         </button>
                       </div>
@@ -656,7 +447,7 @@
                 {/if}
                 <div class="panel-actions">
                   {#each clearActions(v) as act (act.label)}
-                    <button class="btn-outline" onclick={() => doClear(v.id, act)}>{act.label}</button>
+                    <button type="button" class="btn-outline" onclick={() => doClear(v.id, act)}>{act.label}</button>
                   {/each}
                   <button
                     class="btn-primary"
@@ -677,56 +468,8 @@
                     通过浏览器 OAuth 授权完成登录，授权后凭证自动保存到本机。
                   {/if}
                 </p>
-                {#if v.id === "copilot" && copilotLogin}
-                  <!-- Device Flow 进度 -->
-                  <div class="device-flow">
-                    {#if copilotLogin.phase === "requesting"}
-                      <p class="df-status">正在向 GitHub 请求设备码…</p>
-                    {:else if copilotLogin.phase === "authorize" || copilotLogin.phase === "polling"}
-                      <p class="df-status">请在浏览器中输入以下验证码完成授权：</p>
-                      <div class="df-code">{copilotLogin.userCode ?? "…"}</div>
-                      <p class="df-hint">
-                        浏览器未自动打开？
-                        <button class="df-link" onclick={() => copilotLogin?.verificationUrl && open(copilotLogin.verificationUrl).catch(() => {})}>手动打开授权页面</button>
-                      </p>
-                      <p class="df-polling">等待授权中…</p>
-                    {:else if copilotLogin.phase === "success"}
-                      <p class="df-status df-ok">✓ 登录成功，已保存凭证</p>
-                    {:else if copilotLogin.phase === "error"}
-                      <p class="df-status df-err">登录失败：{copilotLogin.error}</p>
-                    {/if}
-                  </div>
-                  {#if copilotLogin.phase === "error"}
-                    <div class="panel-actions">
-                      <button class="btn-primary" onclick={() => startLogin(v.id)}>重新登录</button>
-                    </div>
-                  {/if}
-                {:else if v.id === "codex" && codexLogin}
-                  <!-- Codex OAuth Login Flow -->
-                  <div class="device-flow">
-                    {#if codexLogin.phase === "requesting"}
-                      <p class="df-status">正在启动 codex login…</p>
-                    {:else if codexLogin.phase === "authorize"}
-                      <p class="df-status">请在浏览器中完成 OpenAI 授权：</p>
-                      <div class="df-code">{codexLogin.loginUrl ?? "…"}</div>
-                      <p class="df-hint">
-                        浏览器未自动打开？
-                        <button class="df-link" onclick={() => codexLogin?.loginUrl && open(codexLogin.loginUrl).catch(() => {})}>手动打开授权页面</button>
-                      </p>
-                      <p class="df-polling">等待授权完成…</p>
-                    {:else if codexLogin.phase === "success"}
-                      <p class="df-status df-ok">✓ 登录成功，已保存凭证</p>
-                    {:else if codexLogin.phase === "error"}
-                      <p class="df-status df-err">登录失败：{codexLogin.error}</p>
-                    {/if}
-                  </div>
-                  {#if codexLogin.phase === "error"}
-                    <div class="panel-actions">
-                      <button class="btn-primary" onclick={() => startLogin(v.id)}>重新登录</button>
-                    </div>
-                  {/if}
-                {:else if v.id === "claude" && VENDOR_PANEL.claude}
-                  <button class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL.claude.pageLabel} 页面</button>
+                {#if v.id === "claude" && VENDOR_PANEL.claude}
+                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL.claude.pageLabel} 页面</button>
                   <p class="panel-note">{VENDOR_PANEL.claude.hint}</p>
                   <div class="fields">
                     {#each fieldsFor(v) as f (f.key)}
@@ -742,24 +485,26 @@
                     <p class="save-err">{saveError[v.id]}</p>
                   {/if}
                   <div class="panel-actions">
-                    <button class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
-                    <button class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
+                    <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                    <button type="button" class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
                       {saving[v.id] ? "检查中…" : "保存"}
                     </button>
                   </div>
+                {:else if (v.id === "copilot" || v.id === "codex")}
+                  <DeviceFlow />
                 {:else}
                   <div class="panel-actions">
                     {#if v.authType === "detect"}
-                      <button class="btn-outline" onclick={() => startLogin(v.id)}>立即检测</button>
+                      <button type="button" class="btn-outline" onclick={() => startLogin(v.id)}>立即检测</button>
                     {/if}
-                    <button class="btn-primary" onclick={() => startLogin(v.id)}>{v.loginLabel ?? "登录"}</button>
+                    <button type="button" class="btn-primary" onclick={() => startLogin(v.id)}>{v.loginLabel ?? "登录"}</button>
                   </div>
                 {/if}
               {:else}
                 {#if VENDOR_PANEL[v.id]}
-                  <button class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
+                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
                   {#if VENDOR_PANEL[v.id].extraUrl && VENDOR_PANEL[v.id].extraLabel}
-                    <button class="btn-open" onclick={() => open(VENDOR_PANEL[v.id].extraUrl!).catch(() => {})}>在浏览器打开 {VENDOR_PANEL[v.id].extraLabel} 页面</button>
+                    <button type="button" class="btn-open" onclick={() => api.openExternal(VENDOR_PANEL[v.id].extraUrl!).catch(() => {})}>在浏览器打开 {VENDOR_PANEL[v.id].extraLabel} 页面</button>
                   {/if}
                   <p class="panel-note">{VENDOR_PANEL[v.id].hint}</p>
                 {:else}
@@ -790,8 +535,8 @@
                   {/each}
                 </div>
                 <div class="panel-actions">
-                  <button class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
-                  <button class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
+                  <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                  <button type="button" class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
                     {saving[v.id] ? "检查中…" : "保存"}
                   </button>
                 </div>
@@ -865,7 +610,7 @@
           </span>
           <span class="tright">
             <!-- 启用 toggle：选中→验证绑定状态，未选中→已停用（状态持久化） -->
-            <button class="ibtn ibtn-toggle" class:on={active.has(id)} title={active.has(id) ? '已启用' : '已停用'}
+            <button class="ibtn ibtn-toggle" class:on={active.has(id)} title={active.has(id) ? '已启用' : '已停用'} aria-label={active.has(id) ? '停用' : '启用'}
               onclick={() => {
                 const next = new Set(active);
                 if (active.has(id)) next.delete(id); else next.add(id);
@@ -885,13 +630,13 @@
               </svg>
             </button>
             <!-- 上移 -->
-            <button class="ibtn" title="上移" disabled={i === 0} onclick={() => move(i, -1)}>
+            <button type="button" class="ibtn" title="上移" aria-label="上移" disabled={i === 0} onclick={() => move(i, -1)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
               </svg>
             </button>
             <!-- 下移 -->
-            <button class="ibtn" title="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
+            <button type="button" class="ibtn" title="下移" aria-label="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
               </svg>
@@ -904,34 +649,24 @@
 </div>
 
 <style>
+
   .sc { display: flex; flex-direction: column; }
 
+  /* section-title override: larger + flex layout for stat badge */
   .section-title {
-    font-family: var(--font-ui);
-    font-weight: 700;
     font-size: 15px;
-    color: var(--amber);
-    margin-top: 20px;
     margin-bottom: 2px;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-  .section-title:first-of-type { margin-top: 24px; }
   .title-stat {
     font-size: 11px;
     font-weight: 500;
     color: var(--lime);
-    background: rgba(108,199,116,0.10);
+    background: var(--lime-bg-soft);
     padding: 2px 9px;
     border-radius: 5px;
-  }
-
-  .section-box {
-    background: rgba(0,0,0,0.02);
-    border: 1px solid var(--border-dim);
-    border-radius: 10px;
-    padding: 12px 14px;
   }
 
   /* ── account row（可点击） ── */
@@ -968,16 +703,16 @@
     line-height: 1.5;
     white-space: nowrap;
   }
-  .itag.c-blue   { background: rgba(79,195,247,0.14); color: #4fc3f7; }
+  .itag.c-blue   { background: rgba(79,195,247,0.14); color: var(--cyan-text); }
   .itag.c-amber  { background: rgba(232,176,75,0.14); color: var(--amber); }
-  .itag.c-purple { background: rgba(179,136,255,0.14); color: #b388ff; }
+  .itag.c-purple { background: rgba(179,136,255,0.14); color: var(--violet-text); }
   .itag.c-lime   { background: rgba(108,199,116,0.14); color: var(--lime); }
   .itag.c-coral  { background: rgba(224,108,117,0.14); color: var(--coral); }
   .itag.c-gray   { background: var(--surface-tint-strong); color: var(--text-faint); }
 
   .astate { flex-shrink: 0; min-width: 50px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
   .badge { font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
-  .badge.s-ok  { color: var(--lime); background: rgba(108,199,116,0.12); }
+  .badge.s-ok  { color: var(--lime); background: var(--lime-bg); }
   .badge.s-dim { color: var(--text-faint); background: var(--surface-tint); }
   .badge.s-warn { color: var(--coral); background: rgba(234,84,85,0.14); }
 
@@ -994,7 +729,7 @@
     font-size: 11.5px;
     color: var(--coral);
     background: rgba(234,84,85,0.10);
-    border: 1px solid rgba(234,84,85,0.40);
+    border: 1px solid var(--coral-border);
     padding: 6px 9px;
     border-radius: 6px;
     margin: 0 0 8px;
@@ -1005,7 +740,7 @@
     padding: 8px 9px;
     border: 1px dashed var(--border-dim);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--surface-tint);
   }
   /* Match the full-width inputs of the key/secret/cookie fields above — the
      textarea lives directly in .cookie-mgr (no flex parent to stretch it), so
@@ -1033,7 +768,7 @@
     margin: 0 0 10px;
     border: 1px dashed var(--border-dim);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--surface-tint);
   }
   .df-status { font-size: 12px; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
   .df-status.df-ok { color: var(--lime); margin: 0; }
@@ -1046,7 +781,7 @@
     color: var(--amber);
     text-align: center;
     padding: 8px 0;
-    background: rgba(232, 176, 75, 0.08);
+    background: var(--amber-hover);
     border-radius: 6px;
     margin-bottom: 8px;
     user-select: all;
@@ -1111,23 +846,10 @@
   .panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
 
-  .btn-outline {
-    background: var(--surface-tint-strong);
-    border: 1px solid var(--border-dim);
-    color: var(--text-dim);
-    padding: 5px 12px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 11.5px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn-outline:hover { border-color: var(--amber); color: var(--amber); background: rgba(232,176,75,0.08); }
-
   .btn-primary {
     background: var(--amber);
     border: none;
-    color: #1a1408;
+    color: var(--badge-text);
     padding: 5px 14px;
     border-radius: 7px;
     font-family: inherit;
@@ -1166,7 +888,7 @@
     margin-bottom: 6px;
     transition: all 0.15s;
   }
-  .btn-open:hover { border-color: var(--amber); color: var(--amber); background: rgba(232,176,75,0.08); }
+  .btn-open:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-hover); }
 
   .cookie-steps {
     margin: 8px 0;
@@ -1202,28 +924,6 @@
     border-radius: 4px;
     vertical-align: middle;
   }
-
-  /* ── settings rows (matching Collection.svelte) ── */
-  .box-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); gap: 16px; }
-  .box-row:first-child { padding-top: 2px; }
-  .box-row:last-child { border-bottom: none; padding-bottom: 2px; }
-  .lab { font-size: 13px; color: var(--text); }
-  .lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-
-  .sel {
-    background: var(--surface-tint);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 7px;
-    font-size: 13px;
-    cursor: pointer;
-    font-family: inherit;
-    min-width: 130px;
-    height: 32px;
-  }
-  .sel:hover { border-color: var(--amber); }
-  .sel:focus { outline: none; border-color: var(--amber); }
 
   .stat-group { display: flex; align-items: center; gap: 6px; }
   .stat {
@@ -1264,13 +964,13 @@
     border-radius: 4px;
     line-height: 1.6;
   }
-  .ttag.tt-active  { background: rgba(108,199,116,0.12); color: var(--lime); }
+  .ttag.tt-active  { background: var(--lime-bg); color: var(--lime); }
   .ttag.tt-unconfig { background: rgba(232,176,75,0.10); color: var(--amber); }
   .ttag.tt-inactive { background: rgba(234,84,85,0.12); color: var(--coral); }
-  .ttag.tt-auth-subscription { background: rgba(79,195,247,0.14); color: #4fc3f7; }
+  .ttag.tt-auth-subscription { background: rgba(79,195,247,0.14); color: var(--cyan-text); }
   .ttag.tt-auth-api-key { background: rgba(232,176,75,0.14); color: var(--amber); }
-  .ttag.tt-auth-cookie { background: rgba(179,136,255,0.14); color: #b388ff; }
-  .ttag.tt-billing { background: rgba(108,199,116,0.10); color: var(--lime); }
+  .ttag.tt-auth-cookie { background: rgba(179,136,255,0.14); color: var(--violet-text); }
+  .ttag.tt-billing { background: var(--lime-bg-soft); color: var(--lime); }
 
   .tright {
     display: flex;
@@ -1280,35 +980,6 @@
   }
 
   /* ── icon legend ── */
-
-  /* ── icon buttons (shared with Collection.svelte) ── */
-  .ibtn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    cursor: pointer;
-    padding: 0;
-    flex-shrink: 0;
-    color: var(--text-faint);
-    transition: all 0.15s;
-  }
-  .ibtn:hover:not(:disabled) {
-    background: var(--surface-tint-strong);
-    color: var(--amber);
-  }
-  .ibtn:disabled { opacity: 0.15; cursor: default; }
-  .ibtn.on { color: var(--amber); }
-  .ibtn.on:hover { background: rgba(232,176,75,0.08); }
-
-  /* ── toggle button（启用）视觉宽度匹配文字）── */
-  .ibtn-toggle {
-    margin-right: 4px;
-  }
 
   .loading, .empty { font-size: 11px; color: var(--text-faint); padding: 8px 0; }
 

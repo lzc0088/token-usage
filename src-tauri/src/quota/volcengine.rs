@@ -517,8 +517,9 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
         match try_bearer_coding_plan(http, &cred.key) {
             Ok(q) => q,
             Err(e) => {
-                eprintln!(
-                    "[quota] volcengine Ark Bearer→CodingPlan: {e}, falling back to chat probe"
+                tracing::debug!(
+                    error = %e,
+                    "volcengine Ark Bearer→CodingPlan failed, falling back to chat probe"
                 );
                 fetch_ark_limits(http, &cred.key, region)?
             }
@@ -566,7 +567,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
                     if is_cookie_problem {
                         q.cookie_error = Some("Cookie 已过期，套餐到期信息暂未显示".into());
                     } else {
-                        eprintln!("[quota] volcengine subscription-info: {e}");
+                        tracing::warn!(error = %e, "volcengine subscription-info failed");
                     }
                 }
             }

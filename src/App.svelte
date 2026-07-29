@@ -6,9 +6,8 @@
   import PeriodSwitcher from "./components/popover/PeriodSwitcher.svelte";
   import SegBar from "./components/popover/SegBar.svelte";
   import Overview from "./components/segments/Overview.svelte";
-  import Tools from "./components/segments/Tools.svelte";
-  import Models from "./components/segments/Models.svelte";
-  import Projects from "./components/segments/Projects.svelte";
+  import BreakdownSegment from "./components/segments/BreakdownSegment.svelte";
+    import Projects from "./components/segments/Projects.svelte";
   import Sessions from "./components/segments/Sessions.svelte";
   import Trend from "./components/segments/Trend.svelte";
   import Limits from "./components/segments/Limits.svelte";
@@ -23,14 +22,32 @@
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
-  let lastUpdated = $state<number>(0); // epoch ms
   let refreshTrigger = $state(0); // Force segment refresh on global refresh
   // USD→CNY rate for cost conversion. Loaded from the latest stored value
   // (auto or manual) and refreshed on rate:updated / config:changed.
   let cnyRate = $state<number>(7.2);
 
+  // ── Version & update check ──
+  let appVersion = $state("1.0.0");
+  let updateInfo = $state<{ hasUpdate: boolean; url: string; version: string } | null>(null);
+  async function checkForUpdate(): Promise<void> {
+    try {
+      const ver = await api.getAppVersion();
+      appVersion = ver;
+      const repo = "gitee.com/lzc0088/token-usage"; // matches .env VITE_UPDATE_REPO
+      const info = await api.checkUpdate(repo, ver);
+      if (info.has_update) {
+        updateInfo = { hasUpdate: true, url: info.url, version: info.version };
+      }
+    } catch { /* network error — skip */ }
+  }
+
   // Auto-hide on blur — settings is now a separate window, so main always
   // hides when it loses focus.
+  const refreshTimeouts = new Set<number>();
+  $effect(() => {
+    return () => { for (const id of refreshTimeouts) clearTimeout(id); };
+  });
   $effect(() => {
     function hideOnBlur() {
       appWindow.hide();
@@ -53,6 +70,7 @@
         config = c;
         applyAppearance(c);
       } catch { /* ignore */ }
+      void checkForUpdate();
     }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -73,7 +91,7 @@
       // Dynamically import to avoid circular deps.
       import("./stores/period.svelte").then(({ setPeriod }) => {
         setPeriod(cfg.default_period as "day" | "month" | "total");
-      }).catch(console.error);
+      }).catch(() => { /* setPeriod import failed, non-critical */ });
     }
   });
 
@@ -87,10 +105,8 @@
         summary = s;
         config = c;
         loadError = null;
-        if (!lastUpdated) lastUpdated = Date.now();
       } catch (e) {
         if (!cancelled) {
-          console.error("summary/config load failed", e);
           loadError = "加载失败，请稍后重试";
         }
       }
@@ -102,21 +118,23 @@
 
   $effect(() => {
     const unlisten_promise = listen<Summary>("today:updated", (e) => {
-      lastUpdated = Date.now();
-      if (periodValue() === "day") summary = e.payload;
+            if (periodValue() === "day") summary = e.payload;
     });
     return () => {
       unlisten_promise.then((un) => un());
     };
   });
 
+  // Check for updates on first mount.
+  $effect(() => { void checkForUpdate(); });
+
   // Live-apply settings changes saved from the settings window (layout,
   // currency, period, quota vendors) without requiring a manual refresh.
   $effect(() => {
     const unlisten_promise = listen<void>("config:changed", () => {
       api.getConfig()
-        .then((c) => { config = c; lastUpdated = Date.now(); })
-        .catch(console.error);
+        .then((c) => { config = c; })
+        .catch(() => { /* config reload failed */ });
       reloadRate();
     });
     return () => {
@@ -139,7 +157,7 @@
   function reloadRate(): void {
     api.getLatestRate()
       .then((info) => { cnyRate = info.rate; })
-      .catch(console.error);
+      .catch(() => { /* rate reload failed */ });
   }
 
   $effect(() => {
@@ -161,17 +179,6 @@
 
   let segment = $derived(segmentValue());
 
-  function updatedTime(): string {
-    if (!lastUpdated) return "";
-    return new Date(lastUpdated).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  }
-  let updatedStr = $state(updatedTime());
-
-  // Sync updatedStr when lastUpdated changes
-  $effect(() => {
-    updatedStr = updatedTime();
-  });
-
   // Global refresh feedback: shown to the left of the refresh button.
   let refreshStatus = $state<"idle" | "loading" | "ok" | "fail">("idle");
   let refreshMsg = $state("");
@@ -181,17 +188,18 @@
     refreshMsg = "";
     try {
       // Refresh usage data + quota data in parallel.
-      await Promise.all([api.getSummary(periodValue()), api.getConfig(), api.refreshQuotas()]);
-      summary = await api.getSummary(periodValue());
-      config = await api.getConfig();
+      const [s, c] = await Promise.all([api.getSummary(periodValue()), api.getConfig(), api.refreshQuotas()]);
+      summary = s;
+      config = c;
       loadError = null;
       refreshStatus = "ok";
       refreshMsg = "刷新成功";
       // Increment trigger to force current segment to reload.
       refreshTrigger++;
-      setTimeout(() => { refreshStatus = "idle"; refreshMsg = ""; }, 3000);
+      const _rid = window.setTimeout(() => { refreshStatus = "idle"; refreshMsg = ""; }, 3000);
+      refreshTimeouts.add(_rid);
     } catch (e) {
-      console.error("refresh failed", e);
+      /* refresh failed — shown in refreshMsg */
       refreshStatus = "fail";
       refreshMsg = e instanceof Error ? e.message : String(e);
     }
@@ -217,11 +225,11 @@
       {/key}
     {:else if segment === "tools"}
       {#key "tools-" + refreshTrigger}
-        <Tools currency={config.currency} {cnyRate} />
+        <BreakdownSegment currency={config.currency} {cnyRate} title="工具用量" dim="tool" />
       {/key}
     {:else if segment === "models"}
       {#key "models-" + refreshTrigger}
-        <Models currency={config.currency} {cnyRate} />
+        <BreakdownSegment currency={config.currency} {cnyRate} title="模型用量" dim="model" />
       {/key}
     {:else if segment === "projects"}
       {#key "projects-" + refreshTrigger}
@@ -237,7 +245,7 @@
       {/key}
     {:else if segment === "limit"}
       {#key "limit-" + refreshTrigger}
-        <Limits />
+        <Limits currency={config.currency} {cnyRate} />
       {/key}
     {:else}
       <p class="placeholder">「{segment}」分段 · M4 待实装</p>
@@ -245,7 +253,26 @@
   </main>
 
   <footer class="pop-footer">
-    <div class="l"><span class="live"></span>最新刷新 {updatedStr}</div>
+    <div class="l">
+      {#if updateInfo?.hasUpdate}
+        <button
+          class="ver-tag update"
+          onclick={() => { updateInfo?.url && invoke("open_external", { url: updateInfo.url }).catch(() => {}); }}
+          title="新版本 {updateInfo.version} 可用，点击下载"
+          aria-label="新版本可用"
+        >
+          <span class="ver-dot"></span>
+          <span class="ver-cur">v{appVersion}</span>
+          <span class="ver-arrow">→</span>
+          <span class="ver-new">{updateInfo.version}</span>
+        </button>
+      {:else}
+        <span class="ver-tag" title="已是最新版本">
+          <span class="ver-dot"></span>
+          <span class="ver-cur">v{appVersion}</span>
+        </span>
+      {/if}
+    </div>
     <div class="r">
       {#if refreshStatus === "loading"}
         <span class="refresh-feedback loading">刷新中…</span>
@@ -254,8 +281,8 @@
       {:else if refreshStatus === "fail"}
         <span class="refresh-feedback fail">刷新失败</span>
       {/if}
-      <button class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">↻</button>
-      <button class="fbtn fbtn-gear" onclick={() => invoke("open_settings")} title="设置" aria-label="设置">⚙</button>
+      <button type="button" class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">↻</button>
+      <button type="button" class="fbtn fbtn-gear" onclick={() => { invoke("open_settings").catch(() => {}); }} title="设置" aria-label="设置">⚙</button>
     </div>
   </footer>
 </div>
@@ -313,13 +340,51 @@
     font-size: 11px;
     color: var(--text-faint);
   }
-  .pop-footer .l .live {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lime);
-    box-shadow: 0 0 5px var(--lime);
+  .ver-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    background: var(--glass-3);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 2px 8px;
+    line-height: 1.6;
+    cursor: default;
   }
+  .ver-tag.update {
+    cursor: pointer;
+    color: var(--amber);
+    border-color: var(--amber);
+    background: var(--amber-bg);
+    padding-right: 4px;
+  }
+  .ver-tag.update:hover {
+    background: var(--amber-hover);
+    color: var(--text);
+  }
+  .ver-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--lime);
+    box-shadow: 0 0 4px var(--lime);
+  }
+  .ver-tag.update .ver-dot {
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber);
+    animation: ver-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes ver-pulse {
+    0%, 100% { box-shadow: 0 0 4px var(--amber); }
+    50% { box-shadow: 0 0 12px var(--amber); }
+  }
+  .ver-cur { line-height: 1; }
+  .ver-arrow { font-size: 9px; margin: 0 2px; opacity: 0.7; }
+  .ver-new { font-weight: 600; color: var(--amber); line-height: 1; }
   .pop-footer .r {
     display: flex;
     gap: 6px;
@@ -330,7 +395,7 @@
   .refresh-feedback.ok { color: var(--lime); }
   .refresh-feedback.fail { color: var(--coral); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fbtn {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--glass-subtle);
     border: 1px solid var(--border-dim);
     color: var(--text-dim);
     padding: 4px 8px;

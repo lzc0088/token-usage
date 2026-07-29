@@ -16,7 +16,7 @@
         const t = await api.getTrends(p);
         if (!cancelled) data = t;
       } catch (e) {
-        console.error("trends failed", e);
+        /* trends failed */
         if (!cancelled) data = null;
       }
     })();

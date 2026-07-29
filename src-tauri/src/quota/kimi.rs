@@ -678,7 +678,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
                 if super::is_auth_error(&e) {
                     web_auth_failed = true;
                 }
-                eprintln!("[kimi] membership POST failed: {e}");
+                tracing::warn!(error = %e, "kimi membership POST failed");
             }
         }
 
@@ -695,7 +695,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
                 if super::is_auth_error(&e) {
                     web_auth_failed = true;
                 }
-                eprintln!("[kimi] usage POST failed: {e}");
+                tracing::warn!(error = %e, "kimi usage POST failed");
             }
         }
     }

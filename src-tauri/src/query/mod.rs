@@ -149,7 +149,22 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     .unwrap_or(30)
 }
 
-/// `part / whole * 100`, 0 when whole is 0.
+/// Model names produced by tokscale that represent tool calls / non-LLM events
+/// rather than real LLM usage.  These should be filtered from user-facing
+/// breakdowns and detail views.
+const SYNTHETIC_MODELS: &[&str] = &["<synthetic>"];
+
+/// Build a SQL fragment that excludes synthetic models.
+/// Returns `(" AND model NOT IN (?)", vec!["<synthetic>"])` or
+/// `("", [])` when the list is empty.
+pub(crate) fn synthetic_exclusion() -> (String, Vec<&'static str>) {
+    if SYNTHETIC_MODELS.is_empty() {
+        return ("".to_string(), Vec::new());
+    }
+    let placeholders = SYNTHETIC_MODELS.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let clause = format!(" AND model NOT IN ({placeholders})");
+    (clause, SYNTHETIC_MODELS.to_vec())
+}
 pub fn pct(part: i64, whole: i64) -> f64 {
     if whole == 0 {
         0.0

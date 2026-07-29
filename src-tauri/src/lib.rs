@@ -12,23 +12,28 @@ pub mod storage;
 pub mod ui;
 pub mod utils;
 
+include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+
+use utils::time::now_ms;
 use state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use tauri::menu::ContextMenu;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 /// Timestamp (ms since epoch) of the last menu event. Used to suppress the
 /// `Focused(false)` blur event that macOS fires when a popup menu closes —
 /// without this guard the popover would hide right after a menu selection.
 static MENU_CLOSE_MS: AtomicU64 = AtomicU64::new(0);
 
+/// Last-known tray icon rect (physical pixels). Updated on every tray event
+/// that carries a rect, so `show_main_under_tray` can position the popover
+/// flush against the menu bar bottom, centred on the tray icon.
+static LAST_TRAY_RECT: Mutex<Option<(PhysicalPosition<f64>, PhysicalSize<f64>)>> = Mutex::new(None);
+
 fn mark_menu_close() {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    MENU_CLOSE_MS.store(ms, Ordering::SeqCst);
+    MENU_CLOSE_MS.store(now_ms() as u64, Ordering::SeqCst);
 }
 
 fn menu_just_closed() -> bool {
@@ -36,10 +41,7 @@ fn menu_just_closed() -> bool {
     if last == 0 {
         return false;
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let now = now_ms() as u64;
     now.saturating_sub(last) < 500
 }
 
@@ -142,26 +144,35 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
     tauri::image::Image::new_owned(rgba, ow as u32, oh as u32)
 }
 
-/// Position the main popover just below the menu bar / centered under the
-/// tray icon, then show + focus it. No-op if the window is missing.
-/// Also re-applies drag mode from the current config so changes made from
-/// the tray menu or settings window take effect immediately.
+/// Position the main popover under the menu bar tray icon, then show + focus.
+///
+/// Custom positioning is used instead of `Position::TrayBottomCenter` because
+/// the plugin sets `y = tray_y` (top of the tray icon), but we need the window
+/// top to be **flush with the menu bar bottom** (`y = tray_y + tray_height`).
+/// Horizontal centring on the tray icon is unchanged.
 pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        // Re-apply behavior that depends on live config (may have changed
-        // via tray menu or settings window while the popover was hidden).
         let state = app.state::<AppState>();
-        if let Ok(conn) = state.db.lock() {
-            if let Ok(cfg) = config::load(&conn) {
-                crate::ui::window::apply_drag_mode(app, cfg.window_display_mode == "fixed");
+        let is_fixed = if let Ok(conn) = state.db.lock() {
+            config::load(&conn)
+                .map(|c| c.window_display_mode == "fixed")
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        crate::ui::window::apply_drag_mode(app, is_fixed);
+
+        // Position the window: top flush with menu bar bottom, centred on tray icon.
+        if let Ok(guard) = LAST_TRAY_RECT.lock() {
+            if let Some((tray_pos, tray_size)) = *guard {
+                if let Ok(win_size) = w.outer_size() {
+                    let x = tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
+                    let y = tray_pos.y + tray_size.height; // bottom of menu bar
+                    let _ = w.set_position(PhysicalPosition::new(x as i32, y as i32));
+                }
             }
         }
 
-        #[cfg(desktop)]
-        {
-            use tauri_plugin_positioner::{Position, WindowExt};
-            let _ = w.as_ref().window().move_window(Position::TrayBottomCenter);
-        }
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -260,7 +271,13 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let state = AppState::open_default().expect("failed to open token-usage DB");
+    let state = match AppState::open_default() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("无法打开数据库: {e}");
+            std::process::exit(1);
+        }
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -271,6 +288,18 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(state)
         .setup(|app| {
+            // Initialize structured logging inside setup (after tao init).
+            #[cfg(debug_assertions)]
+            let filter = "token_usage=debug";
+            #[cfg(not(debug_assertions))]
+            let filter = "token_usage=warn";
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(filter)),
+                )
+                .try_init();
+
             // ── Dock visibility (must be set BEFORE any window is created) ──
             // macOS: NSApplicationActivationPolicy must be chosen during
             // didFinishLaunching, before windows/tray exist, or tao panics.
@@ -287,7 +316,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 if let Err(e) = app.handle().plugin(tauri_plugin_positioner::init()) {
-                    eprintln!("Failed to initialize positioner plugin: {e}");
+                    tracing::warn!("Failed to initialize positioner plugin: {e}");
                 }
             }
 
@@ -310,6 +339,21 @@ pub fn run() {
                     // Use positioner plugin to handle tray-relative positioning
                     #[cfg(desktop)]
                     tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+
+                    // Also store the rect for our custom positioning (TrayBottomCenter
+                    // sets y=tray_y, but we need y=tray_y+tray_height for flush menu-bar).
+                    if let TrayIconEvent::Click { rect, .. }
+                    | TrayIconEvent::Enter { rect, .. }
+                    | TrayIconEvent::Leave { rect, .. }
+                    | TrayIconEvent::Move { rect, .. }
+                    | TrayIconEvent::DoubleClick { rect, .. } = &event
+                    {
+                        let pos = rect.position.to_physical(1.0);
+                        let size = rect.size.to_physical(1.0);
+                        if let Ok(mut guard) = LAST_TRAY_RECT.lock() {
+                            *guard = Some((pos, size));
+                        }
+                    }
 
                     let app = tray.app_handle();
 
@@ -399,9 +443,6 @@ pub fn run() {
                 let w = window.clone();
                 window.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
-                        // macOS fires Focused(false) when a popup menu closes.
-                        // Suppress the hide for a short window to prevent the
-                        // popover from disappearing right after a menu selection.
                         if !menu_just_closed() {
                             let _ = w.hide();
                         }
@@ -435,7 +476,10 @@ pub fn run() {
             // ── apply window-behaviour config (drag / hotkey / tray) ────────
             // Dock policy was applied early above; the rest is safe to set now.
             {
-                let conn = db.lock().expect("db poisoned");
+                let conn = db.lock().unwrap_or_else(|e| {
+                    tracing::warn!("db mutex poisoned in setup, recovering: {e}");
+                    e.into_inner()
+                });
                 ui::window::apply_window_features(app.handle(), &conn);
             }
 
@@ -466,11 +510,13 @@ pub fn run() {
             commands::settings::delete_credential,
             commands::settings::update_cookie,
             commands::settings::get_credential_fields,
+            commands::settings::get_credential_field_values,
             commands::settings::clear_credential_fields,
             commands::settings::copilot_login,
             commands::quota::codex_login,
             commands::window_cmd::open_settings,
             commands::window_cmd::close_settings,
+            commands::window_cmd::open_external,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,
@@ -478,6 +524,7 @@ pub fn run() {
             commands::autostart::set_auto_start,
             commands::autostart::get_auto_start,
             commands::update::check_update,
+            commands::update::get_app_version,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -498,10 +545,10 @@ pub fn run() {
                     // trigger webview JS init → mount effect calls api.getConfig()
                     // (IPC → main thread). If the main thread is still in
                     // on_menu_event, the IPC waits and the webview waits → freeze.
-                    // A short delay ensures the handler has fully returned.
+                    // A short async delay ensures the handler has fully returned.
                     let app_c = app.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(80));
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         if let Some(main) = app_c.get_webview_window("main") {
                             let _ = main.hide();
                         }
@@ -532,7 +579,9 @@ pub fn run() {
                                 if let Some(mode) = id.strip_prefix("tray_") {
                                     if cfg.tray_display != mode {
                                         cfg.tray_display = mode.to_string();
-                                        let _ = config::save(c, &cfg);
+                                        if let Err(e) = config::save(c, &cfg) {
+                                            tracing::warn!("config save (tray_display) failed: {e}");
+                                        }
                                         crate::ui::tray::refresh_from_db(app, c);
                                     }
                                 }
@@ -541,7 +590,9 @@ pub fn run() {
                                 if let Some(mode) = id.strip_prefix("window_") {
                                     if cfg.window_display_mode != mode {
                                         cfg.window_display_mode = mode.to_string();
-                                        let _ = config::save(c, &cfg);
+                                        if let Err(e) = config::save(c, &cfg) {
+                                            tracing::warn!("config save (window_display_mode) failed: {e}");
+                                        }
                                     }
                                 }
                             }
@@ -549,7 +600,9 @@ pub fn run() {
                                 if let Some(theme) = id.strip_prefix("theme_") {
                                     if cfg.theme != theme {
                                         cfg.theme = theme.to_string();
-                                        let _ = config::save(c, &cfg);
+                                        if let Err(e) = config::save(c, &cfg) {
+                                            tracing::warn!("config save (theme) failed: {e}");
+                                        }
                                     }
                                 }
                             }

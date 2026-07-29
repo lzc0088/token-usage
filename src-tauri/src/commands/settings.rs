@@ -1,6 +1,7 @@
 //! Config + credential commands (M3/M5).
 
 use tauri::{AppHandle, Emitter, State};
+use tracing::warn;
 
 use crate::commands::db;
 use crate::config::Config;
@@ -26,10 +27,13 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
 }
 
 /// Check if a vendor has a stored credential (encrypted in the local DB).
+///
+/// Returns `Err` on DB failure so the UI can surface the problem instead of
+/// silently treating a DB error as "not bound".
 #[tauri::command]
 pub fn get_credential_status(vendor: String, state: State<AppState>) -> Result<bool, String> {
     let conn = db(&state);
-    Ok(credentials::exists(&conn, &vendor).unwrap_or(false))
+    credentials::exists(&conn, &vendor).map_err(|e| e.to_string())
 }
 
 /// Store a vendor credential (encrypted in the local DB).
@@ -39,6 +43,7 @@ pub async fn set_credential(
     vendor: String,
     secret: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
     // Trim surrounding whitespace/newlines — common when pasting from browsers.
     let secret = secret.trim();
@@ -72,7 +77,7 @@ pub async fn set_credential(
         match crate::quota::fetch(vid, secret).await {
             Ok(mut q) => {
                 q.refreshed_at = Some(chrono::Utc::now().to_rfc3339());
-                let conn = state.db.lock().expect("db poisoned");
+                let conn = state.db_guard();
                 crate::quota::scheduler::write_cache(
                     &conn,
                     &vendor,
@@ -82,20 +87,27 @@ pub async fn set_credential(
             }
             Err(e) => {
                 let msg = e.to_string();
-                eprintln!("[set_credential] {vendor} quota fetch failed: {msg}");
+                warn!(vendor = %vendor, error = %msg, "set_credential quota fetch failed");
                 return Err(crate::quota::format_validate_error(&msg));
             }
         }
     }
 
     let conn = db(&state);
-    credentials::set(&conn, &vendor, secret).map_err(|e| e.to_string())
+    credentials::set(&conn, &vendor, secret).map_err(|e| e.to_string())?;
+    // Notify all windows so the 额度 page + 总览 reload the freshly-cached quota.
+    let _ = app.emit("quota:updated", ());
+    Ok(())
 }
 
 /// Delete a vendor credential. Also removes its cached quota so the limits
 /// page stops showing it immediately.
 #[tauri::command]
-pub fn delete_credential(vendor: String, state: State<AppState>) -> Result<(), String> {
+pub fn delete_credential(
+    vendor: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
     let conn = db(&state);
     credentials::delete(&conn, &vendor).map_err(|e| e.to_string())?;
     // Remove cached quota so the limits page no longer shows this vendor.
@@ -103,36 +115,58 @@ pub fn delete_credential(vendor: String, state: State<AppState>) -> Result<(), S
         "DELETE FROM quota_cache WHERE vendor = ?",
         rusqlite::params![vendor],
     );
+    // Notify windows to drop this vendor from the quota lists immediately.
+    let _ = app.emit("quota:updated", ());
     Ok(())
 }
 
-/// Update only the `cookie` field of an already-stored credential, preserving
-/// any other fields (e.g. Volcengine's key/secret). For cookie-only vendors
-/// whose stored credential is a plain cookie string, it is wrapped as
-/// `{"cookie": ...}`. No re-validation here — the frontend triggers a refresh
-/// after this so the card updates live.
+/// Update only the `cookie` field (and optionally other fields like `region`)
+/// of an already-stored credential, preserving any other fields (e.g.
+/// Volcengine's key/secret). For cookie-only vendors whose stored credential
+/// is a plain cookie string, it is wrapped as `{"cookie": ...}`. No
+/// re-validation here — the frontend triggers a refresh after this so the card
+/// updates live.
 #[tauri::command]
-pub fn update_cookie(vendor: String, cookie: String, state: State<AppState>) -> Result<(), String> {
+pub fn update_cookie(
+    vendor: String,
+    cookie: String,
+    extra_fields: Option<std::collections::HashMap<String, String>>,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
     let cookie = cookie.trim();
     if cookie.is_empty() {
         return Err("请填写 Cookie".into());
     }
     let conn = db(&state);
-    let new_cred = match credentials::get(&conn, &vendor).ok() {
+    let mut base = match credentials::get(&conn, &vendor).ok() {
         Some(existing) => match serde_json::from_str::<serde_json::Value>(&existing) {
-            Ok(mut v) if v.is_object() => {
-                v.as_object_mut().expect("checked is_object above").insert(
-                    "cookie".into(),
-                    serde_json::Value::String(cookie.to_string()),
-                );
-                v.to_string()
-            }
-            // Non-JSON credential → wrap as {cookie}.
-            _ => serde_json::json!({ "cookie": cookie }).to_string(),
+            Ok(v) if v.is_object() => v,
+            // Non-JSON credential → wrap as {cookie: <old>}.
+            Ok(other) => serde_json::json!({ "cookie": other }),
+            _ => serde_json::json!({}),
         },
-        None => serde_json::json!({ "cookie": cookie }).to_string(),
+        None => serde_json::json!({}),
     };
-    credentials::set(&conn, &vendor, &new_cred).map_err(|e| e.to_string())
+    {
+        let obj = base.as_object_mut().expect("base is an object");
+        obj.insert("cookie".into(), serde_json::Value::String(cookie.to_string()));
+        // Merge any extra fields (e.g. region/site) supplied by the editor.
+        if let Some(extra) = extra_fields {
+            for (k, v) in extra {
+                let v = v.trim();
+                if v.is_empty() {
+                    obj.remove(&k);
+                } else {
+                    obj.insert(k, serde_json::Value::String(v.to_string()));
+                }
+            }
+        }
+    }
+    credentials::set(&conn, &vendor, &base.to_string()).map_err(|e| e.to_string())?;
+    // Notify windows so the quota card reloads after the editor closes.
+    let _ = app.emit("quota:updated", ());
+    Ok(())
 }
 
 /// Return the non-empty field names in a vendor's stored credential (e.g.
@@ -160,6 +194,37 @@ pub fn get_credential_fields(
     }
 }
 
+/// Return the values of NON-SECRET scalar fields (region, site, projid, …)
+/// from a stored credential. Used by the inline cookie editor to pre-fill a
+/// region selector. Secret fields (key/secret/cookie) are never returned.
+#[tauri::command]
+pub fn get_credential_field_values(
+    vendor: String,
+    state: State<AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    // Secret field keys — never exposed to the frontend.
+    const SECRET_KEYS: &[&str] = &["key", "secret", "cookie"];
+    let conn = db(&state);
+    let raw = match credentials::get(&conn, &vendor) {
+        Ok(s) => s,
+        Err(_) => return Ok(std::collections::HashMap::new()),
+    };
+    let mut out = std::collections::HashMap::new();
+    if let Ok(serde_json::Value::Object(m)) = serde_json::from_str::<serde_json::Value>(&raw) {
+        for (k, v) in m {
+            if SECRET_KEYS.contains(&k.as_str()) {
+                continue;
+            }
+            if let Some(s) = v.as_str() {
+                if !s.is_empty() {
+                    out.insert(k, s.to_string());
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Remove specific fields from a vendor's stored credential (e.g. drop
 /// "cookie" while keeping "key"/"secret"). If, after removal, neither a key
 /// nor a cookie remains, the whole credential is deleted (it could not fetch
@@ -170,6 +235,7 @@ pub fn clear_credential_fields(
     vendor: String,
     fields: Vec<String>,
     state: State<AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
     let conn = db(&state);
     let raw = credentials::get(&conn, &vendor).map_err(|e| e.to_string())?;
@@ -197,9 +263,12 @@ pub fn clear_credential_fields(
 
     if !has_key && !has_cookie {
         credentials::delete(&conn, &vendor).map_err(|e| e.to_string())?;
-        return Ok(());
+    } else {
+        credentials::set(&conn, &vendor, &v.to_string()).map_err(|e| e.to_string())?;
     }
-    credentials::set(&conn, &vendor, &v.to_string()).map_err(|e| e.to_string())
+    // Notify windows to reflect the cleared/updated credential immediately.
+    let _ = app.emit("quota:updated", ());
+    Ok(())
 }
 
 /// Run the GitHub Copilot OAuth Device Flow.

@@ -6,7 +6,7 @@
 
 use rusqlite::Connection;
 
-use super::{pct, pct_f, DateRange, Dimension, QueryError};
+use super::{pct, pct_f, synthetic_exclusion, DateRange, Dimension, QueryError};
 
 /// One row of the breakdown (a tool or a model).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -88,38 +88,77 @@ pub fn query_filtered(
     let (clause, mut params) = super::range_clause(range);
     let where_clause = format!("{clause} AND {filter_col} = ?");
     params.push(filter_key.to_string());
-    let sql = format!(
-        "SELECT {col} AS k,
-                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
-                COALESCE(SUM(cost_usd), 0) AS cost,
-                COALESCE(SUM(messages), 0) AS messages,
-                COALESCE(SUM(input_tokens), 0) AS input,
-                COALESCE(SUM(output_tokens), 0) AS output,
-                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
-                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
-         FROM daily_usage
-         WHERE {where_clause}
-         GROUP BY {col}
-         ORDER BY tokens DESC
-         LIMIT 3"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let raws: Vec<RawEntry> = {
-        let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
-            Ok(RawEntry {
-                key: r.get::<_, String>(0)?,
-                tokens: r.get::<_, i64>(1)?,
-                cost: r.get::<_, f64>(2)?,
-                messages: r.get::<_, i64>(3)?,
-                input: r.get::<_, i64>(4)?,
-                output: r.get::<_, i64>(5)?,
-                cache_read: r.get::<_, i64>(6)?,
-                cache_write: r.get::<_, i64>(7)?,
-            })
-        })?;
-        rows.collect::<Result<_, _>>()?
-    };
-    Ok(finalize(raws, dim))
+    // Exclude tokscale synthetic model entries.
+    if dim == Dimension::Model {
+        let (excl, excl_params) = synthetic_exclusion();
+        let full_where = format!("{where_clause}{excl}");
+        let sql = format!(
+            "SELECT {col} AS k,
+                    COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                    COALESCE(SUM(cost_usd), 0) AS cost,
+                    COALESCE(SUM(messages), 0) AS messages,
+                    COALESCE(SUM(input_tokens), 0) AS input,
+                    COALESCE(SUM(output_tokens), 0) AS output,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write
+             FROM daily_usage
+             WHERE {full_where}
+             GROUP BY {col}
+             ORDER BY tokens DESC
+             LIMIT 3"
+        );
+        params.extend(excl_params.into_iter().map(String::from));
+        let mut stmt = conn.prepare(&sql)?;
+        let raws: Vec<RawEntry> = {
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
+                Ok(RawEntry {
+                    key: r.get::<_, String>(0)?,
+                    tokens: r.get::<_, i64>(1)?,
+                    cost: r.get::<_, f64>(2)?,
+                    messages: r.get::<_, i64>(3)?,
+                    input: r.get::<_, i64>(4)?,
+                    output: r.get::<_, i64>(5)?,
+                    cache_read: r.get::<_, i64>(6)?,
+                    cache_write: r.get::<_, i64>(7)?,
+                })
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        Ok(finalize(raws, dim))
+    } else {
+        let sql = format!(
+            "SELECT {col} AS k,
+                    COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                    COALESCE(SUM(cost_usd), 0) AS cost,
+                    COALESCE(SUM(messages), 0) AS messages,
+                    COALESCE(SUM(input_tokens), 0) AS input,
+                    COALESCE(SUM(output_tokens), 0) AS output,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write
+             FROM daily_usage
+             WHERE {where_clause}
+             GROUP BY {col}
+             ORDER BY tokens DESC
+             LIMIT 3"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let raws: Vec<RawEntry> = {
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
+                Ok(RawEntry {
+                    key: r.get::<_, String>(0)?,
+                    tokens: r.get::<_, i64>(1)?,
+                    cost: r.get::<_, f64>(2)?,
+                    messages: r.get::<_, i64>(3)?,
+                    input: r.get::<_, i64>(4)?,
+                    output: r.get::<_, i64>(5)?,
+                    cache_read: r.get::<_, i64>(6)?,
+                    cache_write: r.get::<_, i64>(7)?,
+                })
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        Ok(finalize(raws, dim))
+    }
 }
 
 /// Query the breakdown by `dim` within `range`.
@@ -129,7 +168,13 @@ pub fn query(
     dim: Dimension,
 ) -> Result<Breakdown, QueryError> {
     let col = dim.column();
-    let (clause, params) = super::range_clause(range);
+    let (mut clause, mut params) = super::range_clause(range);
+    // Exclude tokscale synthetic model entries (tool calls without a real model).
+    if dim == Dimension::Model {
+        let (excl, excl_params) = synthetic_exclusion();
+        clause.push_str(&excl);
+        params.extend(excl_params.into_iter().map(String::from));
+    }
     let sql = format!(
         "SELECT {col} AS k,
                 COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
@@ -272,6 +317,42 @@ mod tests {
         assert_eq!(b.grand_total_tokens, 2000);
         let claude = b.entries.iter().find(|e| e.key == "claude").unwrap();
         assert_eq!(claude.tokens, 1000); // not 1500
+    }
+
+    #[test]
+    fn query_by_model_excludes_synthetic() {
+        let conn = seeded_conn();
+        // Insert synthetic model entry directly.
+        conn.execute_batch(
+            "INSERT INTO daily_usage (date, tool, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, messages)
+             VALUES ('2026-07-17', 'claude', '<synthetic>', 500, 0, 0, 0, 0.5, 2)",
+        )
+        .unwrap();
+        let range = DateRange::default();
+        let b = query(&conn, &range, Dimension::Model).unwrap();
+        let keys: Vec<&str> = b.entries.iter().map(|e| e.key.as_str()).collect();
+        assert!(!keys.contains(&"<synthetic>"), "synthetic model should be filtered");
+        assert!(keys.contains(&"glm-5.2"), "real models should remain");
+        assert!(keys.contains(&"gpt-5"), "real models should remain");
+        // grand_total should exclude synthetic tokens (500).
+        assert_eq!(b.grand_total_tokens, 2500);
+    }
+
+    #[test]
+    fn query_by_model_dim_only_excludes_synthetic_not_tool() {
+        let conn = seeded_conn();
+        // Insert synthetic model entry.
+        conn.execute_batch(
+            "INSERT INTO daily_usage (date, tool, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, messages)
+             VALUES ('2026-07-17', 'claude', '<synthetic>', 500, 0, 0, 0, 0.5, 2)",
+        )
+        .unwrap();
+        let range = DateRange::default();
+        // Tool dimension should NOT filter synthetic (it's a model name, not a tool).
+        let b = query(&conn, &range, Dimension::Tool).unwrap();
+        let keys: Vec<&str> = b.entries.iter().map(|e| e.key.as_str()).collect();
+        assert!(keys.contains(&"claude"), "tool dimension is unaffected by synthetic model filter");
+        assert_eq!(b.grand_total_tokens, 3000); // includes synthetic tokens
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::storage;
 
 pub struct AppState {
-    pub db: Arc<Mutex<Connection>>,
+    pub(crate) db: Arc<Mutex<Connection>>,
 }
 
 impl AppState {
@@ -26,9 +26,19 @@ impl AppState {
         })
     }
 
+    /// Lock the DB, recovering gracefully from mutex poisoning. A poisoned
+    /// mutex means a thread panicked while holding the lock — the data inside
+    /// is still valid, so we recover the inner guard and continue.
+    pub fn db_guard(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.db.lock().unwrap_or_else(|e| {
+            tracing::warn!("db mutex poisoned, recovering: {e}");
+            e.into_inner()
+        })
+    }
+
     /// Load config from the DB (helper for callers with a shared DB handle).
     pub fn load_config(&self) -> Result<Config, storage::StorageError> {
-        let conn = self.db.lock().expect("db poisoned");
+        let conn = self.db_guard();
         crate::config::load(&conn)
     }
 }
