@@ -221,6 +221,9 @@ export interface Config {
   animation?: "system" | "on" | "off";
   /** Data refresh interval. */
   refresh_interval?: "manual" | "30s" | "60s" | "300s" | "600s";
+  /** Collection mode: "live" (file-watch realtime) | "smart" (10min interval, activity-gated)
+   * | "interval" (fixed interval only, no file watch). */
+  collection_mode?: "live" | "smart" | "interval";
   /** Preserve sessions whose source tool is no longer installed. */
   session_archive_enabled?: boolean;
   /** Quota data refresh interval. */

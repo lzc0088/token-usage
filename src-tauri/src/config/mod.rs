@@ -70,6 +70,10 @@ pub struct Config {
     /// Data refresh interval: "manual" | "30s" | "60s" | "300s" | "600s".
     #[serde(default = "default_refresh_interval")]
     pub refresh_interval: String,
+    /// Collection mode: "live" (file-watch realtime) | "smart" (10min interval, activity-gated)
+    /// | "interval" (fixed interval only, no file watch).
+    #[serde(default = "default_collection_mode")]
+    pub collection_mode: String,
     /// Preserve sessions whose source tool is no longer installed. When false,
     /// the collector prunes them on each ingest.
     #[serde(default = "default_true")]
@@ -129,6 +133,7 @@ impl Default for Config {
             theme: default_theme(),
             animation: default_animation(),
             refresh_interval: default_refresh_interval(),
+            collection_mode: default_collection_mode(),
             session_archive_enabled: default_true(),
             quota_refresh_interval: default_quota_refresh_interval(),
             quota_progress_mode: default_quota_progress_mode(),
@@ -173,6 +178,9 @@ fn default_animation() -> String {
 }
 fn default_refresh_interval() -> String {
     "manual".into()
+}
+fn default_collection_mode() -> String {
+    "live".into()
 }
 fn default_quota_refresh_interval() -> String {
     "5m".into()
@@ -262,7 +270,34 @@ pub fn set_raw(conn: &Connection, key: &str, value: &str) -> Result<(), StorageE
     Ok(())
 }
 
-#[cfg(test)]
+/// Read an integer value from app_config. Returns Ok(None) if the key is missing.
+pub fn get_int(conn: &Connection, key: &str) -> Result<Option<u64>, StorageError> {
+    match get_raw(conn, key)? {
+        Some(s) => {
+            let trimmed = s.trim().to_string();
+            // Try parsing as a plain integer first, then as JSON number
+            if let Ok(n) = trimmed.parse::<u64>() {
+                Ok(Some(n))
+            } else if let Some(n) = serde_json::from_str::<serde_json::Value>(&s)
+                .ok()
+                .and_then(|v| v.as_u64())
+            {
+                Ok(Some(n))
+            } else {
+                Ok(None)
+            }
+        }
+        None => Ok(None),
+    }
+}
+
+/// Atomically increment an integer value in app_config. Creates the key if missing.
+pub fn incr_int(conn: &Connection, key: &str, delta: u64) -> Result<u64, StorageError> {
+    let current = get_int(conn, key)?.unwrap_or(0);
+    let new_value = current.saturating_add(delta);
+    set_raw(conn, key, &new_value.to_string())?;
+    Ok(new_value)
+}
 mod tests {
     use super::*;
     use crate::storage::schema;

@@ -149,6 +149,16 @@
     </div>
 
     <div class="box-row">
+      <div class="lab">采集模式<div class="hint">实时：文件变动立即触发采集 | 智能：10分钟间隔+活动检测 | 固定：仅按间隔采集</div></div>
+      <select class="sel" value={config.collection_mode || "live"}
+        onchange={(e) => onUpdate({ collection_mode: (e.target as HTMLSelectElement).value as Config["collection_mode"] })}>
+        <option value="live">实时采集</option>
+        <option value="smart">智能采集（10分钟）</option>
+        <option value="interval">固定间隔</option>
+      </select>
+    </div>
+
+    <div class="box-row">
       <div class="lab">会话保留<div class="hint">来源工具删除或清除会话后，仍保留会话总量与已观测的每日活动</div></div>
       <button type="button" class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label="会话保留" onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
     </div>

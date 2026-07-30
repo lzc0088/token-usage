@@ -248,6 +248,11 @@ async fn emit_sessions<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEven
 /// collector anchor for incremental month/allTime derivation. A config change of
 /// enabled clients is still handled by the caller **restarting** `run` with a
 /// new `cfg`.
+///
+/// Collection modes:
+/// - **live**: watcher ticks trigger `emit_today` immediately (current behavior)
+/// - **smart**: timer-driven with activity gating (10min fixed, only emit if activity detected)
+/// - **interval**: timer-driven without activity gating (current timer behavior)
 pub async fn run<S: Scanner>(
     scanner: S,
     cfg: SchedulerConfig,
@@ -258,31 +263,96 @@ pub async fn run<S: Scanner>(
     // Fire the first history (graph + sessions) scan immediately so the DB is
     // not empty for the first 15 min after startup.
     let mut next_graph_at = tokio::time::Instant::now();
+    let mut last_activity_revision: u64 = 0;
 
     loop {
-        tokio::select! {
-            // File-change tick (already debounced by the watcher).
-            tick = tick_rx.recv() => match tick {
-                Some(()) => {
-                    // Coalesce: drain any ticks already buffered by the burst,
-                    // then run a single today scan. (Ticks arriving *during* the
-                    // scan are caught on the next loop iteration — warranted,
-                    // they represent new activity.)
-                    while tick_rx.try_recv().is_ok() {}
-                    emit_today(&scanner, &event_tx).await;
+        // Read collection mode from config (refresh each iteration to pick up changes)
+        let collection_mode = db
+            .as_ref()
+            .and_then(|d| d.lock().ok())
+            .and_then(|conn| crate::config::load(&conn).ok())
+            .map(|c| c.collection_mode)
+            .unwrap_or_else(|| "live".to_string());
+
+        match collection_mode.as_str() {
+            "smart" => {
+                // ── Smart mode: 10min timer + activity gating ─────────────
+                // Still listen to ticks for activity detection, but don't scan.
+                tokio::select! {
+                    tick = tick_rx.recv() => {
+                        if tick.is_some() {
+                            // Record activity but don't scan
+                            if let Some(ref db_arc) = db {
+                                if let Ok(conn) = db_arc.lock() {
+                                    let _ = crate::config::incr_int(&conn, "activity_revision", 1);
+                                }
+                            }
+                            // Drain any queued ticks
+                            while tick_rx.try_recv().is_ok() {}
+                        } else {
+                            break; // watcher stopped → exit
+                        }
+                    }
+                    _ = tokio::time::sleep_until(next_graph_at) => {
+                        // Check for new activity
+                        let current_activity = db.as_ref()
+                            .and_then(|d| d.lock().ok())
+                            .and_then(|conn| {
+                                crate::config::get_int(&conn, "activity_revision")
+                                    .ok()
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+
+                        if current_activity > last_activity_revision {
+                            emit_today(&scanner, &event_tx).await;
+                            last_activity_revision = current_activity;
+                        }
+                        // Also run graph + sessions periodically (hourly)
+                        emit_graph(&scanner, &event_tx).await;
+                        emit_sessions(&scanner, &event_tx).await;
+
+                        let smart_interval = std::time::Duration::from_secs(600); // Fixed 10min
+                        next_graph_at = tokio::time::Instant::now() + smart_interval;
+                    }
                 }
-                None => break, // watcher stopped → exit
-            },
-            // History graph timer — always armed. The interval is re-read from
-            // config each iteration so the 采集频率 setting takes effect within
-            // one cycle (no restart needed); falls back to cfg.history_interval.
-            // TODO P1: When CollectorAnchor is fully implemented, check for valid
-            // anchor here and skip graph/sessions scans if warm-scan possible.
-            _ = tokio::time::sleep_until(next_graph_at) => {
-                emit_graph(&scanner, &event_tx).await;
-                emit_sessions(&scanner, &event_tx).await;
-                let interval = next_history_interval(&db, cfg.history_interval);
-                next_graph_at = tokio::time::Instant::now() + interval;
+            }
+            "interval" => {
+                // ── Interval mode: fixed timer, no file watch ─────────────
+                tokio::select! {
+                    _ = tokio::time::sleep_until(next_graph_at) => {
+                        emit_graph(&scanner, &event_tx).await;
+                        emit_sessions(&scanner, &event_tx).await;
+                        let interval = next_history_interval(&db, cfg.history_interval);
+                        next_graph_at = tokio::time::Instant::now() + interval;
+                    }
+                }
+            }
+            _ => {
+                // ── Live mode (default): watcher ticks + history timer ─────
+                tokio::select! {
+                    tick = tick_rx.recv() => match tick {
+                        Some(()) => {
+                            // Update activity revision
+                            if let Some(ref db_arc) = db {
+                                if let Ok(conn) = db_arc.lock() {
+                                    let _ = crate::config::incr_int(&conn, "activity_revision", 1);
+                                }
+                            }
+
+                            // Coalesce: drain any ticks already buffered by the burst
+                            while tick_rx.try_recv().is_ok() {}
+                            emit_today(&scanner, &event_tx).await;
+                        }
+                        None => break, // watcher stopped → exit
+                    },
+                    _ = tokio::time::sleep_until(next_graph_at) => {
+                        emit_graph(&scanner, &event_tx).await;
+                        emit_sessions(&scanner, &event_tx).await;
+                        let interval = next_history_interval(&db, cfg.history_interval);
+                        next_graph_at = tokio::time::Instant::now() + interval;
+                    }
+                }
             }
         }
     }
