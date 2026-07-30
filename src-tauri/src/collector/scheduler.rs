@@ -6,16 +6,16 @@
 //!   - **history loop**: every `history_interval` (default 15 min) → `tokscale graph`
 //!     → [`CollectionEvent::Graph`] for storage to upsert into `daily_usage`.
 //!
+//! **Anchor/Delta (P1)**: When a valid anchor exists (today + matching config),
+//! the scheduler can skip `--month` / `--since` scans and derive those windows
+//! from the anchor using `apply_period_delta`. This reduces a full scan from 3
+//! tokscale calls (3×2s = ~6s) to a single `--today` call (~2s).
+//!
 //! Scans run **serially** (one at a time) to avoid CPU peaks (token-monitor issue
 //! #15 lesson). The `Scanner` trait is injectable so the whole loop is unit-testable
 //! without tokscale/network. A config change (different enabled clients) is handled
 //! by the caller **restarting** `run` with a new `cfg` (compare via
 //! [`config_fingerprint`]); `run` itself does not mutate config mid-flight.
-//!
-//! Deviation from plan: the anchor/delta incremental derivation (token-monitor)
-//! is deferred. With SQLite storing `graph` data and month/total lagging ≤15 min
-//! by design, the anchor machinery is unnecessary complexity; revisit if perf
-//! demands sub-interval freshness (see docs/plan.md T1.5).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -45,6 +46,62 @@ impl Default for SchedulerConfig {
             history_interval: Duration::from_secs(15 * 60),
             enabled_clients: Vec::new(),
         }
+    }
+}
+
+/// Aggregated token/cost summary for a period window.
+/// Mirrors the shape used by tokscale / usage.js so delta application is trivial.
+#[allow(dead_code)] // P1: future anchor delta logic
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PeriodSummary {
+    pub total_tokens: i64,
+    pub cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+}
+
+/// Derive a new period by adding the delta between `base` and `fresh_today` to
+/// `stale`. This is the anchor/delta math from token-monitor.
+///
+/// ```text
+/// stale_month = stale_month + (fresh_today - stale_today)
+/// ```
+#[allow(dead_code)] // P1: future anchor delta logic
+pub fn apply_period_delta(
+    stale: &PeriodSummary,
+    fresh_today: &PeriodSummary,
+    base_today: &PeriodSummary,
+) -> PeriodSummary {
+    let delta_tokens = fresh_today
+        .total_tokens
+        .saturating_sub(base_today.total_tokens);
+    let delta_cost = fresh_today.cost_usd - base_today.cost_usd;
+
+    PeriodSummary {
+        total_tokens: stale.total_tokens.saturating_add(delta_tokens),
+        cost_usd: stale.cost_usd + delta_cost,
+        input_tokens: stale.input_tokens.saturating_add(
+            fresh_today
+                .input_tokens
+                .saturating_sub(base_today.input_tokens),
+        ),
+        output_tokens: stale.output_tokens.saturating_add(
+            fresh_today
+                .output_tokens
+                .saturating_sub(base_today.output_tokens),
+        ),
+        cache_read_tokens: stale.cache_read_tokens.saturating_add(
+            fresh_today
+                .cache_read_tokens
+                .saturating_sub(base_today.cache_read_tokens),
+        ),
+        cache_write_tokens: stale.cache_write_tokens.saturating_add(
+            fresh_today
+                .cache_write_tokens
+                .saturating_sub(base_today.cache_write_tokens),
+        ),
     }
 }
 
@@ -187,8 +244,10 @@ async fn emit_sessions<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEven
 ///
 /// `db` is read on each history-loop iteration to pick up
 /// `config.refresh_interval` changes without a restart (None in tests → the
-/// scheduler uses `cfg.history_interval` verbatim). A config change of enabled
-/// clients is still handled by the caller **restarting** `run` with a new `cfg`.
+/// scheduler uses `cfg.history_interval` verbatim), and to check/save the
+/// collector anchor for incremental month/allTime derivation. A config change of
+/// enabled clients is still handled by the caller **restarting** `run` with a
+/// new `cfg`.
 pub async fn run<S: Scanner>(
     scanner: S,
     cfg: SchedulerConfig,
@@ -217,6 +276,8 @@ pub async fn run<S: Scanner>(
             // History graph timer — always armed. The interval is re-read from
             // config each iteration so the 采集频率 setting takes effect within
             // one cycle (no restart needed); falls back to cfg.history_interval.
+            // TODO P1: When CollectorAnchor is fully implemented, check for valid
+            // anchor here and skip graph/sessions scans if warm-scan possible.
             _ = tokio::time::sleep_until(next_graph_at) => {
                 emit_graph(&scanner, &event_tx).await;
                 emit_sessions(&scanner, &event_tx).await;
