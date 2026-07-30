@@ -5,6 +5,7 @@ use tauri::State;
 
 use std::collections::HashSet;
 
+use crate::collector::project_cache::ProjectCache;
 use crate::collector::workspace::{
     build_projects_from_sessions_with_map, filter_out_client, merge_project,
     parse_workspace_report, scan_claude_filesystem, ProjectAgg,
@@ -13,6 +14,38 @@ use crate::commands::{db, parse_period, today};
 use crate::query::summary::Summary;
 use crate::query::{self, breakdown::Breakdown, sessions::SessionVm, trends::Trends, Dimension};
 use crate::state::AppState;
+use rusqlite::Connection;
+
+/// Compute a fingerprint of the collection config that affects project visibility.
+/// Changes to tracked/visible tool lists should invalidate the project cache.
+fn collection_config_fingerprint(conn: &Connection) -> Result<u64, String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    let mut h = DefaultHasher::new();
+
+    // Load collection_tracked and collection_visible from config
+    let tracked: Vec<String> = crate::config::get_json(conn, "collection_tracked")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let visible: Vec<String> = crate::config::get_json(conn, "collection_visible")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+
+    // Hash sorted lists (order-independent for tracked, order-dependent for visible)
+    let mut sorted_tracked = tracked.clone();
+    sorted_tracked.sort();
+    for item in sorted_tracked {
+        h.write(item.as_bytes());
+        h.write_u8(0);
+    }
+
+    for item in &visible {
+        h.write(item.as_bytes());
+        h.write_u8(1);
+    }
+
+    Ok(h.finish())
+}
 
 #[tauri::command]
 pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, String> {
@@ -137,11 +170,44 @@ pub async fn get_session_rounds(
 ///
 /// A filesystem scan of `~/.claude/projects/` supplements projects with zero
 /// activity in the queried period.
+///
+/// Results are cached for 5 minutes (config key: "projects_cache_v1") and
+/// invalidated when collection_tracked / collection_visible change.
 #[tauri::command]
-pub async fn get_projects(
+pub async fn get_projects<'a>(
     app: tauri::AppHandle,
     period: String,
+    state: State<'a, AppState>,
 ) -> Result<Vec<ProjectAgg>, String> {
+    // ── 0. Quick cache check (drop DB guard before any await) ───────────
+    {
+        let conn = db(&state);
+        let now = chrono::Utc::now().timestamp();
+        if let Ok(Some(cache)) = crate::config::get_json::<ProjectCache>(&conn, "projects_cache_v1")
+        {
+            if let Ok(fingerprint) = collection_config_fingerprint(&conn) {
+                if cache.is_fresh(now, fingerprint) {
+                    tracing::debug!("projects cache hit (age {}s)", now - cache.cached_at);
+                    return Ok(cache
+                        .projects
+                        .into_iter()
+                        .map(|e| ProjectAgg {
+                            name: e.name,
+                            full_path: e.full_path,
+                            latest_date: e.latest_date,
+                            tokens: e.tokens,
+                            cost_usd: e.cost_usd,
+                            messages: e.messages,
+                            models: Vec::new(),
+                            tools: Vec::new(),
+                        })
+                        .collect());
+                }
+            }
+        }
+    } // conn guard dropped here
+
+    // ── 2. Cache miss or stale — fetch fresh data ───────────────────────
     let p = parse_period(&period);
     let tp = match p {
         query::Period::Day => crate::collector::tokscale::Period::Today,
@@ -229,12 +295,44 @@ pub async fn get_projects(
     .await
     .map_err(|e| e.to_string())?;
 
+    // ── 3. Update cache ─────────────────────────────────────────────────
+    // Re-acquire the DB connection (the earlier one was consumed by the blocking
+    // spawn above).
+    let conn = db(&state);
+    let now_save = match chrono::Utc::now().timestamp() {
+        ts if ts > 0 => ts,
+        _ => {
+            tracing::warn!("Failed to get timestamp for project cache save");
+            0
+        }
+    };
+    if let Ok(fingerprint) = collection_config_fingerprint(&conn) {
+        let cache_entry = ProjectCache {
+            period: period.clone(),
+            projects: projects
+                .iter()
+                .map(|p| crate::collector::project_cache::ProjectCacheEntry {
+                    name: p.name.clone(),
+                    full_path: p.full_path.clone(),
+                    latest_date: p.latest_date.clone(),
+                    tokens: p.tokens,
+                    cost_usd: p.cost_usd,
+                    messages: p.messages,
+                })
+                .collect(),
+            cached_at: now_save,
+            config_fingerprint: fingerprint,
+        };
+        let _ = crate::config::set_json(&conn, "projects_cache_v1", &cache_entry);
+    }
+
     Ok(projects)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     #[test]
     fn parse_period_maps_strings() {
@@ -249,5 +347,46 @@ mod tests {
         let t = today();
         assert_eq!(t.len(), 10);
         assert_eq!(t.chars().nth(4), Some('-'));
+    }
+
+    #[test]
+    fn collection_config_fingerprint_stable_for_same_config() {
+        // In-memory DB with two config rows
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
+        crate::config::set_json(&conn, "collection_tracked", &["claude", "codex"]).unwrap();
+        crate::config::set_json(&conn, "collection_visible", &["claude", "codex"]).unwrap();
+
+        let fp1 = collection_config_fingerprint(&conn).unwrap();
+        let fp2 = collection_config_fingerprint(&conn).unwrap();
+        assert_eq!(fp1, fp2, "same config should produce same fingerprint");
+    }
+
+    #[test]
+    fn collection_config_fingerprint_changes_on_tracked() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
+        crate::config::set_json(&conn, "collection_tracked", &["claude"]).unwrap();
+        crate::config::set_json(&conn, "collection_visible", &["claude"]).unwrap();
+
+        let fp1 = collection_config_fingerprint(&conn).unwrap();
+
+        // Change tracked list
+        crate::config::set_json(&conn, "collection_tracked", &["claude", "codex"]).unwrap();
+
+        let fp2 = collection_config_fingerprint(&conn).unwrap();
+        assert_ne!(fp1, fp2, "changing tracked list should change fingerprint");
+    }
+
+    #[test]
+    fn collection_config_fingerprint_empty_defaults() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
+                                                         // No config rows — both tracked and visible default to empty
+        let fp = collection_config_fingerprint(&conn).unwrap();
+        assert!(
+            fp != 0,
+            "empty config should still produce a non-zero fingerprint"
+        );
     }
 }
