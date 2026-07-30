@@ -331,7 +331,10 @@ mod tests {
         let range = DateRange::default();
         let b = query(&conn, &range, Dimension::Model).unwrap();
         let keys: Vec<&str> = b.entries.iter().map(|e| e.key.as_str()).collect();
-        assert!(!keys.contains(&"<synthetic>"), "synthetic model should be filtered");
+        assert!(
+            !keys.contains(&"<synthetic>"),
+            "synthetic model should be filtered"
+        );
         assert!(keys.contains(&"glm-5.2"), "real models should remain");
         assert!(keys.contains(&"gpt-5"), "real models should remain");
         // grand_total should exclude synthetic tokens (500).
@@ -351,7 +354,10 @@ mod tests {
         // Tool dimension should NOT filter synthetic (it's a model name, not a tool).
         let b = query(&conn, &range, Dimension::Tool).unwrap();
         let keys: Vec<&str> = b.entries.iter().map(|e| e.key.as_str()).collect();
-        assert!(keys.contains(&"claude"), "tool dimension is unaffected by synthetic model filter");
+        assert!(
+            keys.contains(&"claude"),
+            "tool dimension is unaffected by synthetic model filter"
+        );
         assert_eq!(b.grand_total_tokens, 3000); // includes synthetic tokens
     }
 

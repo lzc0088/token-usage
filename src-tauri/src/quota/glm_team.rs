@@ -49,9 +49,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     let organization = cred.orgid.as_deref().unwrap_or("").trim();
     let project = cred.projid.as_deref().unwrap_or("").trim();
     if organization.is_empty() || project.is_empty() {
-        return Err(VendorError::Parse(
-            "缺少组织 ID 或项目 ID".into(),
-        ));
+        return Err(VendorError::Parse("缺少组织 ID 或项目 ID".into()));
     }
 
     let url = format!("{BASE_CN}{QUOTA_PATH}");
@@ -88,7 +86,8 @@ impl Http for UreqHttp {
         organization: &str,
         project: &str,
     ) -> Result<String, VendorError> {
-        let resp = ureq::get(url)
+        let resp = crate::utils::http::direct_agent()
+            .get(url)
             .set("Authorization", &format!("Bearer {key}"))
             .set("bigmodel-organization", organization)
             .set("bigmodel-project", project)

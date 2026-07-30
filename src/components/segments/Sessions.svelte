@@ -34,21 +34,30 @@
   type SortKey = "token" | "latest" | "proj" | "tool";
   let sort = $state<SortKey>("latest");
 
+  // Generation counter prevents stale async responses from overwriting fresher
+  // data when the user rapidly clicks different sessions.
+  let detailGen = 0;
+  let roundGen = 0;
+
   function toggleExpand(tool: string, sid: string): void {
     const key = `${tool}:${sid}`;
     if (expanded === key) { expanded = null; detail = null; return; }
     expanded = key;
     detail = null;
-    api.getSessionDetail(tool, sid).then(d => { detail = d; }).catch(() => { detail = null; });
+    const gen = ++detailGen;
+    api.getSessionDetail(tool, sid)
+      .then(d => { if (gen === detailGen) detail = d; })
+      .catch(() => { if (gen === detailGen) detail = null; });
   }
 
   function openDetail(s: SessionVm, e: MouseEvent): void {
     e.stopPropagation();
     viewing = s;
     viewRounds = null;
+    const gen = ++roundGen;
     api.getSessionRounds(s.tool, s.session_id)
-      .then(d => { viewRounds = d; })
-      .catch(() => { viewRounds = null; });
+      .then(d => { if (gen === roundGen) viewRounds = d; })
+      .catch(() => { if (gen === roundGen) viewRounds = null; });
   }
 
   function closeDetail(): void { viewing = null; viewRounds = null; }
@@ -261,7 +270,7 @@
   .bd-sort button.on { background: var(--amber); color: var(--badge-text); }
 
   /* ── list row ── */
-  .srow { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; padding: 10px 16px; border-bottom: 1px dashed var(--border-dim); cursor: pointer; }
+  .srow { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; padding: 10px 16px; cursor: pointer; background: none; border: none; font-family: inherit; text-align: left; width: 100%; border-bottom: 1px dashed var(--border-dim); }
   .srow:hover { background: rgba(232,176,75,.04); }
   .s-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .s-line { display: flex; align-items: baseline; gap: 6px; }

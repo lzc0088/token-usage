@@ -21,7 +21,9 @@ use super::VendorError;
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const USAGE_SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
+#[allow(dead_code)]
 const AUTH_ME_URL: &str = "https://cursor.com/api/auth/me";
+#[allow(dead_code)]
 const REQUEST_USAGE_URL: &str = "https://cursor.com/api/usage";
 
 /// HTTP client. Injected for unit tests.
@@ -37,10 +39,12 @@ fn number(v: Option<&serde_json::Value>) -> Option<f64> {
     }
 }
 
+#[allow(dead_code)]
 fn cents_to_usd(v: Option<&serde_json::Value>) -> Option<f64> {
     number(v).map(|c| c.round() / 100.0)
 }
 
+#[allow(dead_code)]
 fn clamp_pct(n: Option<f64>) -> Option<f64> {
     n.map(|v| v.clamp(0.0, 100.0))
 }
@@ -147,7 +151,10 @@ fn membership_label(raw: &str) -> String {
 ///
 /// Falls back to 0 when nothing is reported.
 fn plan_used_pct(summary: &UsageSummary) -> f64 {
-    let plan = summary.individual_usage.as_ref().and_then(|i| i.plan.as_ref());
+    let plan = summary
+        .individual_usage
+        .as_ref()
+        .and_then(|i| i.plan.as_ref());
     if let Some(plan) = plan {
         if let Some(p) = plan.total_pct() {
             return p.clamp(0.0, 100.0);
@@ -178,7 +185,10 @@ fn plan_used_pct(summary: &UsageSummary) -> f64 {
 
 /// Extract the plan bucket's raw used / limit (for the credits caption).
 fn plan_used_limit(summary: &UsageSummary) -> (Option<f64>, Option<f64>) {
-    let plan = summary.individual_usage.as_ref().and_then(|i| i.plan.as_ref());
+    let plan = summary
+        .individual_usage
+        .as_ref()
+        .and_then(|i| i.plan.as_ref());
     match plan {
         Some(p) => (p.used(), p.limit()),
         None => (None, None),
@@ -186,6 +196,7 @@ fn plan_used_limit(summary: &UsageSummary) -> (Option<f64>, Option<f64>) {
 }
 
 /// Parse `/api/auth/me` to extract the user `sub`.
+#[allow(dead_code)]
 pub fn parse_sub(body: &str) -> Option<String> {
     let info: UserInfo = serde_json::from_str(body).ok()?;
     info.sub.filter(|s| !s.is_empty())
@@ -195,7 +206,11 @@ pub fn parse_sub(body: &str) -> Option<String> {
 pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorError> {
     let token = serde_json::from_str::<serde_json::Value>(credential)
         .ok()
-        .and_then(|v| v.get("cookie").and_then(|c| c.as_str()).map(|s| s.to_string()))
+        .and_then(|v| {
+            v.get("cookie")
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| credential.to_string());
     let token = token.trim();
     if token.is_empty() {
@@ -214,7 +229,11 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
         serde_json::from_str(&summary_body).map_err(|e| VendorError::Parse(e.to_string()))?;
 
     let is_unlimited = summary.is_unlimited.unwrap_or(false);
-    let used_pct = if is_unlimited { 0.0 } else { plan_used_pct(&summary) };
+    let used_pct = if is_unlimited {
+        0.0
+    } else {
+        plan_used_pct(&summary)
+    };
     let (plan_used, plan_limit) = plan_used_limit(&summary);
 
     // Plan label from membershipType (e.g. "free" → "Free Plan"). Unlimited
@@ -282,13 +301,6 @@ impl Http for UreqHttp {
             Err(e) => Err(VendorError::Network(e.to_string())),
         }
     }
-}
-
-#[allow(dead_code)]
-fn _silence_unused() {
-    // Keep the auth/me + request-usage helpers reachable for future use; today
-    // the primary plan window only needs usage-summary.
-    let _ = (AUTH_ME_URL, REQUEST_USAGE_URL, parse_sub, cents_to_usd, clamp_pct);
 }
 
 #[cfg(test)]

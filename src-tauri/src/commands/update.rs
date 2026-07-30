@@ -6,8 +6,8 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::GITEE_TOKEN;
 use crate::state::AppState;
+use crate::GITEE_TOKEN;
 
 /// Response from the update check.
 #[derive(Debug, Clone, Serialize)]
@@ -43,10 +43,16 @@ impl Platform {
     fn api_url(self, owner: &str, repo: &str) -> String {
         match self {
             Platform::Github => {
-                format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo)
+                format!(
+                    "https://api.github.com/repos/{}/{}/releases/latest",
+                    owner, repo
+                )
             }
             Platform::Gitee => {
-                format!("https://gitee.com/api/v5/repos/{}/{}/releases/latest", owner, repo)
+                format!(
+                    "https://gitee.com/api/v5/repos/{}/{}/releases/latest",
+                    owner, repo
+                )
             }
         }
     }
@@ -63,7 +69,6 @@ impl Platform {
     }
 }
 
-
 /// Parse a full repo string into (owner, repo_name, platform).
 /// Supports:
 ///   "owner/repo"            → GitHub
@@ -71,7 +76,10 @@ impl Platform {
 fn parse_repo(raw: &str) -> (String, String, Platform) {
     if raw.contains("gitee.com") {
         let parts: Vec<&str> = raw.split("/").filter(|s| !s.is_empty()).collect();
-        let owner = parts.get(parts.len().saturating_sub(2)).copied().unwrap_or("");
+        let owner = parts
+            .get(parts.len().saturating_sub(2))
+            .copied()
+            .unwrap_or("");
         let repo_name = parts.last().copied().unwrap_or("");
         (owner.to_string(), repo_name.to_string(), Platform::Gitee)
     } else {
@@ -104,16 +112,18 @@ pub fn check_update(
 
     let resp = match ureq::get(&url).call() {
         Ok(r) => r,
-        Err(e) => return Ok(UpdateInfo {
-            has_update: false,
-            version: String::new(),
-            name: String::new(),
-            changelog: String::new(),
-            url: String::new(),
-            published_at: None,
-            error: format!("网络请求失败：{}", e),
-            download_url: None,
-        }),
+        Err(e) => {
+            return Ok(UpdateInfo {
+                has_update: false,
+                version: String::new(),
+                name: String::new(),
+                changelog: String::new(),
+                url: String::new(),
+                published_at: None,
+                error: format!("网络请求失败：{}", e),
+                download_url: None,
+            })
+        }
     };
 
     if resp.status() != 200 {
@@ -124,7 +134,11 @@ pub fn check_update(
             changelog: String::new(),
             url: String::new(),
             published_at: None,
-            error: format!("API 返回错误 {} ({}): 请确认仓库地址是否正确，以及 Gitee 仓库已开启 Release 功能", resp.status(), url),
+            error: format!(
+                "API 返回错误 {} ({}): 请确认仓库地址是否正确，以及 Gitee 仓库已开启 Release 功能",
+                resp.status(),
+                url
+            ),
             download_url: None,
         });
     }
@@ -133,16 +147,18 @@ pub fn check_update(
         let reader = resp.into_reader();
         match serde_json::from_reader(reader) {
             Ok(v) => v,
-            Err(e) => return Ok(UpdateInfo {
-                has_update: false,
-                version: String::new(),
-                name: String::new(),
-                changelog: String::new(),
-                url: String::new(),
-                published_at: None,
-                error: format!("解析响应失败：{}", e),
-                download_url: None,
-            }),
+            Err(e) => {
+                return Ok(UpdateInfo {
+                    has_update: false,
+                    version: String::new(),
+                    name: String::new(),
+                    changelog: String::new(),
+                    url: String::new(),
+                    published_at: None,
+                    error: format!("解析响应失败：{}", e),
+                    download_url: None,
+                })
+            }
         }
     };
 
@@ -219,8 +235,14 @@ fn pick_matching_asset(body: &serde_json::Value) -> Option<String> {
     // disqualified so x86_64 builds aren't offered on Apple Silicon (and vice
     // versa). Empty arrays mean "no arch keyword to check".
     let (right_kw, wrong_kw): (&[&str], &[&str]) = match (os, arch) {
-        ("macos", "aarch64") => (&["aarch64", "arm64", "apple-silicon", "apple"], &["x64", "x86_64", "x86", "intel"]),
-        ("macos", "x86_64") => (&["x64", "x86_64", "intel"], &["aarch64", "arm64", "apple-silicon"]),
+        ("macos", "aarch64") => (
+            &["aarch64", "arm64", "apple-silicon", "apple"],
+            &["x64", "x86_64", "x86", "intel"],
+        ),
+        ("macos", "x86_64") => (
+            &["x64", "x86_64", "intel"],
+            &["aarch64", "arm64", "apple-silicon"],
+        ),
         ("windows", "x86_64") => (&["x64", "x86_64"], &["aarch64", "arm64"]),
         ("windows", "aarch64") => (&["aarch64", "arm64"], &["x64", "x86_64"]),
         ("linux", "x86_64") => (&["x64", "x86_64", "amd64"], &["aarch64", "arm64"]),
@@ -238,7 +260,10 @@ fn pick_matching_asset(body: &serde_json::Value) -> Option<String> {
         let lower = name.to_lowercase();
 
         // Must be a valid extension for this platform.
-        if !valid_exts.iter().any(|ext| lower.ends_with(&ext.to_lowercase())) {
+        if !valid_exts
+            .iter()
+            .any(|ext| lower.ends_with(&ext.to_lowercase()))
+        {
             continue;
         }
         // Disqualify assets tagged with the wrong architecture.
@@ -369,13 +394,19 @@ mod tests {
             "browser_download_url": "https://example.com/primary",
             "download_url": "https://example.com/fallback"
         });
-        assert_eq!(asset_url(&asset), Some("https://example.com/primary".into()));
+        assert_eq!(
+            asset_url(&asset),
+            Some("https://example.com/primary".into())
+        );
     }
 
     #[test]
     fn asset_url_falls_back_to_download_url() {
         let asset = serde_json::json!({ "download_url": "https://example.com/fallback" });
-        assert_eq!(asset_url(&asset), Some("https://example.com/fallback".into()));
+        assert_eq!(
+            asset_url(&asset),
+            Some("https://example.com/fallback".into())
+        );
     }
 
     #[test]

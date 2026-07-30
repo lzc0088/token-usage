@@ -2,10 +2,11 @@
   // 账号额度: 折叠面板式账号绑定 + 额度查询.
   import { listen } from "@tauri-apps/api/event";
   import { api, type Config } from "../../lib/api";
+  import { QUOTA_UPDATED } from "../../lib/events";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { VENDOR_PANEL } from "../../lib/meta/panels";
   import { VENDORS, fieldsFor, CAT_ORDER, GROUPS, type VendorDef } from "../../lib/meta/vendors";
-  import DeviceFlow from "./DeviceFlow.svelte";
+  import DeviceFlow, { type OAuthState } from "./DeviceFlow.svelte";
 
   function resolvePanelUrl(id: string): string {
     const panel = VENDOR_PANEL[id];
@@ -177,7 +178,16 @@
       bound = { ...bound, [vendor]: fields.length > 0 };
       editingCookieVendor = null;
       cookieDraft = "";
-      void loadQuotaErrors();
+      // Immediately refresh this vendor's quota and AWAIT it — the cache must
+      // be updated BEFORE we reload (and before the user returns to the
+      // popover / 额度页). If refresh fails, the cookie_error badge stays but
+      // the cookie save itself succeeded; the scheduler will retry.
+      try {
+        await api.refreshQuota(vendor);
+      } catch {
+        /* refresh failed — cookie is saved, will retry */
+      }
+      await loadQuotaErrors();
     } catch (e) {
       saveError = { ...saveError, [vendor]: e instanceof Error ? e.message : String(e) };
     } finally {
@@ -200,21 +210,26 @@
     (async () => {
       const bmap: Record<string, boolean> = {};
       const fmap: Record<string, string[]> = {};
-      for (const v of VENDORS) {
-        if (cancelled) return;
-        try {
-          const fields = await api.getCredentialFields(v.id);
-          fmap[v.id] = fields;
-          bmap[v.id] = fields.length > 0;
-        } catch {
-          fmap[v.id] = [];
-          bmap[v.id] = false;
-        }
+      // Fetch all vendors' credential fields in parallel.
+      const results = await Promise.all(
+        VENDORS.map(async (v) => {
+          if (cancelled) return null;
+          try {
+            const fields = await api.getCredentialFields(v.id);
+            return { id: v.id, fields, bound: fields.length > 0 };
+          } catch {
+            return { id: v.id, fields: [] as string[], bound: false };
+          }
+        }),
+      );
+      if (cancelled) return;
+      for (const r of results) {
+        if (!r) continue;
+        fmap[r.id] = r.fields;
+        bmap[r.id] = r.bound;
       }
-      if (!cancelled) {
-        bound = bmap;
-        credFields = fmap;
-      }
+      bound = bmap;
+      credFields = fmap;
     })();
     return () => { cancelled = true; };
   });
@@ -225,6 +240,9 @@
       expanded = new Set();
     } else {
       expanded = new Set([id]);
+      if (id === "copilot" || id === "codex") {
+        api.feLog(`expand ${id}: bound=${bound[id]}, authType=${VENDORS.find(v => v.id === id)?.authType}, cpState=${copilotLoginState.phase}, cdState=${codexLoginState.phase}, credFields=${JSON.stringify(credFields[id])}`);
+      }
     }
   }
 
@@ -260,11 +278,10 @@
       }
       inputs = { ...inputs, [vendor]: {} };
       saveError = { ...saveError, [vendor]: "" };
-      // Immediately refresh this vendor's quota so the 额度 page and 总览
-      // reflect the newly-bound credential without waiting for the scheduler.
-      // Failures are non-fatal — the scheduler will retry on its next tick.
-      api.refreshQuota(vendor).catch(() => {});
-      void loadQuotaErrors();
+      // set_credential already fetched the quota internally and wrote it to
+      // the cache (before emitting quota:updated), so the cache is fresh.
+      // No need for a redundant refreshQuota — just reload errors.
+      await loadQuotaErrors();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       saveError = { ...saveError, [vendor]: msg };
@@ -299,7 +316,7 @@
   }
   $effect(() => {
     void loadQuotaErrors();
-    const un = listen<void>("quota:updated", () => void loadQuotaErrors());
+    const un = listen<void>(QUOTA_UPDATED, () => { api.feLog("QUOTA_UPDATED received"); void loadQuotaErrors(); });
     return () => {
       un.then((u) => u());
     };
@@ -334,6 +351,64 @@
       const msg = e instanceof Error ? e.message : String(e);
       refreshState = { ...refreshState, [vendor]: { status: "fail", msg } };
     }
+  }
+
+  // ── OAuth state (lives here so event listeners match the settings window lifetime) ──
+
+  let copilotLoginState = $state<OAuthState>({ phase: "idle" });
+  let codexLoginState = $state<OAuthState>({ phase: "idle" });
+
+  // OAuth flow is now handled entirely via two-step IPC calls (no events):
+  // 1. copilotLogin() → returns device code info
+  // 2. pollForToken() → blocks until user authorizes, returns access token
+  // This matches the token-monitor reference pattern and avoids Tauri event delivery issues.
+
+  async function startCopilotLogin(): Promise<void> {
+    api.feLog("startCopilotLogin() -> requesting device code");
+    copilotLoginState = { phase: "requesting" };
+    try {
+      // Phase 1: request device code from GitHub (returns user code + URL)
+      const info = await api.copilotLogin();
+      api.feLog(`copilot_login ok: code=${info.user_code}, url=${info.verification_url}`);
+      // Show the user code and open the browser for authorization
+      copilotLoginState = {
+        phase: "authorize",
+        userCode: info.user_code,
+        verificationUrl: info.verification_url,
+      };
+      await api.openExternal(info.verification_url);
+      // Phase 2: poll for access token (blocks until user authorizes)
+      api.feLog("copilot_poll: polling for access token...");
+      copilotLoginState = { ...copilotLoginState, phase: "polling" };
+      const token = await api.pollCopilotToken();
+      api.feLog("copilot_poll ok: token received");
+      await api.setCredential("copilot", JSON.stringify({ key: token }));
+      copilotLoginState = { phase: "success" };
+      bindAndReloadCredential("copilot");
+    } catch (e: unknown) {
+      api.feLog("copilot ERROR: " + (e instanceof Error ? e.message : String(e)));
+      copilotLoginState = { phase: "error", error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async function startCodexLogin(): Promise<void> {
+    api.feLog("startCodexLogin() -> calling api.codexLogin()");
+    codexLoginState = { phase: "requesting" };
+    try {
+      await api.codexLogin();
+      api.feLog("api.codexLogin() resolved");
+      bindAndReloadCredential("codex");
+    } catch (e: unknown) {
+      api.feLog("codex ERROR: " + (e instanceof Error ? e.message : String(e)));
+      codexLoginState = { phase: "error", error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  /** After a successful OAuth login, mark bound + reload credential fields. */
+  function bindAndReloadCredential(vendor: string): void {
+    bound = { ...bound, [vendor]: true };
+    api.getCredentialFields(vendor)
+      .then((f) => { credFields = { ...credFields, [vendor]: f }; })
+      .catch(() => {});
   }
 
   // Dispatch login by vendor id. Returns true if a login was started.
@@ -379,7 +454,7 @@
         {#each items as v, rowIdx (v.id)}
           {@const fs = fieldsFor(v)}
           <!-- 主行（可点击展开） -->
-          <button type="button" class="arow {rowIdx === items.length - 1 ? 'arow-last' : ''}" class:open={expanded.has(v.id)} onclick={() => toggle(v.id)}>
+          <button type="button" class="arow {rowIdx === items.length - 1 ? 'arow-last' : ''}" class:open={expanded.has(v.id)} onclick={() => toggle(v.id)} aria-expanded={expanded.has(v.id)} aria-controls="panel-{v.id}" id="accordion-btn-{v.id}">
             <ToolIcon vendor={v.id} size={22} />
             <span class="ainfo">
               <span class="aname">{v.label}</span>
@@ -399,7 +474,7 @@
 
           <!-- 展开配置面板 -->
           {#if expanded.has(v.id)}
-            <div class="panel {rowIdx === items.length - 1 ? 'panel-last' : ''}">
+            <div class="panel {rowIdx === items.length - 1 ? 'panel-last' : ''}" role="region" aria-labelledby="accordion-btn-{v.id}" id="panel-{v.id}">
               {#if bound[v.id]}
                 {#if cookieErrorOf[v.id]}
                   <p class="panel-warn">⚠ {cookieErrorOf[v.id]}，请重新填写并保存</p>
@@ -420,7 +495,7 @@
                 {#if isMixedVendor(v)}
                   <div class="cookie-mgr">
                     {#if editingCookieVendor === v.id}
-                      <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder="粘贴新 Cookie…" rows="3" disabled={cookieSaving}></textarea>
+                      <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder="粘贴新 Cookie…" rows="4" disabled={cookieSaving}></textarea>
                       <div class="cookie-mgr-actions">
                         <button type="button" class="btn-primary" onclick={() => saveCookie(v.id)} disabled={cookieSaving || !cookieDraft.trim()}>
                           {cookieSaving ? "检查中…" : "保存 Cookie"}
@@ -476,7 +551,7 @@
                       <label class="field">
                         <span class="flabel">{f.label}</span>
                         {#if f.type === "textarea"}
-                          <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="2" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                          <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
                         {/if}
                       </label>
                     {/each}
@@ -490,8 +565,22 @@
                       {saving[v.id] ? "检查中…" : "保存"}
                     </button>
                   </div>
-                {:else if (v.id === "copilot" || v.id === "codex")}
-                  <DeviceFlow />
+                {:else if (v.id === "copilot")}
+                  {#if copilotLoginState.phase === "idle"}
+                    <div class="panel-actions">
+                      <button type="button" class="btn-primary" onclick={() => { api.feLog("copilot 登录按钮点击"); startCopilotLogin(); }}>{v.loginLabel ?? "登录"}</button>
+                    </div>
+                  {:else}
+                    <DeviceFlow vendor="copilot" state={copilotLoginState} onRetry={() => startCopilotLogin()} />
+                  {/if}
+                {:else if (v.id === "codex")}
+                  {#if codexLoginState.phase === "idle"}
+                    <div class="panel-actions">
+                      <button type="button" class="btn-primary" onclick={() => { api.feLog("codex 登录按钮点击"); startCodexLogin(); }}>{v.loginLabel ?? "登录"}</button>
+                    </div>
+                  {:else}
+                    <DeviceFlow vendor="codex" state={codexLoginState} onRetry={() => startCodexLogin()} />
+                  {/if}
                 {:else}
                   <div class="panel-actions">
                     {#if v.authType === "detect"}
@@ -527,7 +616,7 @@
                           {/each}
                         </select>
                       {:else if f.type === "textarea"}
-                        <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="3" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                        <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
                       {:else}
                         <input class="finp" type={f.type ?? "text"} placeholder={f.placeholder} value={getField(v.id, f.key)} oninput={(e) => setField(v.id, f.key, (e.target as HTMLInputElement).value)} />
                       {/if}

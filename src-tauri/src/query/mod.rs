@@ -161,7 +161,11 @@ pub(crate) fn synthetic_exclusion() -> (String, Vec<&'static str>) {
     if SYNTHETIC_MODELS.is_empty() {
         return ("".to_string(), Vec::new());
     }
-    let placeholders = SYNTHETIC_MODELS.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = SYNTHETIC_MODELS
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let clause = format!(" AND model NOT IN ({placeholders})");
     (clause, SYNTHETIC_MODELS.to_vec())
 }

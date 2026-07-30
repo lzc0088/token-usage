@@ -14,6 +14,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config, type Summary } from "./lib/api";
   import { applyAppearance, initAppearanceListeners } from "./lib/appearance";
+  import { TODAY_UPDATED, CONFIG_CHANGED, RATE_UPDATED, TRAY_REFRESH } from "./lib/events";
   import { periodValue } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
 
@@ -63,17 +64,32 @@
 
   // Reload config on focus — picks up changes made from the tray menu
   // (theme, window display mode) without needing a config:changed event.
+  // Debounced to prevent redundant IPC on rapid focus/blur (e.g. popover hiding).
+  let focusTimer: ReturnType<typeof setTimeout> | null = null;
+  // Gate network-heavy checkForUpdate to once every 5 minutes.
+  let lastCheckMs = 0;
   $effect(() => {
     async function onFocus() {
-      try {
-        const c = await api.getConfig();
-        config = c;
-        applyAppearance(c);
-      } catch { /* ignore */ }
-      void checkForUpdate();
+      if (focusTimer) clearTimeout(focusTimer);
+      focusTimer = setTimeout(async () => {
+        focusTimer = null;
+        try {
+          const c = await api.getConfig();
+          config = c;
+          applyAppearance(c);
+        } catch { /* ignore */ }
+        const now = Date.now();
+        if (now - lastCheckMs > 300_000) {
+          lastCheckMs = now;
+          void checkForUpdate();
+        }
+      }, 250);
     }
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (focusTimer) clearTimeout(focusTimer);
+    };
   });
 
   let period = $derived(periodValue());
@@ -117,7 +133,7 @@
   });
 
   $effect(() => {
-    const unlisten_promise = listen<Summary>("today:updated", (e) => {
+    const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
             if (periodValue() === "day") summary = e.payload;
     });
     return () => {
@@ -131,7 +147,7 @@
   // Live-apply settings changes saved from the settings window (layout,
   // currency, period, quota vendors) without requiring a manual refresh.
   $effect(() => {
-    const unlisten_promise = listen<void>("config:changed", () => {
+    const unlisten_promise = listen<void>(CONFIG_CHANGED, () => {
       api.getConfig()
         .then((c) => { config = c; })
         .catch(() => { /* config reload failed */ });
@@ -144,7 +160,7 @@
 
   // Tray context menu "立即刷新" → trigger a full data refresh.
   $effect(() => {
-    const unlisten_promise = listen<void>("tray:refresh", () => {
+    const unlisten_promise = listen<void>(TRAY_REFRESH, () => {
       void refreshData();
     });
     return () => {
@@ -162,7 +178,7 @@
 
   $effect(() => {
     reloadRate();
-    const unlisten_promise = listen<void>("rate:updated", () => reloadRate());
+    const unlisten_promise = listen<void>(RATE_UPDATED, () => reloadRate());
     return () => {
       unlisten_promise.then((un) => un());
     };
@@ -201,12 +217,12 @@
     } catch (e) {
       /* refresh failed — shown in refreshMsg */
       refreshStatus = "fail";
-      refreshMsg = e instanceof Error ? e.message : String(e);
+      refreshMsg = "刷新失败，请稍后重试";
     }
   }
 </script>
 
-<div class="popover" class:draggable={config.window_display_mode === "normal"}>
+<div class="popover" class:draggable={config.window_display_mode !== "fixed"}>
   <header class="pop-hero">
     <Hero {summary} currency={config.currency} {cnyRate} />
     <div class="hero-right">
@@ -245,7 +261,7 @@
       {/key}
     {:else if segment === "limit"}
       {#key "limit-" + refreshTrigger}
-        <Limits currency={config.currency} {cnyRate} />
+        <Limits currency={config.currency} {cnyRate} {config} />
       {/key}
     {:else}
       <p class="placeholder">「{segment}」分段 · M4 待实装</p>

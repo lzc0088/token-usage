@@ -172,8 +172,15 @@
     onUpdate({ layout_modules: modules, layout_overview_sub: sub, overview_quota_vendors: quotaVendors });
   }
 
-  function toggleVisible(item: TreeItem): void {
-    item.visible = !item.visible;
+  function toggleVisible(targetKey: string): void {
+    function update(items: TreeItem[]): TreeItem[] {
+      return items.map(n => {
+        if (n.key === targetKey) return { ...n, visible: !n.visible };
+        if (n.children) return { ...n, children: update(n.children) };
+        return n;
+      });
+    }
+    navItems = update(navItems);
     persistLayout();
   }
   function toggleExpand(p: TreeItem): void {
@@ -265,8 +272,10 @@
       <span class="legend-item">显示</span>
     </div>
 
+    <div role="tree" aria-label="页面布局">
+
     {#each navItems as item, i (item.key)}
-      <div class="tree-row">
+      <div class="tree-row" role="treeitem" aria-expanded={item.expanded ?? undefined} aria-level={1} aria-selected={false}>
         <span class="tree-left">
           <span class="grip" title="拖拽排序">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
@@ -278,7 +287,7 @@
           </span>
         <span class="tree-right">
           {#if item.children}
-            <button type="button" class="act" title={item.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(item)}>
+            <button type="button" class="act" title={item.expanded ? '折叠' : '展开'} aria-expanded={item.expanded} aria-label={item.expanded ? `折叠 ${item.label}` : `展开 ${item.label}`} onclick={() => toggleExpand(item)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 {#if item.expanded}
                   <line x1="5" y1="12" x2="19" y2="12"/>
@@ -298,7 +307,7 @@
               <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
             </svg>
           </button>
-          <button class="vis" class:on={item.visible} title={item.visible ? '显示中' : '已隐藏'} onclick={() => toggleVisible(item)}>
+          <button class="vis" class:on={item.visible} title={item.visible ? '显示中' : '已隐藏'} onclick={() => toggleVisible(item.key)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               {#if item.visible}
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -312,7 +321,7 @@
 
       {#if item.children && item.expanded}
         {#each item.children as child, j (child.key)}
-          <div class="tree-row child">
+          <div class="tree-row child" role="treeitem" aria-expanded={child.expanded ?? undefined} aria-level={2} aria-selected={false}>
             <span class="tree-left">
               <span class="grip" title="拖拽排序">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
@@ -321,7 +330,7 @@
             </span>
             <span class="tree-right">
               {#if child.children}
-                <button type="button" class="act" title={child.expanded ? '折叠' : '展开'} onclick={() => toggleExpand(child)}>
+                <button type="button" class="act" title={child.expanded ? '折叠' : '展开'} aria-expanded={child.expanded} aria-label={child.expanded ? `折叠 ${child.label}` : `展开 ${child.label}`} onclick={() => toggleExpand(child)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                     {#if child.expanded}
                       <line x1="5" y1="12" x2="19" y2="12"/>
@@ -341,7 +350,7 @@
                   <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                 </svg>
               </button>
-              <button class="vis" class:on={child.visible} title={child.visible ? '显示中' : '已隐藏'} disabled={!item.visible || isUnderHiddenParent(child)} onclick={() => toggleVisible(child)}>
+              <button class="vis" class:on={child.visible} title={child.visible ? '显示中' : '已隐藏'} disabled={!item.visible || isUnderHiddenParent(child)} onclick={() => toggleVisible(child.key)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if child.visible}
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -354,7 +363,7 @@
           </div>
           {#if child.children && child.expanded}
             {#each child.children as grandchild, k (grandchild.key)}
-              <div class="tree-row grandchild">
+              <div class="tree-row grandchild" role="treeitem" aria-level={3} aria-selected={false}>
                 <span class="tree-left">
                   <span class="grip" title="拖拽排序">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
@@ -372,7 +381,7 @@
                       <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                     </svg>
                   </button>
-                  <button class="vis" class:on={grandchild.visible} title={grandchild.visible ? '显示中' : '已隐藏'} disabled={!child.visible || isUnderHiddenParent(grandchild)} onclick={() => toggleVisible(grandchild)}>
+                  <button class="vis" class:on={grandchild.visible} title={grandchild.visible ? '显示中' : '已隐藏'} disabled={!child.visible || isUnderHiddenParent(grandchild)} onclick={() => toggleVisible(grandchild.key)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       {#if grandchild.visible}
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -388,6 +397,7 @@
         {/each}
       {/if}
     {/each}
+    </div><!-- role=tree -->
   </div>
 
 </div>

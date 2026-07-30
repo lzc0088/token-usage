@@ -45,7 +45,9 @@ pub struct SessionDetailRow {
 pub fn query(
     conn: &Connection,
     claude_projects_dir: Option<&Path>,
+    limit: Option<i64>,
 ) -> Result<Vec<SessionVm>, QueryError> {
+    let cap = limit.unwrap_or(100).clamp(1, 500);
     let proj_map = claude_projects_dir
         .map(crate::collector::workspace::session_project_map)
         .unwrap_or_default();
@@ -61,10 +63,10 @@ pub fn query(
          FROM sessions
          GROUP BY tool, session_id
          ORDER BY tokens DESC
-         LIMIT 100",
+         LIMIT ?1",
     )?;
     let out = stmt
-        .query_map([], |r| {
+        .query_map(rusqlite::params![cap], |r| {
             let sid: String = r.get::<_, String>(1)?;
             let (proj_name, proj_path, file_mtime) =
                 proj_map.get(&sid).cloned().unwrap_or_default();
@@ -230,7 +232,9 @@ impl RoundAcc {
     fn finalize(self, cost_usd: f64) -> SessionRoundVm {
         // Pick the primary model: most-used from model_tokens, or the tracked
         // model (for tools like codex where model_tokens is empty).
-        let primary_model = self.model_tokens.iter()
+        let primary_model = self
+            .model_tokens
+            .iter()
             .max_by_key(|(_, &tokens)| tokens)
             .map(|(m, _)| m.clone())
             .or(self.model);
@@ -264,11 +268,7 @@ impl RoundAcc {
     }
 }
 
-fn parse_rounds(
-    claude_projects_dir: Option<&Path>,
-    tool: &str,
-    session_id: &str,
-) -> Vec<RoundAcc> {
+fn parse_rounds(claude_projects_dir: Option<&Path>, tool: &str, session_id: &str) -> Vec<RoundAcc> {
     // Find the session JSONL file for the given tool.
     let Some(path) = find_session_file_for_tool(claude_projects_dir, tool, session_id) else {
         return Vec::new();
@@ -293,21 +293,48 @@ fn parse_rounds(
             // ── Claude format ─────────────────────────────────────────────
             "user" => {
                 let text = user_prompt_preview(&v, 80);
-                if text.is_empty() { continue; }
+                if text.is_empty() {
+                    continue;
+                }
                 let is_cmd = is_command_message(&v, &text);
-                let ts_raw = v.get("timestamp").and_then(|x| x.as_str()).map(String::from);
+                let ts_raw = v
+                    .get("timestamp")
+                    .and_then(|x| x.as_str())
+                    .map(String::from);
                 rounds.push(RoundAcc::new(text, ts_raw, is_cmd));
             }
             "assistant" => {
-                let Some(round) = rounds.last_mut() else { continue; };
+                let Some(round) = rounds.last_mut() else {
+                    continue;
+                };
                 let msg = v.get("message");
-                let model = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
+                let model = msg
+                    .and_then(|m| m.get("model"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
                 let usage = msg.and_then(|m| m.get("usage"));
-                let input = usage.and_then(|u| u.get("input_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                let output = usage.and_then(|u| u.get("output_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                let cache_read = usage.and_then(|u| u.get("cache_read_input_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                let cache_write = usage.and_then(|u| u.get("cache_creation_input_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                let tool_count = msg.and_then(|m| m.get("content")).and_then(|c| c.as_array()).map(|arr| arr.iter().filter(|b| is_tool_use(b)).count() as i64).unwrap_or(0);
+                let input = usage
+                    .and_then(|u| u.get("input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let output = usage
+                    .and_then(|u| u.get("output_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let cache_read = usage
+                    .and_then(|u| u.get("cache_read_input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let cache_write = usage
+                    .and_then(|u| u.get("cache_creation_input_tokens"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let tool_count = msg
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array())
+                    .map(|arr| arr.iter().filter(|b| is_tool_use(b)).count() as i64)
+                    .unwrap_or(0);
                 round.turns += 1;
                 round.tools += tool_count;
                 round.input_tokens += input;
@@ -329,7 +356,9 @@ fn parse_rounds(
                 // Track tool calls for the next turn.
                 if let Some("function_call" | "custom_tool_call" | "tool_search_call") = msg_type {
                     if let Some(round) = rounds.last_mut() {
-                        if let Some(name) = payload.and_then(|p| p.get("name")).and_then(|x| x.as_str()) {
+                        if let Some(name) =
+                            payload.and_then(|p| p.get("name")).and_then(|x| x.as_str())
+                        {
                             if !name.is_empty() {
                                 round.tools += 1;
                                 round.tool_names.push(name.to_string());
@@ -344,13 +373,21 @@ fn parse_rounds(
                 match msg_type {
                     Some("user_message") => {
                         // User prompt: text is in payload.message (string).
-                        let text = payload.and_then(|p| p.get("message")).and_then(|x| x.as_str()).unwrap_or_default().trim().to_string();
+                        let text = payload
+                            .and_then(|p| p.get("message"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
                         // Skip environment-context-only messages.
                         if text.is_empty() || text.starts_with("<environment_context>") {
                             continue;
                         }
                         let is_cmd = text.trim_start().starts_with('/');
-                        let ts_raw = v.get("timestamp").and_then(|x| x.as_str()).map(String::from);
+                        let ts_raw = v
+                            .get("timestamp")
+                            .and_then(|x| x.as_str())
+                            .map(String::from);
                         let mut acc = RoundAcc::new(text, ts_raw, is_cmd);
                         // Apply model from preceding turn_context.
                         acc.model = last_model.clone();
@@ -360,13 +397,26 @@ fn parse_rounds(
                         // Per-turn token data from payload.info.last_token_usage.
                         let info = payload.and_then(|p| p.get("info"));
                         let usage = info.and_then(|i| i.get("last_token_usage"));
-                        if usage.is_none() { continue; }
-                        let input = usage.and_then(|u| u.get("input_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                        let cached = usage.and_then(|u| u.get("cached_input_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
-                        let output = usage.and_then(|u| u.get("output_tokens")).and_then(|x| x.as_i64()).unwrap_or(0);
+                        if usage.is_none() {
+                            continue;
+                        }
+                        let input = usage
+                            .and_then(|u| u.get("input_tokens"))
+                            .and_then(|x| x.as_i64())
+                            .unwrap_or(0);
+                        let cached = usage
+                            .and_then(|u| u.get("cached_input_tokens"))
+                            .and_then(|x| x.as_i64())
+                            .unwrap_or(0);
+                        let output = usage
+                            .and_then(|u| u.get("output_tokens"))
+                            .and_then(|x| x.as_i64())
+                            .unwrap_or(0);
                         let cache_read = cached; // cached_input_tokens = cache_read
                         let cache_write: i64 = 0; // Codex doesn't have cache_write
-                        let Some(round) = rounds.last_mut() else { continue; };
+                        let Some(round) = rounds.last_mut() else {
+                            continue;
+                        };
                         round.turns += 1;
                         round.input_tokens += input;
                         round.output_tokens += output;
@@ -374,7 +424,9 @@ fn parse_rounds(
                         round.cache_write_tokens += cache_write;
                         let mt = input + output + cache_read + cache_write;
                         if mt > 0 {
-                            let model = last_model.clone().unwrap_or_else(|| "codex-unknown".to_string());
+                            let model = last_model
+                                .clone()
+                                .unwrap_or_else(|| "codex-unknown".to_string());
                             *round.model_tokens.entry(model).or_insert(0) += mt;
                         }
                     }
@@ -383,7 +435,8 @@ fn parse_rounds(
             }
             // ── Turn context (carries model name for codex) ─────────────
             "turn_context" if tool == "codex" => {
-                last_model = v.get("payload")
+                last_model = v
+                    .get("payload")
                     .and_then(|p| p.get("model"))
                     .and_then(|x| x.as_str())
                     .map(String::from);
@@ -414,7 +467,8 @@ pub fn build_rounds(
             && !is_filler_prompt(&r.user_text)
             && r.turns > 0
             && (tool != "claude" || {
-                let total = r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
+                let total =
+                    r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
                 total > 0
             })
     });
@@ -574,12 +628,16 @@ pub fn find_session_file_for_tool(
     match tool {
         "claude" => {
             let dir = home.join(".claude").join("projects");
-            if !dir.is_dir() { return None; }
+            if !dir.is_dir() {
+                return None;
+            }
             crate::collector::workspace::find_session_file(&dir, session_id)
         }
         "codex" => {
             let dir = home.join(".codex").join("sessions");
-            if !dir.is_dir() { return None; }
+            if !dir.is_dir() {
+                return None;
+            }
             // Codex stores sessions in YYYY/MM/DD/ subdirectories. Walk all
             // subdirectories looking for a JSONL whose content contains the
             // session UUID (the filename stem may differ from the DB session_id).
@@ -599,13 +657,19 @@ pub fn find_session_file_for_tool(
 fn find_codex_session_file(sessions_dir: &Path, session_id: &str) -> Option<PathBuf> {
     for entry in std::fs::read_dir(sessions_dir).ok()? {
         let year_dir = entry.ok()?.path();
-        if !year_dir.is_dir() { continue; }
+        if !year_dir.is_dir() {
+            continue;
+        }
         for entry in std::fs::read_dir(&year_dir).ok()? {
             let month_dir = entry.ok()?.path();
-            if !month_dir.is_dir() { continue; }
+            if !month_dir.is_dir() {
+                continue;
+            }
             for entry in std::fs::read_dir(&month_dir).ok()? {
                 let day_dir = entry.ok()?.path();
-                if !day_dir.is_dir() { continue; }
+                if !day_dir.is_dir() {
+                    continue;
+                }
                 for entry in std::fs::read_dir(&day_dir).ok()? {
                     let path = entry.ok()?.path();
                     if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
@@ -625,7 +689,9 @@ fn find_codex_session_file(sessions_dir: &Path, session_id: &str) -> Option<Path
 /// Check if a file contains the given string (case-sensitive).
 fn file_contains(path: &Path, needle: &str) -> bool {
     const CHUNK: usize = 4096;
-    let Ok(file) = std::fs::File::open(path) else { return false; };
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
     let mut reader = std::io::BufReader::new(file);
     let mut buf = [0u8; CHUNK];
     loop {
@@ -705,7 +771,7 @@ mod tests {
     #[test]
     fn query_groups_by_tool_and_session() {
         let conn = seeded();
-        let v = query(&conn, None).unwrap();
+        let v = query(&conn, None, None).unwrap();
         assert_eq!(v.len(), 2);
         let s1 = &v[0];
         assert_eq!(s1.tool, "claude");
@@ -729,7 +795,7 @@ mod tests {
             "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
              VALUES ('claude','s_old','gpt-4',100,50,0,0,0.1,1,{yesterday})"
         )).unwrap();
-        let v = query(&conn, None).unwrap();
+        let v = query(&conn, None, None).unwrap();
         assert_eq!(v.len(), 3); // all 3 sessions, no filtering
         assert!(v.iter().any(|s| s.session_id == "s_old"));
     }
@@ -745,7 +811,10 @@ mod tests {
         ))
         .unwrap();
         let rows = query_detail(&conn, "claude", "s_syn").unwrap();
-        assert!(rows.is_empty(), "<synthetic> model should be filtered from detail");
+        assert!(
+            rows.is_empty(),
+            "<synthetic> model should be filtered from detail"
+        );
     }
 
     #[test]
@@ -765,11 +834,14 @@ mod tests {
                     ('claude','s_mix','gpt-4',100,0,0,0,0.2,3,{now})"
         ))
         .unwrap();
-        let v = query(&conn, None).unwrap();
+        let v = query(&conn, None, None).unwrap();
         let s_syn = v.iter().find(|s| s.session_id == "s_syn");
         // s_syn still appears (it has real tool/session_id), but with zero
         // models and zero tokens since <synthetic> is filtered from aggregation.
-        assert!(s_syn.is_some(), "<synthetic>-only session stays in list (with zero model info)");
+        assert!(
+            s_syn.is_some(),
+            "<synthetic>-only session stays in list (with zero model info)"
+        );
         let syn = s_syn.unwrap();
         assert_eq!(syn.model_count, 0);
         assert_eq!(syn.models, "");
@@ -777,9 +849,18 @@ mod tests {
         let s_mix = v.iter().find(|s| s.session_id == "s_mix");
         assert!(s_mix.is_some());
         let mix = s_mix.unwrap();
-        assert!(!mix.models.contains("<synthetic>"), "models string should not contain <synthetic>");
-        assert!(mix.models.contains("gpt-4"), "models string should contain real model");
-        assert_eq!(mix.model_count, 1, "model_count should count only real models");
+        assert!(
+            !mix.models.contains("<synthetic>"),
+            "models string should not contain <synthetic>"
+        );
+        assert!(
+            mix.models.contains("gpt-4"),
+            "models string should contain real model"
+        );
+        assert_eq!(
+            mix.model_count, 1,
+            "model_count should count only real models"
+        );
     }
 
     #[test]
@@ -809,7 +890,7 @@ mod tests {
     fn empty_when_no_sessions() {
         let conn = Connection::open_in_memory().unwrap();
         schema::migrate(&conn).unwrap();
-        assert!(query(&conn, None).unwrap().is_empty());
+        assert!(query(&conn, None, None).unwrap().is_empty());
     }
 
     #[test]
@@ -851,7 +932,12 @@ mod tests {
         // Codex emits event_msg/user_message for real user prompts.
         // event_msg/token_count delivers per-turn token usage.
         let tmp = std::env::temp_dir().join(format!("tu_codex_{}", std::process::id()));
-        let day = tmp.join(".codex").join("sessions").join("2025").join("01").join("01");
+        let day = tmp
+            .join(".codex")
+            .join("sessions")
+            .join("2025")
+            .join("01")
+            .join("01");
         let _ = std::fs::create_dir_all(&day);
         let path = day.join("test-session.jsonl");
         let jsonl = r#"{"timestamp":"2025-01-01T00:00:00Z","type":"session_meta","payload":{"id":"test-session","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}}
@@ -873,7 +959,12 @@ mod tests {
     #[test]
     fn codex_turn_context_model_extracted() {
         let tmp = std::env::temp_dir().join(format!("tu_codex_tc_{}", std::process::id()));
-        let day = tmp.join(".codex").join("sessions").join("2025").join("01").join("01");
+        let day = tmp
+            .join(".codex")
+            .join("sessions")
+            .join("2025")
+            .join("01")
+            .join("01");
         let _ = std::fs::create_dir_all(&day);
         let path = day.join("test-tc.jsonl");
         let jsonl = r#"{"timestamp":"2025-01-01T00:00:00Z","type":"session_meta","payload":{"id":"test-tc","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}}
@@ -891,7 +982,12 @@ mod tests {
     #[test]
     fn codex_two_rounds_sorted_newest_first() {
         let tmp = std::env::temp_dir().join(format!("tu_codex_2r_{}", std::process::id()));
-        let day = tmp.join(".codex").join("sessions").join("2025").join("01").join("01");
+        let day = tmp
+            .join(".codex")
+            .join("sessions")
+            .join("2025")
+            .join("01")
+            .join("01");
         let _ = std::fs::create_dir_all(&day);
         let path = day.join("test-2r.jsonl");
         let jsonl = r#"{"timestamp":"2025-01-01T00:00:00Z","type":"session_meta","payload":{"id":"test-2r","timestamp":"2025-01-01T00:00:00Z","cwd":"/tmp"}}

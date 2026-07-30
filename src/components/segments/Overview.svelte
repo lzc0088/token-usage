@@ -1,6 +1,8 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
   import { api, type Breakdown, type Currency, type Quota, type Summary } from "../../lib/api";
+  import { QUOTA_UPDATED } from "../../lib/events";
   import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
@@ -38,6 +40,27 @@
   // quota data delivered by a later `quota:updated` event re-fetch.
   let loadGen = 0;
 
+  /** Reload only the quota list (used as the QuotaCard onQuotaChanged callback
+   *  after a cookie save, so the card refreshes without a full re-mount). */
+  async function reloadQuotas(): Promise<void> {
+    try {
+      quotas = await api.getQuotas();
+    } catch {
+      /* keep existing quotas on failure */
+    }
+  }
+
+  /** Open the settings window and navigate to a specific page. The target is
+   *  passed to `open_settings` (Rust bridges it across the separate webview JS
+   *  contexts); the settings window consumes it on focus and navigates. */
+  async function openSettingsTo(partition: string): Promise<void> {
+    try {
+      await invoke("open_settings", { target: partition });
+    } catch {
+      /* settings open failed — user can still navigate manually */
+    }
+  }
+
   $effect(() => {
     const p = periodValue();
     let cancelled = false;
@@ -73,7 +96,7 @@
   let quotaGen = 0;
   $effect(() => {
     let t: number | undefined;
-    const un_quota = listen<void>("quota:updated", () => {
+    const doReload = () => {
       if (t !== undefined) clearTimeout(t);
       t = window.setTimeout(async () => {
         const myGen = ++quotaGen;
@@ -84,9 +107,17 @@
         } catch {}
         t = undefined;
       }, 200);
-    });
+    };
+    const un_quota = listen<void>(QUOTA_UPDATED, doReload);
+    // Reload when the popover becomes visible again (e.g. returning from the
+    // settings window after clearing a credential). macOS suspends a hidden
+    // webview, so the `quota:updated` event fired from settings can be dropped
+    // — visibilitychange fires reliably on show and picks up the fresh cache.
+    const onVis = () => { if (document.visibilityState === "visible") doReload(); };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       if (t !== undefined) clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
       un_quota.then((un) => un());
     };
   });
@@ -103,14 +134,18 @@
     if (quotas.length === 0) return [];
     let filtered = quotas;
     // Filter by activeVendors (global enable) if configured.
-    if (activeVendors && activeVendors.length > 0) {
+    // null/undefined = not configured → show all. Otherwise filter by the list
+    // (empty array = user disabled all vendors → show none).
+    if (activeVendors != null) {
       const set = new Set(activeVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
     }
-    // Filter + sort by overviewQuotaVendors (preview config) if configured.
+    // Filter + sort by overviewQuotaVendors (preview config).
+    // null/undefined = not configured → show all active vendors.
+    // [] (empty array) = user explicitly selected none → show none.
     // This is an intersection with activeVendors, so a vendor disabled
     // globally won't appear in the Overview even if listed here.
-    if (overviewQuotaVendors && overviewQuotaVendors.length > 0) {
+    if (overviewQuotaVendors != null) {
       const set = new Set(overviewQuotaVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
       const order = new Map(overviewQuotaVendors.map((v, i) => [v, i]));
@@ -159,17 +194,17 @@
 
     {#if sectionKey === "overview_tools"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>工具</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("tools"); } }}>全部</span></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>工具</span><button type="button" class="more" onclick={() => setSegment("tools")}>全部</button></div>
         {#if toolB && toolB.entries.length > 0}
           {#each toolB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
-            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("tools")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("tools"); } }}>
+            <button type="button" class="crow" onclick={() => setSegment("tools")}>
               <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
               <span class="nm">{toolMeta(e.key).label}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {s.value}<span class="su">{s.unit}</span></span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[i % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
-            </div>
+            </button>
           {/each}
         {:else}
           <p class="empty">暂无工具数据 — 等待 tokscale 采集</p>
@@ -179,18 +214,18 @@
 
     {#if sectionKey === "overview_models"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>模型</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("models"); } }}>全部</span></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>模型</span><button type="button" class="more" onclick={() => setSegment("models")}>全部</button></div>
         {#if modelB && modelB.entries.length > 0}
           {#each modelB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
             {@const mv = modelVendor(e.key)}
-            <div class="crow" role="button" tabindex="0" onclick={() => setSegment("models")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("models"); } }}>
+            <button type="button" class="crow" onclick={() => setSegment("models")}>
               <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
               <span class="nm">{toolMeta(e.key).label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {e.messages} 会话</span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[(i + 2) % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
-            </div>
+            </button>
           {/each}
         {:else}
           <p class="empty">暂无模型数据 — 等待 tokscale 采集</p>
@@ -200,12 +235,27 @@
 
     {#if sectionKey === "overview_quotas"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>额度</span><span class="more" role="button" tabindex="0" onclick={() => setSegment("limit")} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ' ) { e.preventDefault(); setSegment("limit"); } }}>全部</span></div>
-        <div class="qcard-list">
-          {#each visibleQuotas as q (q.vendor)}
-            <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} />
-          {/each}
-        </div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>额度</span><button type="button" class="more" onclick={() => setSegment("limit")}>全部</button></div>
+        {#if visibleQuotas.length > 0}
+          <div class="qcard-list">
+            {#each visibleQuotas as q (q.vendor)}
+              <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} onQuotaChanged={reloadQuotas} />
+            {/each}
+          </div>
+        {:else}
+          <div class="q-empty">
+            {#if quotas.length === 0}
+              <p>未绑定厂商账号</p>
+              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 绑定 API Key / OAuth 后，额度将显示在此</p>
+            {:else if overviewQuotaVendors !== null && overviewQuotaVendors.length === 0}
+              <p>总览额度未配置</p>
+              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("mainview")}>「设置 → 预览界面」</button> 的额度列表中勾选要显示的厂商</p>
+            {:else}
+              <p>所有厂商已停用</p>
+              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 中启用的厂商额度将显示在此</p>
+            {/if}
+          </div>
+        {/if}
       </section>
     {/if}
   {/each}
@@ -228,7 +278,10 @@
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     margin-right: 6px; flex-shrink: 0;
   }
-  .sec-h .more { color: var(--amber); cursor: pointer; font-size: 13px; font-weight: 600; }
+  .sec-h .more {
+    color: var(--amber); cursor: pointer; font-size: 13px; font-weight: 600;
+    background: none; border: none; padding: 0; font-family: inherit;
+  }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .scell {
     background: var(--surface-tint); border: 1px solid var(--border-dim);
@@ -245,7 +298,9 @@
   .v.coral { color: var(--coral) !important; }
   .crow {
     display: flex; align-items: center; gap: 8px;
-    padding: 8px 0; border-bottom: 1px dashed var(--border-dim); cursor: pointer;
+    padding: 8px 0; cursor: pointer;
+    background: none; border: none; font-family: inherit; text-align: left; width: 100%;
+    border-bottom: 1px dashed var(--border-dim);
   }
   .crow:last-child { border-bottom: none; }
   .crow:hover .nm { color: var(--amber); }
@@ -291,4 +346,32 @@
   }
   .empty { margin: 0; font-size: 12px; color: var(--text-faint); }
   .muted { margin: 0; color: var(--text-dim); font-size: 13px; }
+  .q-empty {
+    text-align: center;
+    padding: 20px 16px;
+  }
+  .q-empty p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .q-empty .hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .hint-link {
+    display: inline;
+    background: none;
+    border: none;
+    color: var(--amber);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: opacity 0.15s;
+  }
+  .hint-link:hover { opacity: 0.75; }
 </style>

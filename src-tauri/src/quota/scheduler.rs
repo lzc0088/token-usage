@@ -17,12 +17,19 @@ use tracing::{debug, warn};
 
 use std::collections::HashSet;
 
-use crate::config;
 use crate::auth::credentials;
-use crate::quota::{Quota, QuotaBalance, TRACKED_VENDORS, adapter_for};
+use crate::config;
+use crate::quota::{adapter_for, Quota, QuotaBalance, TRACKED_VENDORS};
 
 /// How long to wait before the first scheduled refresh after startup.
 const INITIAL_DELAY_MS: u64 = 5_000;
+
+/// Per-vendor fetch timeout. Caps any single vendor's quota API call so a
+/// hung/slow endpoint cannot stall the scheduler loop (which would otherwise
+/// push the effective refresh period far beyond the configured interval).
+/// Some vendors (e.g. Volcengine) issue several internal requests, so 30s
+/// gives headroom while still bounding total refresh time.
+const VENDOR_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Map vendor IDs to CLI tool names for consumption queries.
 /// Map vendor IDs to model name LIKE patterns for consumption queries.
@@ -98,7 +105,19 @@ pub async fn refresh_all(db: &Arc<Mutex<Connection>>) -> bool {
 /// vendors must NOT be permanently silenced on an auth failure — each refresh
 /// cycle retries them so a freshly-updated cookie takes effect on the next tick.
 fn is_cookie_vendor(id: &str) -> bool {
-    matches!(id, "mimo" | "stepfun" | "kimi" | "iflytek" | "qoder" | "cursor" | "ollama" | "opencode" | "claude" | "codex")
+    matches!(
+        id,
+        "mimo"
+            | "stepfun"
+            | "kimi"
+            | "iflytek"
+            | "qoder"
+            | "cursor"
+            | "ollama"
+            | "opencode"
+            | "claude"
+            | "codex"
+    )
 }
 
 fn placeholder(id: &str, auth_failed: bool) -> Quota {
@@ -208,6 +227,12 @@ fn try_begin_refresh() -> bool {
 }
 
 /// Internal: refresh all vendors, with auth-error silencing.
+///
+/// Vendors are fetched **concurrently** (each capped at `VENDOR_FETCH_TIMEOUT`)
+/// rather than sequentially, so one slow/hung endpoint cannot stall the whole
+/// cycle. Total refresh time ≈ the slowest single vendor (~30s worst case),
+/// not the sum of all vendors. DB writes happen sequentially after all fetches
+/// resolve, under a single brief lock per vendor.
 async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<String>) {
     let (creds, cfg) = {
         let conn = db.lock().unwrap_or_else(|e| {
@@ -238,81 +263,122 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
         format!("{y:04}-{m:02}-01")
     };
 
-    let active_set = cfg.quota_active_vendors;
+    let active_set = cfg.quota_active_vendors.clone();
 
-    for (id, cred) in &creds {
-        if let Some(ref active) = active_set {
-            if !active.contains(id) {
-                continue;
-            }
-        }
-
-        match adapter_for(id) {
-            Some(vid) => {
-                match crate::quota::fetch(vid, cred).await {
-                    Ok(mut q) => {
-                        // Success — remove from silenced set and cache.
-                        silenced.remove(id.as_str());
-                        q.refreshed_at = Some(now_rfc.clone());
-                        if let Ok(conn) = db.lock() {
-                            if q.balance.is_some() {
-                                let today_c = query_consumption(&conn, id, &today);
-                                let month_c = query_consumption(&conn, id, &month_start);
-                                q.balance = q.balance.map(|b| QuotaBalance {
-                                    today_consumption: today_c,
-                                    month_consumption: month_c,
-                                    ..b
-                                });
-                            }
-                            write_cache(&conn, id, &q, now_ms);
-                        }
-                    }
-                    Err(e) => {
-                        let is_auth = super::is_auth_error(&e);
-                        let is_cookie_vendor = is_cookie_vendor(id);
-                        // For cookie-based console vendors, an "empty / no usable
-                        // payload" result almost always means the session cookie
-                        // is stale — the console API returns HTTP 200 with an
-                        // empty body instead of a 401. Treat that exactly like an
-                        // auth failure so the frontend surfaces a cookie_error +
-                        // "update cookie" entry (same as StepFun's 401 path).
-                        let empty_means_cookie_fail =
-                            is_cookie_vendor && matches!(e, super::VendorError::Empty);
-                        // Parse errors for cookie vendors also indicate a stale
-                        // session: the API returns a 200 login-page HTML instead
-                        // of valid JSON, so parsing fails.
-                        let parse_means_cookie_fail =
-                            is_cookie_vendor && matches!(e, super::VendorError::Parse(_));
-                        let cookie_fail = is_auth || empty_means_cookie_fail || parse_means_cookie_fail;
-                        // Cookie-based vendors can have their credentials refreshed
-                        // from the settings UI at any time, so they are never
-                        // permanently silenced — every cycle retries them. Only
-                        // API-key vendors (whose key won't self-heal) are silenced
-                        // to avoid log spam.
-                        if is_auth && !is_cookie_vendor && silenced.contains(id.as_str()) {
-                            // Already warned — skip silently.
-                            continue;
-                        }
-                        if is_auth && !is_cookie_vendor {
-                            silenced.insert(id.clone());
-                        }
-                        if let Ok(conn) = db.lock() {
-                            let p = placeholder(id, cookie_fail);
-                            // fetched_at=0 marks this as a failed attempt so
-                            // staleness checks ignore it and retry next time.
-                            write_cache(&conn, id, &p, 0);
-                        }
-                    }
+    // Build the work list: filter by active_vendors, and pre-skip API-key
+    // vendors already silenced for a known auth failure (their key won't
+    // self-heal, so retrying every cycle only spams logs).
+    let work: Vec<(String, String)> = creds
+        .into_iter()
+        .filter(|(id, _)| {
+            if let Some(ref active) = active_set {
+                if !active.contains(id) {
+                    return false;
                 }
             }
-            None => {
+            // Silenced API-key vendors are skipped; cookie vendors always retry.
+            if silenced.contains(id.as_str()) && !is_cookie_vendor(id) {
+                return false;
+            }
+            true
+        })
+        .collect();
+
+    // Concurrent fetch phase: one task per vendor, each bounded by the timeout.
+    let mut join_set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
+    for (id, cred) in work {
+        join_set.spawn(async move {
+            let Some(vid) = adapter_for(&id) else {
+                return FetchOutcome::NoAdapter(id);
+            };
+            match tokio::time::timeout(VENDOR_FETCH_TIMEOUT, crate::quota::fetch(vid, &cred)).await
+            {
+                Ok(Ok(q)) => FetchOutcome::Success(id, q),
+                Ok(Err(e)) => FetchOutcome::Failed(id, e),
+                // Timeout — treat like a transient network error (not auth),
+                // so the vendor is retried next cycle without being silenced.
+                Err(_elapsed) => {
+                    debug!(vendor = %id, "quota fetch timed out, will retry next cycle");
+                    FetchOutcome::Failed(id, super::VendorError::Network("fetch timeout".into()))
+                }
+            }
+        });
+    }
+
+    // Sequential write phase: process results as they complete, mutating the
+    // silenced set and writing cache rows under short-lived DB locks.
+    while let Some(res) = join_set.join_next().await {
+        let outcome = match res {
+            Ok(o) => o,
+            Err(join_err) => {
+                warn!(error = %join_err, "quota fetch task panicked");
+                continue;
+            }
+        };
+        match outcome {
+            FetchOutcome::Success(id, mut q) => {
+                silenced.remove(id.as_str());
+                q.refreshed_at = Some(now_rfc.clone());
                 if let Ok(conn) = db.lock() {
-                    let p = placeholder(id, false);
-                    write_cache(&conn, id, &p, 0);
+                    if q.balance.is_some() {
+                        let today_c = query_consumption(&conn, &id, &today);
+                        let month_c = query_consumption(&conn, &id, &month_start);
+                        q.balance = q.balance.map(|b| QuotaBalance {
+                            today_consumption: today_c,
+                            month_consumption: month_c,
+                            ..b
+                        });
+                    }
+                    write_cache(&conn, &id, &q, now_ms);
+                }
+            }
+            FetchOutcome::Failed(id, e) => {
+                let is_auth = super::is_auth_error(&e);
+                let is_cookie_vendor = is_cookie_vendor(&id);
+                // For cookie-based console vendors, an "empty / no usable
+                // payload" result almost always means the session cookie
+                // is stale — the console API returns HTTP 200 with an
+                // empty body instead of a 401. Treat that exactly like an
+                // auth failure so the frontend surfaces a cookie_error +
+                // "update cookie" entry (same as StepFun's 401 path).
+                let empty_means_cookie_fail =
+                    is_cookie_vendor && matches!(e, super::VendorError::Empty);
+                // Parse errors for cookie vendors also indicate a stale
+                // session: the API returns a 200 login-page HTML instead
+                // of valid JSON, so parsing fails.
+                let parse_means_cookie_fail =
+                    is_cookie_vendor && matches!(e, super::VendorError::Parse(_));
+                let cookie_fail = is_auth || empty_means_cookie_fail || parse_means_cookie_fail;
+                // Cookie-based vendors can have their credentials refreshed
+                // from the settings UI at any time, so they are never
+                // permanently silenced — every cycle retries them. Only
+                // API-key vendors (whose key won't self-heal) are silenced
+                // to avoid log spam.
+                if is_auth && !is_cookie_vendor {
+                    silenced.insert(id.clone());
+                }
+                if let Ok(conn) = db.lock() {
+                    let p = placeholder(&id, cookie_fail);
+                    // fetched_at=0 marks this as a failed attempt so
+                    // staleness checks ignore it and retry next time.
+                    write_cache(&conn, &id, &p, 0);
+                }
+            }
+            FetchOutcome::NoAdapter(id) => {
+                if let Ok(conn) = db.lock() {
+                    let p = placeholder(&id, false);
+                    write_cache(&conn, &id, &p, 0);
                 }
             }
         }
     }
+}
+
+/// Outcome of one vendor's concurrent fetch — collected then written to the DB.
+enum FetchOutcome {
+    Success(String, Quota),
+    Failed(String, super::VendorError),
+    NoAdapter(String),
 }
 
 #[cfg(test)]

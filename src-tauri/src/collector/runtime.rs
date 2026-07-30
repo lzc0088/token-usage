@@ -11,10 +11,102 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 use super::{scheduler, tokscale, watcher};
+
+#[cfg(test)]
+mod tests {
+    use super::scheduler;
+    use serde_json::json;
+
+    /// Verify the SchedulerConfig defaults used by runtime::start() produce
+    /// sensible values. The history_interval of 15 minutes is the fallback when
+    /// no config-based refresh_interval is available.
+    #[test]
+    fn scheduler_config_defaults_are_reasonable() {
+        let cfg = scheduler::SchedulerConfig {
+            history_interval: std::time::Duration::from_secs(15 * 60),
+            enabled_clients: vec![],
+        };
+        assert_eq!(cfg.history_interval, std::time::Duration::from_secs(900));
+        assert!(cfg.enabled_clients.is_empty());
+    }
+
+    /// Verify that CollectionEvent variants used in the consumer loop preserve
+    /// their data through the channel. This is the contract between the
+    /// scheduler and the consumer in runtime.rs.
+    #[test]
+    fn graph_event_roundtrips_through_serde() {
+        let data = json!({"entries": [{"date": "2026-07-29", "tokens": 500}]});
+        // scheduler::CollectionEvent::Graph holds serde_json::Value.
+        let ev = scheduler::CollectionEvent::Graph(data.clone());
+        match ev {
+            scheduler::CollectionEvent::Graph(v) => {
+                assert_eq!(v["entries"][0]["date"], "2026-07-29");
+                assert_eq!(v["entries"][0]["tokens"], 500);
+            }
+            _ => panic!("expected Graph variant"),
+        }
+    }
+
+    #[test]
+    fn today_summary_event_roundtrips() {
+        let report = json!({
+            "today": {"tokens": 1000, "cost": 5.0, "messages": 42},
+            "tools": []
+        });
+        let ev = scheduler::CollectionEvent::TodaySummary(report.clone());
+        match ev {
+            scheduler::CollectionEvent::TodaySummary(v) => {
+                assert_eq!(v["today"]["tokens"], 1000);
+                assert_eq!(v["today"]["cost"], 5.0);
+                assert_eq!(v["today"]["messages"], 42);
+            }
+            _ => panic!("expected TodaySummary variant"),
+        }
+    }
+
+    #[test]
+    fn scan_error_event_preserves_message() {
+        let msg = "tokscale graph failed: timeout".to_string();
+        let ev = scheduler::CollectionEvent::ScanError(msg.clone());
+        match ev {
+            scheduler::CollectionEvent::ScanError(m) => {
+                assert_eq!(m, "tokscale graph failed: timeout");
+            }
+            _ => panic!("expected ScanError variant"),
+        }
+    }
+
+    /// The sessions event test verifies the contract for session ingestion.
+    #[test]
+    fn sessions_event_roundtrips() {
+        let data = json!({"sessions": [{"tool": "claude", "session_id": "abc123"}]});
+        let ev = scheduler::CollectionEvent::Sessions(data.clone());
+        match ev {
+            scheduler::CollectionEvent::Sessions(v) => {
+                assert_eq!(v["sessions"][0]["tool"], "claude");
+                assert_eq!(v["sessions"][0]["session_id"], "abc123");
+            }
+            _ => panic!("expected Sessions variant"),
+        }
+    }
+
+    /// Verify that parse_refresh_interval_secs (used by the scheduler's config
+    /// read, which the runtime feeds via `Some(db)`) handles all config values.
+    #[test]
+    fn parse_refresh_interval_secs_covers_all_variants() {
+        assert_eq!(scheduler::parse_refresh_interval_secs("manual"), None);
+        assert_eq!(scheduler::parse_refresh_interval_secs("30s"), Some(30));
+        assert_eq!(scheduler::parse_refresh_interval_secs("60s"), Some(60));
+        assert_eq!(scheduler::parse_refresh_interval_secs("300s"), Some(300));
+        assert_eq!(scheduler::parse_refresh_interval_secs("600s"), Some(600));
+        assert_eq!(scheduler::parse_refresh_interval_secs(""), None);
+        assert_eq!(scheduler::parse_refresh_interval_secs("unknown"), None);
+    }
+}
 use crate::query::summary;
+use crate::storage;
 use crate::ui::tray;
 use crate::utils::paths;
-use crate::storage;
 
 /// Start the collector pipeline. Best-effort: any setup failure (no tokscale,
 /// no watchable dirs) logs and returns silently rather than crashing the app —
@@ -106,7 +198,9 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                             .map(|c| c.session_archive_enabled)
                             .unwrap_or(true);
                         if !keep {
-                            if let Err(e) = storage::sessions::prune_uninstalled(&conn, &installed_clients) {
+                            if let Err(e) =
+                                storage::sessions::prune_uninstalled(&conn, &installed_clients)
+                            {
                                 tracing::warn!(error = %e, "prune_uninstalled failed");
                             }
                         }

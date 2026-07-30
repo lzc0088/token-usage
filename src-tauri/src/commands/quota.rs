@@ -11,10 +11,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Datelike;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::config;
 use crate::auth::credentials;
+use crate::config;
 use crate::quota::scheduler;
-use crate::quota::{Quota, QuotaBalance, adapter_for};
+use crate::quota::{adapter_for, Quota, QuotaBalance};
 use crate::state::AppState;
 
 /// Debug command: test credential parsing and API call for a vendor.
@@ -186,7 +186,11 @@ pub async fn refresh_quotas_if_stale(
 /// Manually trigger a refresh for a single vendor. Updates `quota_cache`
 /// and emits `quota:updated` so open pages reload immediately.
 #[tauri::command]
-pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+pub async fn refresh_quota(
+    vendor: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
     let cred = {
         let conn = state.db_guard();
         credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
@@ -209,28 +213,38 @@ pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppH
         .unwrap_or(0);
 
     let _q = match adapter_for(&vendor) {
-        Some(vid) => match crate::quota::fetch(vid, &cred).await {
-            Ok(mut q) => {
-                q.refreshed_at = Some(now_rfc);
-                if let Ok(conn) = state.db.lock() {
-                    if q.balance.is_some() {
-                        let today_c = scheduler::query_consumption(&conn, &vendor, &today);
-                        let month_c = scheduler::query_consumption(&conn, &vendor, &month_start);
-                        q.balance = q.balance.map(|b| QuotaBalance {
-                            today_consumption: today_c,
-                            month_consumption: month_c,
-                            ..b
-                        });
+        Some(vid) => {
+            // Bound the fetch so a hung endpoint can't freeze the UI's manual
+            // "刷新" button indefinitely. Matches the scheduler's per-vendor cap.
+            let fetch = crate::quota::fetch(vid, &cred);
+            match tokio::time::timeout(std::time::Duration::from_secs(30), fetch).await {
+                Ok(Ok(mut q)) => {
+                    q.refreshed_at = Some(now_rfc);
+                    if let Ok(conn) = state.db.lock() {
+                        if q.balance.is_some() {
+                            let today_c = scheduler::query_consumption(&conn, &vendor, &today);
+                            let month_c =
+                                scheduler::query_consumption(&conn, &vendor, &month_start);
+                            q.balance = q.balance.map(|b| QuotaBalance {
+                                today_consumption: today_c,
+                                month_consumption: month_c,
+                                ..b
+                            });
+                        }
+                        scheduler::write_cache(&conn, &vendor, &q, now_ms);
                     }
-                    scheduler::write_cache(&conn, &vendor, &q, now_ms);
+                    q
                 }
-                q
+                Ok(Err(e)) => {
+                    tracing::warn!(vendor = %vendor, error = %e, "quota refresh failed");
+                    return Err(e.to_string());
+                }
+                Err(_elapsed) => {
+                    tracing::warn!(vendor = %vendor, "manual quota refresh timed out");
+                    return Err("刷新超时，请检查网络后重试".into());
+                }
             }
-            Err(e) => {
-                tracing::warn!(vendor = %vendor, error = %e, "quota refresh failed");
-                return Err(e.to_string());
-            }
-        },
+        }
         None => return Err(format!("no adapter for {vendor}")),
     };
     let _ = app.emit("quota:updated", ());
@@ -243,4 +257,354 @@ pub async fn refresh_quota(vendor: String, state: State<'_, AppState>, app: AppH
 #[tauri::command]
 pub async fn codex_login(app: AppHandle) -> Result<(), String> {
     crate::quota::codex::codex_login(&app).await
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::credentials;
+    use crate::config::{self, Config};
+    use crate::quota::scheduler;
+    use crate::quota::{adapter_for, Quota, QuotaBalance, QuotaStatus, QuotaWindow};
+    use crate::state::AppState;
+    use crate::storage::schema;
+    use rusqlite::Connection;
+    use std::sync::{Arc, Mutex};
+
+    fn mem() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        conn
+    }
+
+    /// SAFETY: `State<'r, T>` is `pub struct State<'r, T>(&'r T)`. Transmuting
+    /// a reference is safe because the wrapper holds no extra state.
+    fn state_of(state: &AppState) -> State<'_, AppState> {
+        unsafe { std::mem::transmute(state) }
+    }
+
+    fn mock_quota(vendor: &str) -> Quota {
+        Quota {
+            vendor: vendor.to_string(),
+            status: QuotaStatus::Ok,
+            windows: vec![],
+            balance: Some(QuotaBalance {
+                amount: 100.0,
+                currency: "CNY".into(),
+                today_consumption: None,
+                month_consumption: None,
+            }),
+            plan_label: Some("Pay-as-you-go".into()),
+            refreshed_at: Some("2026-07-27T10:00:00+00:00".into()),
+            error: None,
+            cookie_error: None,
+            expires_at: None,
+        }
+    }
+
+    fn insert_cache(conn: &Connection, vendor: &str, q: &Quota, fetched_at: i64) {
+        let data = serde_json::to_string(q).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, ?)",
+            rusqlite::params![vendor, data, fetched_at],
+        )
+        .unwrap();
+    }
+
+    // ── get_quotas ────────────────────────────────────────────────────────
+
+    #[test]
+    fn get_quotas_empty_cache_returns_empty_vec() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn get_quotas_deserializes_cached_quotas() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn get_quotas_skips_malformed_json_rows() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            conn.execute(
+                "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, ?)",
+                rusqlite::params!["bad", "{not json at all", 2000],
+            )
+            .unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 1, "malformed JSON should be skipped silently");
+        assert_eq!(result[0].vendor, "deepseek");
+    }
+
+    #[test]
+    fn get_quotas_orders_by_vendor_order_config() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "glm", &mock_quota("glm"), 3000);
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "kimi", &mock_quota("kimi"), 2000);
+            let cfg = Config {
+                quota_vendor_order: Some(vec!["deepseek".into(), "kimi".into(), "glm".into()]),
+                ..Config::default()
+            };
+            config::save(&conn, &cfg).unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].vendor, "deepseek");
+        assert_eq!(result[1].vendor, "kimi");
+        assert_eq!(result[2].vendor, "glm");
+    }
+
+    #[test]
+    fn get_quotas_fallback_ordering_to_active_vendors() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "kimi", &mock_quota("kimi"), 2000);
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "glm", &mock_quota("glm"), 3000);
+            let cfg = Config {
+                quota_active_vendors: Some(vec!["deepseek".into(), "glm".into(), "kimi".into()]),
+                quota_vendor_order: None,
+                ..Config::default()
+            };
+            config::save(&conn, &cfg).unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].vendor, "deepseek");
+        assert_eq!(result[1].vendor, "glm");
+        assert_eq!(result[2].vendor, "kimi");
+    }
+
+    #[test]
+    fn get_quotas_active_vendors_is_not_a_filter() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
+            insert_cache(&conn, "kimi", &mock_quota("kimi"), 3000);
+            let cfg = Config {
+                quota_active_vendors: Some(vec!["deepseek".into()]),
+                ..Config::default()
+            };
+            config::save(&conn, &cfg).unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn get_quotas_vendor_order_takes_precedence_over_active_vendors() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
+            insert_cache(&conn, "kimi", &mock_quota("kimi"), 3000);
+            let cfg = Config {
+                quota_vendor_order: Some(vec!["kimi".into(), "glm".into(), "deepseek".into()]),
+                quota_active_vendors: Some(vec!["deepseek".into(), "kimi".into(), "glm".into()]),
+                ..Config::default()
+            };
+            config::save(&conn, &cfg).unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].vendor, "kimi");
+        assert_eq!(result[1].vendor, "glm");
+        assert_eq!(result[2].vendor, "deepseek");
+    }
+
+    #[test]
+    fn get_quotas_empty_vendor_order_treated_as_absent() {
+        let state = AppState::with_db(Arc::new(Mutex::new(mem())));
+        {
+            let conn = state.db_guard();
+            insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
+            insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
+            let cfg = Config {
+                quota_vendor_order: Some(vec![]),
+                ..Config::default()
+            };
+            config::save(&conn, &cfg).unwrap();
+        }
+        let result = get_quotas(state_of(&state)).unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    // ── adapter_for ───────────────────────────────────────────────────────
+
+    #[test]
+    fn adapter_for_maps_all_tracked_vendors() {
+        for vendor in crate::quota::TRACKED_VENDORS {
+            assert!(
+                adapter_for(vendor).is_some(),
+                "tracked vendor '{vendor}' must have an adapter"
+            );
+        }
+    }
+
+    #[test]
+    fn adapter_for_returns_none_for_unknown_vendors() {
+        assert!(adapter_for("").is_none());
+        assert!(adapter_for("unknown_vendor_xyz").is_none());
+    }
+
+    // ── refresh_quota error paths ─────────────────────────────────────────
+
+    #[test]
+    fn refresh_quota_no_adapter_path_produces_expected_error() {
+        let vid = adapter_for("nonexistent_vendor");
+        assert!(vid.is_none());
+        let err = format!("no adapter for {}", "nonexistent_vendor");
+        assert!(err.contains("no adapter"));
+    }
+
+    #[test]
+    fn refresh_quota_missing_credential_path_produces_error() {
+        let conn = mem();
+        let result = credentials::get(&conn, "deepseek");
+        assert!(result.is_err());
+        match result {
+            Err(crate::auth::credentials::CredentialError::NotFound(v)) => {
+                assert_eq!(v, "deepseek");
+            }
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    // ── quota_cache write path ────────────────────────────────────────────
+
+    #[test]
+    fn write_cache_stores_quota_json_and_timestamp() {
+        let conn = mem();
+        let q = mock_quota("deepseek");
+        scheduler::write_cache(&conn, "deepseek", &q, 1_700_000_000_000);
+
+        let (data, fetched): (String, i64) = conn
+            .query_row(
+                "SELECT data, fetched_at FROM quota_cache WHERE vendor = ?",
+                ["deepseek"],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(fetched, 1_700_000_000_000);
+        let parsed: Quota = serde_json::from_str(&data).unwrap();
+        assert_eq!(parsed.vendor, "deepseek");
+    }
+
+    #[test]
+    fn write_cache_overwrites_existing_row() {
+        let conn = mem();
+        let q1 = mock_quota("glm");
+        let q2 = Quota {
+            vendor: "glm".into(),
+            status: QuotaStatus::Danger,
+            ..mock_quota("glm")
+        };
+        scheduler::write_cache(&conn, "glm", &q1, 1000);
+        scheduler::write_cache(&conn, "glm", &q2, 2000);
+
+        let (data, fetched): (String, i64) = conn
+            .query_row(
+                "SELECT data, fetched_at FROM quota_cache WHERE vendor = ?",
+                ["glm"],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(fetched, 2000);
+        let parsed: Quota = serde_json::from_str(&data).unwrap();
+        assert_eq!(parsed.status, QuotaStatus::Danger);
+    }
+
+    // ── refresh_quotas_if_stale logic ────────────────────────────────────
+
+    #[test]
+    fn is_stale_true_when_no_valid_cache() {
+        let now = 1_700_000_000_000_i64;
+        assert!(scheduler::is_stale(None, 300, now));
+        assert!(scheduler::is_stale(Some(0), 300, now));
+    }
+
+    #[test]
+    fn is_stale_false_with_fresh_cache() {
+        let now = 1_700_000_000_000_i64;
+        assert!(!scheduler::is_stale(Some(now - 60_000), 300, now));
+    }
+
+    #[test]
+    fn is_stale_true_with_stale_cache() {
+        let now = 1_700_000_000_000_i64;
+        assert!(scheduler::is_stale(Some(now - 600_000), 300, now));
+    }
+
+    #[test]
+    fn stale_refresh_guard_prevents_concurrent_access() {
+        STALE_REFRESHING.store(false, Ordering::SeqCst);
+
+        let first =
+            STALE_REFRESHING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+        assert!(first.is_ok());
+
+        let second =
+            STALE_REFRESHING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+        assert!(second.is_err());
+
+        STALE_REFRESHING.store(false, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn stale_refresh_guard_clears_flag_on_drop() {
+        STALE_REFRESHING.store(false, Ordering::SeqCst);
+        {
+            let ok = STALE_REFRESHING
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok();
+            assert!(ok);
+            let _guard = StaleRefreshGuard;
+        }
+        assert!(!STALE_REFRESHING.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stale_refresh_command_excludes_fetched_at_zero() {
+        let conn = mem();
+        conn.execute(
+            "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, ?)",
+            rusqlite::params!["a", "{}", 0_i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, ?)",
+            rusqlite::params!["b", "{}", 1_700_000_000_000_i64],
+        )
+        .unwrap();
+        let min_fetched: Option<i64> = conn
+            .query_row(
+                "SELECT MIN(fetched_at) FROM quota_cache WHERE fetched_at > 0",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        assert_eq!(min_fetched, Some(1_700_000_000_000_i64));
+    }
 }

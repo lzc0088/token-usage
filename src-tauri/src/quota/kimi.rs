@@ -755,7 +755,8 @@ pub async fn fetch(credential: &str) -> Result<Quota, VendorError> {
 struct UreqHttp;
 impl Http for UreqHttp {
     fn get(&self, url: &str, bearer: &str) -> Result<String, VendorError> {
-        let resp = ureq::get(url)
+        let resp = crate::utils::http::direct_agent()
+            .get(url)
             .set("Authorization", &format!("Bearer {bearer}"))
             .set("Accept", "application/json")
             .call()
@@ -770,7 +771,7 @@ impl Http for UreqHttp {
         headers: &[(String, String)],
         body: &str,
     ) -> Result<String, VendorError> {
-        let mut req = ureq::post(url);
+        let mut req = crate::utils::http::direct_agent().post(url);
         for (k, v) in headers {
             req = req.set(k, v);
         }

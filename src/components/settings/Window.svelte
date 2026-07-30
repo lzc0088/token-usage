@@ -197,7 +197,7 @@
   <div class="section-title">显示</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">窗口显示<div class="hint">普通：可拖动，记住位置 | 固定：不可拖动，始终贴托盘</div></div>
+      <div class="lab">窗口显示<div class="hint">仅针对主窗口 · 普通：可拖动记住位置 | 固定：贴托盘 | 置顶：浮在其他 App 上</div></div>
       <select
         class="sel"
         value={config.window_display_mode || "normal"}
@@ -208,6 +208,7 @@
       >
         <option value="normal">普通窗口</option>
         <option value="fixed">固定位置</option>
+        <option value="always_on_top">浮在其他 App 上</option>
       </select>
     </div>
 

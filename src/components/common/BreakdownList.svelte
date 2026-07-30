@@ -74,7 +74,7 @@
   {@const vid = vendorIdForModel(e.key)}
   {@const rkIcon = (dim === "model" && vid) ? vendorIcon(vid) : meta.icon}
   {@const rkBg = (dim === "model" && vid && mv) ? mv.color : meta.color}
-  <div class="bd-row" role="button" tabindex="0" onclick={() => toggleExpand(e.key)} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(e.key); } }}>
+  <button type="button" class="bd-row" onclick={() => toggleExpand(e.key)}>
     <span class="rk" style="background:{rkBg};color:var(--badge-text)" title={meta.label}>{@html rkIcon}</span>
     <div class="bd-main">
       <div class="bd-name">
@@ -88,7 +88,7 @@
       </div>
     </div>
     <span class="bd-tokens">{st.value}<span class="tku">{st.unit}</span></span>
-  </div>
+  </button>
   {#if open}
     <div class="bd-detail">
       <div class="det-row"><span>会话数</span><span class="det-val">{e.messages}</span></div>
@@ -158,8 +158,11 @@
     display: grid; grid-template-columns: 28px 1fr 60px;
     align-items: center; gap: 12px;
     padding: 9px 16px;
-    border-bottom: 1px dashed var(--border-dim);
     cursor: pointer;
+    /* button reset FIRST, then re-declare the divider so `border:none` shorthand
+       doesn't clobber border-bottom (which wiped the row dividers). */
+    background: none; border: none; font-family: inherit; text-align: left; width: 100%; font-size: inherit;
+    border-bottom: 1px dashed var(--border-dim);
   }
   .bd-row:hover { background: rgba(232,176,75,.04); }
 

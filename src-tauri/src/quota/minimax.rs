@@ -156,7 +156,8 @@ pub async fn fetch(api_key: &str) -> Result<Quota, VendorError> {
 struct UreqHttp;
 impl Http for UreqHttp {
     fn get(&self, url: &str, bearer: &str) -> Result<String, VendorError> {
-        let resp = ureq::get(url)
+        let resp = crate::utils::http::direct_agent()
+            .get(url)
             .set("Authorization", &format!("Bearer {bearer}"))
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")

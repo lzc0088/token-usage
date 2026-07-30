@@ -38,13 +38,9 @@ pub fn set_auto_start(
     // 2. Persist the choice so the UI is correct on next launch.
     {
         let conn = db(&state);
-        let mut cfg = config::load(&conn).unwrap_or_default();
-        if cfg.auto_start != enabled {
+        let _ = config::with_config(&conn, |cfg| {
             cfg.auto_start = enabled;
-            if let Err(e) = config::save(&conn, &cfg) {
-                warn!("autostart persist config failed: {e}");
-            }
-        }
+        });
     }
 
     // 3. Report the real system state (may differ from intent on failure).

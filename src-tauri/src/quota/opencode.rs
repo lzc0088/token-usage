@@ -20,20 +20,33 @@ use super::VendorError;
 
 const BASE_URL: &str = "https://opencode.ai";
 const SERVER_URL: &str = "https://opencode.ai/_server";
-const WORKSPACES_SERVER_ID: &str = "def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f";
-const SUBSCRIPTION_SERVER_ID: &str = "7abeebee372f304e050aaaf92be863f4a86490e382f8c79db68fd94040d691b4";
+const WORKSPACES_SERVER_ID: &str =
+    "def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f";
+const SUBSCRIPTION_SERVER_ID: &str =
+    "7abeebee372f304e050aaaf92be863f4a86490e382f8c79db68fd94040d691b4";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
 // Hardcoded Go plan limits (USD) — server-side fixed, not stored locally.
 const GO_LIMIT_SESSION: f64 = 12.0; // $12 / 5h
-const GO_LIMIT_WEEKLY: f64 = 30.0;  // $30 / week
+const GO_LIMIT_WEEKLY: f64 = 30.0; // $30 / week
 const GO_LIMIT_MONTHLY: f64 = 60.0; // $60 / month
 
-const SESSION_MS: i64 = 5 * 60 * 60 * 1000;   // 5h
+const SESSION_MS: i64 = 5 * 60 * 60 * 1000; // 5h
 const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000; // 7d
 
-const PCT_KEYS: &[&str] = &["usagePercent", "usedPercent", "percentUsed", "percent", "usage"];
-const RESET_SEC_KEYS: &[&str] = &["resetInSec", "resetInSeconds", "resetSeconds", "resetsInSec"];
+const PCT_KEYS: &[&str] = &[
+    "usagePercent",
+    "usedPercent",
+    "percentUsed",
+    "percent",
+    "usage",
+];
+const RESET_SEC_KEYS: &[&str] = &[
+    "resetInSec",
+    "resetInSeconds",
+    "resetSeconds",
+    "resetsInSec",
+];
 
 // ---------------------------------------------------------------------------
 // HTTP trait
@@ -63,7 +76,9 @@ fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => out.push_str(&format!("%{:02X}", b)),
         }
@@ -141,7 +156,12 @@ fn is_opencode_db(name: &str) -> bool {
         return true;
     }
     match stem.strip_prefix("opencode-") {
-        Some(ch) => !ch.is_empty() && ch.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_'),
+        Some(ch) => {
+            !ch.is_empty()
+                && ch
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        }
         None => false,
     }
 }
@@ -161,12 +181,7 @@ fn discover_db_paths() -> Vec<PathBuf> {
     };
     let mut paths: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .map(is_opencode_db)
-                .unwrap_or(false)
-        })
+        .filter(|e| e.file_name().to_str().map(is_opencode_db).unwrap_or(false))
         .map(|e| e.path())
         .collect();
     paths.sort();
@@ -228,9 +243,15 @@ fn month_bounds_ms(now: i64, anchor_ms: Option<i64>) -> (i64, i64) {
         }
         _ => (now_dt.year(), now_dt.month()),
     };
-    let start = Utc.with_ymd_and_hms(y, m, 1, 0, 0, 0).unwrap().timestamp_millis();
+    let start = Utc
+        .with_ymd_and_hms(y, m, 1, 0, 0, 0)
+        .unwrap()
+        .timestamp_millis();
     let (ey, em) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
-    let end = Utc.with_ymd_and_hms(ey, em, 1, 0, 0, 0).unwrap().timestamp_millis();
+    let end = Utc
+        .with_ymd_and_hms(ey, em, 1, 0, 0, 0)
+        .unwrap()
+        .timestamp_millis();
     (start, end)
 }
 
@@ -278,7 +299,11 @@ fn collect_go_local() -> Vec<QuotaWindow> {
     let weekly_reset = week_start + WEEK_MS;
 
     let pct = |used: f64, limit: f64| -> f64 {
-        if limit > 0.0 { (used / limit * 100.0).clamp(0.0, 100.0) } else { 0.0 }
+        if limit > 0.0 {
+            (used / limit * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        }
     };
 
     let s = QuotaWindow {
@@ -328,7 +353,10 @@ fn resolve_workspace(http: &dyn Http, cookie: &str) -> Result<String, VendorErro
         ("X-Server-Instance", inst.as_str()),
         ("Origin", BASE_URL),
         ("Referer", BASE_URL),
-        ("Accept", "text/javascript, application/json;q=0.9, */*;q=0.8"),
+        (
+            "Accept",
+            "text/javascript, application/json;q=0.9, */*;q=0.8",
+        ),
         ("User-Agent", USER_AGENT),
     ];
     let url = workspaces_server_url();
@@ -350,9 +378,18 @@ fn resolve_workspace(http: &dyn Http, cookie: &str) -> Result<String, VendorErro
 }
 
 /// Fetch subscription via `_server` TanStack endpoint (token-monitor `fetchZen`).
-fn fetch_subscription(http: &dyn Http, cookie: &str, workspace_id: &str) -> Result<String, VendorError> {
+fn fetch_subscription(
+    http: &dyn Http,
+    cookie: &str,
+    workspace_id: &str,
+) -> Result<String, VendorError> {
     let args_json = serde_json::to_string(&[workspace_id]).unwrap_or_default();
-    let url = format!("{}?id={}&args={}", SERVER_URL, SUBSCRIPTION_SERVER_ID, urlencode(&args_json));
+    let url = format!(
+        "{}?id={}&args={}",
+        SERVER_URL,
+        SUBSCRIPTION_SERVER_ID,
+        urlencode(&args_json)
+    );
     let referer = format!("{}/workspace/{}/billing", BASE_URL, workspace_id);
     let inst = server_instance();
     let headers: &[(&str, &str)] = &[
@@ -360,7 +397,10 @@ fn fetch_subscription(http: &dyn Http, cookie: &str, workspace_id: &str) -> Resu
         ("X-Server-Instance", inst.as_str()),
         ("Origin", BASE_URL),
         ("Referer", referer.as_str()),
-        ("Accept", "text/javascript, application/json;q=0.9, */*;q=0.8"),
+        (
+            "Accept",
+            "text/javascript, application/json;q=0.9, */*;q=0.8",
+        ),
         ("User-Agent", USER_AGENT),
     ];
     let resp = http.call("GET", &url, cookie, headers, None)?;
@@ -456,11 +496,18 @@ fn parse_window_obj(obj: &serde_json::Value) -> Option<RawWindow> {
     let reset_secs = pick_num(obj, RESET_SEC_KEYS)
         .map(|s| if s > 0.0 { s as u64 } else { 0 })
         .unwrap_or(0);
-    Some(RawWindow { label: "", used_pct: p.clamp(0.0, 100.0), reset_secs })
+    Some(RawWindow {
+        label: "",
+        used_pct: p.clamp(0.0, 100.0),
+        reset_secs,
+    })
 }
 
 fn extract_window_regex(text: &str, window_key: &str, label: &'static str) -> Option<RawWindow> {
-    let pct_pat = format!(r"{}[^}}]*?usagePercent\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)", window_key);
+    let pct_pat = format!(
+        r"{}[^}}]*?usagePercent\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)",
+        window_key
+    );
     let pm = Regex::new(&pct_pat).ok()?.captures(text)?;
     let pct: f64 = pm.get(1)?.as_str().parse().ok()?;
     let reset_pat = format!(r"{}[^}}]*?resetInSec\s*[:=]\s*([0-9]+)", window_key);
@@ -470,8 +517,16 @@ fn extract_window_regex(text: &str, window_key: &str, label: &'static str) -> Op
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse::<u64>().ok())
         .unwrap_or(0);
-    let p = if (0.0..=1.0).contains(&pct) { pct * 100.0 } else { pct };
-    Some(RawWindow { label, used_pct: p.clamp(0.0, 100.0), reset_secs })
+    let p = if (0.0..=1.0).contains(&pct) {
+        pct * 100.0
+    } else {
+        pct
+    };
+    Some(RawWindow {
+        label,
+        used_pct: p.clamp(0.0, 100.0),
+        reset_secs,
+    })
 }
 
 /// Parse rolling/weekly(/monthly) from JSON or regex fallback.
@@ -519,14 +574,15 @@ fn parse_go_usage(text: &str) -> Vec<RawWindow> {
 
 fn extract_balance_usd(text: &str) -> Option<f64> {
     let re = Regex::new(r"(?i)(?:balanceUSD|currentBalance|zenBalance|balanceUsd)[^0-9\-]{0,20}([0-9]+(?:\.[0-9]+)?)").ok()?;
-    re.captures(text).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f64>().ok())
+    re.captures(text)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<f64>().ok())
 }
 
 /// Convert web RawWindows (with resetInSec) → QuotaWindows.
 fn raw_windows_to_quota(raws: Vec<RawWindow>) -> Vec<QuotaWindow> {
     let now = now_ms();
-    raws
-        .into_iter()
+    raws.into_iter()
         .map(|r| {
             let resets_ms = now + (r.reset_secs as i64) * 1000;
             QuotaWindow {
@@ -546,7 +602,11 @@ fn raw_windows_to_quota(raws: Vec<RawWindow>) -> Vec<QuotaWindow> {
 pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorError> {
     let raw = serde_json::from_str::<serde_json::Value>(credential)
         .ok()
-        .and_then(|v| v.get("cookie").and_then(|c| c.as_str()).map(|s| s.to_string()))
+        .and_then(|v| {
+            v.get("cookie")
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| credential.to_string());
     let cookie = sanitize_cookie(&raw);
     if cookie.is_empty() {
@@ -605,15 +665,26 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     });
 
     let has_data = !windows.is_empty() || balance.is_some();
-    let error = if has_data { None } else { Some("暂无可用的额度数据".into()) };
+    let error = if has_data {
+        None
+    } else {
+        Some("暂无可用的额度数据".into())
+    };
     build_quota(windows, balance, error)
 }
 
 /// Fetch the Go page HTML as a fallback for embedded SSR data.
-fn fetch_go_page_html(http: &dyn Http, cookie: &str, workspace_id: &str) -> Result<String, VendorError> {
+fn fetch_go_page_html(
+    http: &dyn Http,
+    cookie: &str,
+    workspace_id: &str,
+) -> Result<String, VendorError> {
     let url = format!("{}/workspace/{}/go", BASE_URL, workspace_id);
     let headers: &[(&str, &str)] = &[
-        ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        (
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ),
         ("Referer", BASE_URL),
         ("User-Agent", USER_AGENT),
     ];
@@ -630,7 +701,11 @@ fn fetch_go_page_html(http: &dyn Http, cookie: &str, workspace_id: &str) -> Resu
     Ok(resp.text)
 }
 
-fn build_quota(windows: Vec<QuotaWindow>, balance: Option<QuotaBalance>, error: Option<String>) -> Result<Quota, VendorError> {
+fn build_quota(
+    windows: Vec<QuotaWindow>,
+    balance: Option<QuotaBalance>,
+    error: Option<String>,
+) -> Result<Quota, VendorError> {
     let used_pct = windows.iter().map(|w| w.used_pct).fold(0.0f64, f64::max);
     Ok(Quota {
         vendor: "opencode".into(),
@@ -786,13 +861,22 @@ mod tests {
         ) -> Result<Response, VendorError> {
             if url.contains("/_server") {
                 if url.contains("args=") || url.contains("id=7abeebee") {
-                    Ok(Response { status: self.sub_status, text: self.sub_body.into() })
+                    Ok(Response {
+                        status: self.sub_status,
+                        text: self.sub_body.into(),
+                    })
                 } else {
-                    Ok(Response { status: self.workspace_status, text: self.workspace_body.into() })
+                    Ok(Response {
+                        status: self.workspace_status,
+                        text: self.workspace_body.into(),
+                    })
                 }
             } else {
                 // Go page HTML
-                Ok(Response { status: 200, text: String::new() })
+                Ok(Response {
+                    status: 200,
+                    text: String::new(),
+                })
             }
         }
     }
@@ -846,7 +930,14 @@ mod tests {
     fn fetch_with_rejects_empty_credential() {
         struct M;
         impl Http for M {
-            fn call(&self, _: &str, _: &str, _: &str, _: &[(&str, &str)], _: Option<&str>) -> Result<Response, VendorError> {
+            fn call(
+                &self,
+                _: &str,
+                _: &str,
+                _: &str,
+                _: &[(&str, &str)],
+                _: Option<&str>,
+            ) -> Result<Response, VendorError> {
                 unreachable!()
             }
         }
@@ -863,7 +954,10 @@ mod tests {
             sub_status: 200,
         };
         // Workspace resolution fails (signed out) and no local DB → Empty error.
-        assert!(matches!(fetch_with(&mock, "auth=expired"), Err(VendorError::Empty)));
+        assert!(matches!(
+            fetch_with(&mock, "auth=expired"),
+            Err(VendorError::Empty)
+        ));
     }
 
     #[test]

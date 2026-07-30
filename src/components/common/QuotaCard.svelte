@@ -20,12 +20,18 @@
     nowMs = 0,
     currency = "cny" as Currency,
     cnyRate = 7.2,
+    onQuotaChanged,
   }: {
     quota: Quota;
     progressMode: ProgressMode;
     nowMs: number;
     currency?: Currency;
     cnyRate?: number;
+    /** Called after a credential change so the parent can reload fresh quota
+     *  data and pass it down as a new `quota` prop. More reliable than relying
+     *  on the `quota:updated` Tauri event, which can be missed by a hidden /
+     *  backgrounded webview. */
+    onQuotaChanged?: () => Promise<void> | void;
   } = $props();
 
   // ── Inline cookie editor (per-card state) ──
@@ -104,6 +110,14 @@
         cookieSaving = false;
         return;
       }
+      // Success: ask the parent to reload fresh quota data and pass it down.
+      // More reliable than the `quota:updated` Tauri event, which a
+      // backgrounded popover webview can miss.
+      if (onQuotaChanged) {
+        await onQuotaChanged();
+      }
+      // Parent has now passed a fresh `quota` prop (cookie_error cleared).
+      // Close the editor — the cookie section hides naturally.
       editingCookie = null;
       cookieDraft = "";
     } catch (e) {
@@ -151,7 +165,7 @@
       <textarea
         bind:value={cookieDraft}
         placeholder="粘贴新 Cookie…"
-        rows="3"
+        rows="4"
         disabled={cookieSaving}
         aria-label="Cookie"
       ></textarea>

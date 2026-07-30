@@ -77,9 +77,17 @@ impl Bucket {
         }
         let api_pct = number_from_value(read(summary, "usagePercentage", "usage_percentage"));
         let usage_pct = api_pct.unwrap_or_else(|| {
-            if total > 0.0 { (used / total * 100.0).clamp(0.0, 100.0) } else { 0.0 }
+            if total > 0.0 {
+                (used / total * 100.0).clamp(0.0, 100.0)
+            } else {
+                0.0
+            }
         });
-        Some(Self { used, total, usage_pct: usage_pct.clamp(0.0, 100.0) })
+        Some(Self {
+            used,
+            total,
+            usage_pct: usage_pct.clamp(0.0, 100.0),
+        })
     }
 
     /// Extract individual items from `quota_detail[]`, sorted ascending by
@@ -96,23 +104,33 @@ impl Bucket {
             }
             let api_pct = number_from_value(detail.get("usage_percentage"));
             let pct = api_pct.unwrap_or_else(|| {
-                if total > 0.0 { (used / total * 100.0).clamp(0.0, 100.0) } else { 0.0 }
+                if total > 0.0 {
+                    (used / total * 100.0).clamp(0.0, 100.0)
+                } else {
+                    0.0
+                }
             });
-            let name = detail.get("source")
+            let name = detail
+                .get("source")
                 .and_then(|v| v.as_str())
-                .map(|s| {
-                    match s {
-                        "PLAN" => "订阅".into(),
-                        "RESOURCE_PACKAGE_SOURCE_BONUS" => "资源包".into(),
-                        other => other.into(),
-                    }
+                .map(|s| match s {
+                    "PLAN" => "订阅".into(),
+                    "RESOURCE_PACKAGE_SOURCE_BONUS" => "资源包".into(),
+                    other => other.into(),
                 })
                 .unwrap_or_default();
-            let expires_at = detail.get("expires_at")
+            let expires_at = detail
+                .get("expires_at")
                 .and_then(|v| v.as_i64())
                 .filter(|&ms| ms > 0)
                 .and_then(|ms| epoch_to_iso(ms as f64));
-            items.push(QuotaWindowSubItem { name, used, total, pct, expires_at });
+            items.push(QuotaWindowSubItem {
+                name,
+                used,
+                total,
+                pct,
+                expires_at,
+            });
         }
         // Ascending by expiry (earliest first); items without expiry sink to end.
         items.sort_by(|a, b| match (&a.expires_at, &b.expires_at) {
@@ -121,7 +139,11 @@ impl Bucket {
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => std::cmp::Ordering::Equal,
         });
-        if items.is_empty() { None } else { Some(items) }
+        if items.is_empty() {
+            None
+        } else {
+            Some(items)
+        }
     }
 }
 
@@ -145,10 +167,7 @@ struct DetailedParsed {
 fn parse_detailed(body: &str) -> Result<DetailedParsed, VendorError> {
     let root: serde_json::Value =
         serde_json::from_str(body).map_err(|e| VendorError::Parse(e.to_string()))?;
-    let payload = root
-        .get("data")
-        .filter(|d| d.is_object())
-        .unwrap_or(&root);
+    let payload = root.get("data").filter(|d| d.is_object()).unwrap_or(&root);
 
     let total_guard = read(payload, "totalQuota", "total_quota")
         .and_then(Bucket::from_summary)
@@ -169,9 +188,10 @@ fn parse_detailed(body: &str) -> Result<DetailedParsed, VendorError> {
     let plan_items: Vec<QuotaWindowSubItem> = read(payload, "planQuota", "plan_quota")
         .and_then(Bucket::sub_items)
         .unwrap_or_default();
-    let pkg_items: Vec<QuotaWindowSubItem> = read(payload, "resourcePackageQuota", "resource_package_quota")
-        .and_then(Bucket::sub_items)
-        .unwrap_or_default();
+    let pkg_items: Vec<QuotaWindowSubItem> =
+        read(payload, "resourcePackageQuota", "resource_package_quota")
+            .and_then(Bucket::sub_items)
+            .unwrap_or_default();
 
     let top_next_reset = reset_marker(read(payload, "nextResetAt", "next_reset_at"));
 
@@ -250,13 +270,19 @@ fn plan_text(raw: &str) -> String {
 /// Extract a plan label from the userplan response (token-monitor firstPlanLabel).
 fn parse_plan_label(body: &str) -> Option<String> {
     let root: serde_json::Value = serde_json::from_str(body).ok()?;
-    let candidates: Vec<&serde_json::Value> = std::iter::once(&root)
-        .chain(root.get("data"))
-        .collect();
+    let candidates: Vec<&serde_json::Value> =
+        std::iter::once(&root).chain(root.get("data")).collect();
     for source in candidates {
         for field in [
-            "plan_tier", "planTier", "plan", "tier", "name", "product_name",
-            "productName", "subscription_type", "subscriptionType",
+            "plan_tier",
+            "planTier",
+            "plan",
+            "tier",
+            "name",
+            "product_name",
+            "productName",
+            "subscription_type",
+            "subscriptionType",
         ] {
             if let Some(s) = source.get(field).and_then(|v| v.as_str()) {
                 let label = plan_text(s);
@@ -301,8 +327,8 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     // shown when it carries meaningful data (limit > 0 or any sub-item).
     let mut windows: Vec<QuotaWindow> = Vec::new();
 
-    let plan_meaningful = parsed.has_plan
-        && (parsed.plan.total > 0.0 || !parsed.plan_items.is_empty());
+    let plan_meaningful =
+        parsed.has_plan && (parsed.plan.total > 0.0 || !parsed.plan_items.is_empty());
     if plan_meaningful {
         windows.push(QuotaWindow {
             label: "订阅".into(),
@@ -310,12 +336,15 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             resets_at: None,
             used_value: Some(parsed.plan.used),
             total_value: Some(parsed.plan.total),
-            sub_items: if parsed.plan_items.is_empty() { None } else { Some(parsed.plan_items) },
+            sub_items: if parsed.plan_items.is_empty() {
+                None
+            } else {
+                Some(parsed.plan_items)
+            },
         });
     }
 
-    let pkg_meaningful = parsed.has_pkg
-        && (parsed.pkg.total > 0.0 || !parsed.pkg_items.is_empty());
+    let pkg_meaningful = parsed.has_pkg && (parsed.pkg.total > 0.0 || !parsed.pkg_items.is_empty());
     if pkg_meaningful {
         windows.push(QuotaWindow {
             label: "资源包".into(),
@@ -323,7 +352,11 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             resets_at: None,
             used_value: Some(parsed.pkg.used),
             total_value: Some(parsed.pkg.total),
-            sub_items: if parsed.pkg_items.is_empty() { None } else { Some(parsed.pkg_items) },
+            sub_items: if parsed.pkg_items.is_empty() {
+                None
+            } else {
+                Some(parsed.pkg_items)
+            },
         });
     }
 
@@ -338,7 +371,11 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     }
 
     // Overall status = worst of all windows.
-    let status = QuotaStatus::worst_of(windows.iter().map(|w| QuotaStatus::from_used_pct(w.used_pct)));
+    let status = QuotaStatus::worst_of(
+        windows
+            .iter()
+            .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
+    );
 
     Ok(Quota {
         vendor: "qoder".into(),
@@ -459,7 +496,11 @@ mod tests {
         let d = parse_detailed(body).unwrap();
         assert_eq!(d.pkg_items.len(), 3);
         // Ascending: 1785037446000 < 1786952586166 < 1787792416209
-        let exps: Vec<&str> = d.pkg_items.iter().map(|i| i.expires_at.as_deref().unwrap_or("")).collect();
+        let exps: Vec<&str> = d
+            .pkg_items
+            .iter()
+            .map(|i| i.expires_at.as_deref().unwrap_or(""))
+            .collect();
         assert!(exps[0] < exps[1]);
         assert!(exps[1] < exps[2]);
     }
@@ -501,7 +542,9 @@ mod tests {
         impl Http for Mock {
             fn get(&self, url: &str, _cookie: &str, _origin: &str) -> Result<String, VendorError> {
                 if url.contains("/userplan") {
-                    return Ok(r#"{"data":{"plan_tier":"PLAN_TIER_PRO","end_date":1900000000000}}"#.into());
+                    return Ok(
+                        r#"{"data":{"plan_tier":"PLAN_TIER_PRO","end_date":1900000000000}}"#.into(),
+                    );
                 }
                 Ok(r#"{
                     "plan_quota":{"quota_summary":{"used_value":20,"limit_value":100,"remaining_value":80,"usage_percentage":20,"unit":"credits"},"quota_detail":[{"used_value":20,"limit_value":100,"usage_percentage":20,"source":"PLAN","expires_at":1900000000000}]},

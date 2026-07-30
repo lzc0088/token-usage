@@ -726,7 +726,7 @@ impl Http for UreqHttp {
         headers: &[(String, String)],
         body: &str,
     ) -> Result<String, VendorError> {
-        let mut req = ureq::post(url);
+        let mut req = crate::utils::http::direct_agent().post(url);
         for (k, v) in headers {
             req = req.set(k, v);
         }
@@ -743,7 +743,7 @@ impl Http for UreqHttp {
         headers: &[(String, String)],
         body: &str,
     ) -> Result<(String, Vec<(String, String)>), VendorError> {
-        let mut req = ureq::post(url);
+        let mut req = crate::utils::http::direct_agent().post(url);
         for (k, v) in headers {
             req = req.set(k, v);
         }

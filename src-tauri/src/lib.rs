@@ -1,4 +1,6 @@
 // Entry point. M6: Tauri-native system tray + auto-hide on blur.
+// `unexpected_cfgs` suppressed crate-wide: Tauri/macos-private-api macros emit
+// `cfg(mobile)` and `cfg(cargo-clippy)` which are not declared in Cargo.toml.
 #![allow(unexpected_cfgs)]
 
 pub mod auth;
@@ -14,13 +16,13 @@ pub mod utils;
 
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
-use utils::time::now_ms;
 use state::AppState;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::menu::ContextMenu;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+use utils::time::now_ms;
 
 /// Timestamp (ms since epoch) of the last menu event. Used to suppress the
 /// `Focused(false)` blur event that macOS fires when a popup menu closes —
@@ -255,18 +257,27 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     )?;
 
     let sep = || PredefinedMenuItem::separator(app);
-    Menu::with_items(app, &[
-        &menu_item("refresh", "立即刷新")?,
-        &sep()?,
-        &tray_sub,
-        &win_sub,
-        &theme_sub,
-        &sep()?,
-        &menu_item("settings", "设置")?,
-        &sep()?,
-        &MenuItem::with_id(app, "version", format!("v{APP_VERSION}"), false, None::<&str>)?,
-        &menu_item("quit", "退出 Token Usage")?,
-    ])
+    Menu::with_items(
+        app,
+        &[
+            &menu_item("refresh", "立即刷新")?,
+            &sep()?,
+            &tray_sub,
+            &win_sub,
+            &theme_sub,
+            &sep()?,
+            &menu_item("settings", "设置")?,
+            &sep()?,
+            &MenuItem::with_id(
+                app,
+                "version",
+                format!("v{APP_VERSION}"),
+                false,
+                None::<&str>,
+            )?,
+            &menu_item("quit", "退出 Token Usage")?,
+        ],
+    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -512,11 +523,14 @@ pub fn run() {
             commands::settings::get_credential_fields,
             commands::settings::get_credential_field_values,
             commands::settings::clear_credential_fields,
-            commands::settings::copilot_login,
+            commands::copilot::copilot_login,
+            commands::copilot::poll_for_token,
             commands::quota::codex_login,
             commands::window_cmd::open_settings,
+            commands::window_cmd::consume_settings_target,
             commands::window_cmd::close_settings,
             commands::window_cmd::open_external,
+            commands::window_cmd::frontend_log,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,
@@ -537,8 +551,20 @@ pub fn run() {
             // ── Actions that don't touch config ──
             match id {
                 "refresh" => {
-                    show_main_under_tray(app);
-                    let _ = app.emit("tray:refresh", ());
+                    // Defer window ops + event emit, matching the "settings"
+                    // handler: w.show() can trigger webview JS that calls back
+                    // into IPC (main thread) while on_menu_event is still on
+                    // the stack → deadlock. Deferring also lets a hidden
+                    // webview resume before `tray:refresh` is delivered, so the
+                    // frontend listener actually receives it (an emit right
+                    // after show() can land while the webview is still
+                    // suspended and get dropped).
+                    let app_c = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        show_main_under_tray(&app_c);
+                        let _ = app_c.emit("tray:refresh", ());
+                    });
                 }
                 "settings" => {
                     // Defer ALL window operations to avoid deadlock: w.show() can
@@ -546,16 +572,12 @@ pub fn run() {
                     // (IPC → main thread). If the main thread is still in
                     // on_menu_event, the IPC waits and the webview waits → freeze.
                     // A short async delay ensures the handler has fully returned.
+                    // Tray-open always lands on the default "general" page.
+                    commands::window_cmd::set_settings_target(&app.state::<AppState>(), "general");
                     let app_c = app.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        if let Some(main) = app_c.get_webview_window("main") {
-                            let _ = main.hide();
-                        }
-                        if let Some(w) = app_c.get_webview_window("settings") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
+                        commands::window_cmd::show_settings_window(&app_c);
                     });
                 }
                 "quit" => {
@@ -571,43 +593,37 @@ pub fn run() {
                 let db = app.state::<AppState>().db.clone();
                 let guard = db.lock();
                 if let Ok(ref c) = guard {
-                    if let Ok(mut cfg) = config::load(c) {
-                        match id {
-                            "tray_today_tokens" | "tray_today_cost" | "tray_today_both"
-                            | "tray_total_tokens" | "tray_total_cost" | "tray_total_both"
-                            | "tray_icon_only" => {
-                                if let Some(mode) = id.strip_prefix("tray_") {
-                                    if cfg.tray_display != mode {
-                                        cfg.tray_display = mode.to_string();
-                                        if let Err(e) = config::save(c, &cfg) {
-                                            tracing::warn!("config save (tray_display) failed: {e}");
-                                        }
-                                        crate::ui::tray::refresh_from_db(app, c);
-                                    }
-                                }
-                            }
-                            "window_normal" | "window_fixed" => {
-                                if let Some(mode) = id.strip_prefix("window_") {
-                                    if cfg.window_display_mode != mode {
-                                        cfg.window_display_mode = mode.to_string();
-                                        if let Err(e) = config::save(c, &cfg) {
-                                            tracing::warn!("config save (window_display_mode) failed: {e}");
-                                        }
-                                    }
-                                }
-                            }
-                            "theme_dark" | "theme_light" | "theme_system" => {
-                                if let Some(theme) = id.strip_prefix("theme_") {
-                                    if cfg.theme != theme {
-                                        cfg.theme = theme.to_string();
-                                        if let Err(e) = config::save(c, &cfg) {
-                                            tracing::warn!("config save (theme) failed: {e}");
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
+                    let needs_tray_refresh = match id {
+                        "tray_today_tokens" | "tray_today_cost" | "tray_today_both"
+                        | "tray_total_tokens" | "tray_total_cost" | "tray_total_both"
+                        | "tray_icon_only" => id
+                            .strip_prefix("tray_")
+                            .map(|mode| {
+                                let _ = config::with_config(c, |cfg| {
+                                    cfg.tray_display = mode.to_string();
+                                });
+                            })
+                            .is_some(),
+                        "window_normal" | "window_fixed" => {
+                            let _ = id.strip_prefix("window_").map(|mode| {
+                                let _ = config::with_config(c, |cfg| {
+                                    cfg.window_display_mode = mode.to_string();
+                                });
+                            });
+                            false
                         }
+                        "theme_dark" | "theme_light" | "theme_system" => {
+                            let _ = id.strip_prefix("theme_").map(|theme| {
+                                let _ = config::with_config(c, |cfg| {
+                                    cfg.theme = theme.to_string();
+                                });
+                            });
+                            false
+                        }
+                        _ => false,
+                    };
+                    if needs_tray_refresh {
+                        crate::ui::tray::refresh_from_db(app, c);
                     }
                 }
             }

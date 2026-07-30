@@ -276,7 +276,10 @@ mod tests {
         let n = archived_count(&conn, &["claude".into()]).unwrap();
         assert_eq!(n, 1);
         // Both installed → none archived.
-        assert_eq!(archived_count(&conn, &["claude".into(), "codex".into()]).unwrap(), 0);
+        assert_eq!(
+            archived_count(&conn, &["claude".into(), "codex".into()]).unwrap(),
+            0
+        );
         // Empty installed list → all archived.
         assert_eq!(archived_count(&conn, &[]).unwrap(), 3);
     }
@@ -296,7 +299,11 @@ mod tests {
             .unwrap();
         assert_eq!(remaining, 2);
         let claude: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sessions WHERE tool='claude'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE tool='claude'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(claude, 2);
     }

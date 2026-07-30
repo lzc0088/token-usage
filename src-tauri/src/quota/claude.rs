@@ -45,7 +45,10 @@ pub trait Http {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum CredKind { OAuth, WebCookie }
+enum CredKind {
+    OAuth,
+    WebCookie,
+}
 
 /// Normalize a Claude web cookie value.
 /// Rejects values containing whitespace or semicolons (full cookie strings).
@@ -83,10 +86,7 @@ fn form_encode(s: &str) -> String {
         .collect()
 }
 
-fn refresh_access_token(
-    http: &dyn Http,
-    refresh_token: &str,
-) -> Result<String, VendorError> {
+fn refresh_access_token(http: &dyn Http, refresh_token: &str) -> Result<String, VendorError> {
     let body = format!(
         "grant_type=refresh_token&refresh_token={}&client_id={}",
         form_encode(refresh_token),
@@ -107,15 +107,14 @@ fn refresh_access_token(
 
 fn fetch_web_limits(http: &dyn Http, session_cookie: &str) -> Result<Quota, VendorError> {
     // ① Get organizations.
-    let orgs_body = http.get_cookie(
-        &format!("{WEB_BASE_URL}/api/organizations"),
-        session_cookie,
-    )?;
+    let orgs_body =
+        http.get_cookie(&format!("{WEB_BASE_URL}/api/organizations"), session_cookie)?;
     let orgs: serde_json::Value =
         serde_json::from_str(&orgs_body).map_err(|e| VendorError::Parse(e.to_string()))?;
 
     // Extract org array: direct array | .organizations | .data
-    let org_arr = orgs.as_array()
+    let org_arr = orgs
+        .as_array()
         .or_else(|| orgs.get("organizations").and_then(|d| d.as_array()))
         .or_else(|| orgs.get("data").and_then(|d| d.as_array()))
         .ok_or_else(|| VendorError::Parse("organizations: expected array".into()))?;
@@ -132,7 +131,9 @@ fn fetch_web_limits(http: &dyn Http, session_cookie: &str) -> Result<Quota, Vend
 
     // ③ Plan label from /api/account (best-effort — mirrors token-monitor
     //    claudeWebAccountIdentity → seat_tier + rate_limit_tier).
-    if let Ok(account_body) = http.get_cookie(&format!("{WEB_BASE_URL}/api/account"), session_cookie) {
+    if let Ok(account_body) =
+        http.get_cookie(&format!("{WEB_BASE_URL}/api/account"), session_cookie)
+    {
         quota.plan_label = plan_label_from_account(&account_body, &org_id);
     }
 
@@ -144,7 +145,10 @@ fn fetch_web_limits(http: &dyn Http, session_cookie: &str) -> Result<Quota, Vend
 /// `seat_tier` (or `billing_type`) combined with `rate_limit_tier`.
 fn plan_label_from_account(body: &str, org_id: &str) -> Option<String> {
     let root: serde_json::Value = serde_json::from_str(body).ok()?;
-    let account = root.get("account").filter(|v| v.is_object()).unwrap_or(&root);
+    let account = root
+        .get("account")
+        .filter(|v| v.is_object())
+        .unwrap_or(&root);
 
     // Find the membership matching this org (or the first one).
     let memberships = account
@@ -262,9 +266,16 @@ fn rate_limit_tier_label(tier: &str) -> String {
 
 /// Combine subscription type + rate-limit tier into the display plan label.
 /// Mirrors token-monitor `claudePlanLabelFromParts`.
-fn claude_plan_label(subscription_type: Option<&str>, rate_limit_tier: Option<&str>) -> Option<String> {
-    let subscription_label = subscription_type.map(plan_label_from_parts).unwrap_or_default();
-    let tier_label = rate_limit_tier.map(rate_limit_tier_label).unwrap_or_default();
+fn claude_plan_label(
+    subscription_type: Option<&str>,
+    rate_limit_tier: Option<&str>,
+) -> Option<String> {
+    let subscription_label = subscription_type
+        .map(plan_label_from_parts)
+        .unwrap_or_default();
+    let tier_label = rate_limit_tier
+        .map(rate_limit_tier_label)
+        .unwrap_or_default();
     // "Max" + "Max 5x/20x" → prefer the more specific tier label.
     if subscription_label == "Max" && (tier_label == "Max 5x" || tier_label == "Max 20x") {
         return Some(tier_label);
@@ -289,20 +300,40 @@ fn select_best_org(orgs: &[serde_json::Value]) -> Result<String, VendorError> {
     // Score each org: chat capability = best, api-only = worst, none = middle.
     let mut best: Option<(usize, &str)> = None;
     for org in orgs {
-        let id = org.get("uuid").and_then(|v| v.as_str())
+        let id = org
+            .get("uuid")
+            .and_then(|v| v.as_str())
             .or_else(|| org.get("id").and_then(|v| v.as_str()))
             .or_else(|| org.get("organization_uuid").and_then(|v| v.as_str()))
             .ok_or_else(|| VendorError::Parse("org missing id".into()))?;
 
         let caps = org.get("capabilities").and_then(|c| c.as_array());
-        let has_chat = caps.map(|arr| {
-            arr.iter().any(|c| c.as_str().map(|s| s.to_lowercase() == "chat").unwrap_or(false))
-        }).unwrap_or(false);
-        let is_api_only = caps.map(|arr| {
-            arr.len() == 1 && arr[0].as_str().map(|s| s.to_lowercase() == "api").unwrap_or(false)
-        }).unwrap_or(false);
+        let has_chat = caps
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.as_str()
+                        .map(|s| s.to_lowercase() == "chat")
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        let is_api_only = caps
+            .map(|arr| {
+                arr.len() == 1
+                    && arr[0]
+                        .as_str()
+                        .map(|s| s.to_lowercase() == "api")
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false);
 
-        let score = if has_chat { 2 } else if is_api_only { 0 } else { 1 };
+        let score = if has_chat {
+            2
+        } else if is_api_only {
+            0
+        } else {
+            1
+        };
         if best.map(|b| score > b.0).unwrap_or(true) {
             best = Some((score, id));
         }
@@ -490,8 +521,14 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
 
 fn parse_credential_with_refresh(credential: &str) -> (CredKind, String, Option<String>) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(credential) {
-        let access = v.get("access_token").and_then(|k| k.as_str()).map(|s| s.to_string());
-        let refresh = v.get("refresh_token").and_then(|k| k.as_str()).map(|s| s.to_string());
+        let access = v
+            .get("access_token")
+            .and_then(|k| k.as_str())
+            .map(|s| s.to_string());
+        let refresh = v
+            .get("refresh_token")
+            .and_then(|k| k.as_str())
+            .map(|s| s.to_string());
         if access.is_some() || refresh.is_some() {
             return (CredKind::OAuth, access.unwrap_or_default(), refresh);
         }
@@ -651,12 +688,18 @@ mod tests {
 
     #[test]
     fn normalize_web_cookie_accepts_bare_token() {
-        assert_eq!(normalize_web_cookie("sk-ant-abc123"), "sessionKey=sk-ant-abc123");
+        assert_eq!(
+            normalize_web_cookie("sk-ant-abc123"),
+            "sessionKey=sk-ant-abc123"
+        );
     }
 
     #[test]
     fn normalize_web_cookie_accepts_prefix() {
-        assert_eq!(normalize_web_cookie("sessionKey=sk-ant-abc123"), "sessionKey=sk-ant-abc123");
+        assert_eq!(
+            normalize_web_cookie("sessionKey=sk-ant-abc123"),
+            "sessionKey=sk-ant-abc123"
+        );
     }
 
     #[test]
@@ -671,7 +714,8 @@ mod tests {
 
     #[test]
     fn parse_credential_oauth_json() {
-        let (kind, token, _) = parse_credential_with_refresh(r#"{"access_token":"at","refresh_token":"rt"}"#);
+        let (kind, token, _) =
+            parse_credential_with_refresh(r#"{"access_token":"at","refresh_token":"rt"}"#);
         assert_eq!(kind, CredKind::OAuth);
         assert_eq!(token, "at");
     }
@@ -739,8 +783,12 @@ mod tests {
         let mock = MockHttp {
             oauth_usage: Err(VendorError::Network("not called".into())),
             oauth_profile: Err(VendorError::Network("not called".into())),
-            web_orgs: Ok(r#"{"organizations":[{"uuid":"org-456","capabilities":["chat"]}]}"#.into()),
-            web_usage: Ok(r#"{"five_hour":{"utilization":10},"seven_day":{"utilization":20}}"#.into()),
+            web_orgs: Ok(
+                r#"{"organizations":[{"uuid":"org-456","capabilities":["chat"]}]}"#.into(),
+            ),
+            web_usage: Ok(
+                r#"{"five_hour":{"utilization":10},"seven_day":{"utilization":20}}"#.into(),
+            ),
             web_account: Err(VendorError::Network("not called".into())),
             refresh: Err(VendorError::Network("not called".into())),
         };
@@ -810,7 +858,10 @@ mod tests {
             fn get_bearer(&self, url: &str, _: &str) -> Result<String, VendorError> {
                 if url.contains("/usage") {
                     let n = USAGE_CALL.with(|c| c.fetch_add(1, Ordering::SeqCst));
-                    self.usages.get(n).cloned().unwrap_or(Err(VendorError::Network("no more usages".into())))
+                    self.usages
+                        .get(n)
+                        .cloned()
+                        .unwrap_or(Err(VendorError::Network("no more usages".into())))
                 } else if url.contains("/profile") {
                     self.profile.clone()
                 } else {
@@ -850,7 +901,10 @@ mod tests {
             "seat_tier":"max",
             "rate_limit_tier":"default_claude_max_20x"
         }]}"#;
-        assert_eq!(plan_label_from_account(account, "org-1").as_deref(), Some("Max 20x"));
+        assert_eq!(
+            plan_label_from_account(account, "org-1").as_deref(),
+            Some("Max 20x")
+        );
     }
 
     #[test]
@@ -859,7 +913,10 @@ mod tests {
             "organization":{"uuid":"org-1"},
             "seat_tier":"pro"
         }]}"#;
-        assert_eq!(plan_label_from_account(account, "org-1").as_deref(), Some("Pro"));
+        assert_eq!(
+            plan_label_from_account(account, "org-1").as_deref(),
+            Some("Pro")
+        );
     }
 
     #[test]
@@ -868,7 +925,10 @@ mod tests {
             "organization":{"uuid":"org-1"},
             "seat_tier":"free"
         }]}"#;
-        assert_eq!(plan_label_from_account(account, "org-1").as_deref(), Some("Free"));
+        assert_eq!(
+            plan_label_from_account(account, "org-1").as_deref(),
+            Some("Free")
+        );
     }
 
     #[test]

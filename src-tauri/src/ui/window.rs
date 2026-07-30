@@ -153,13 +153,37 @@ fn is_valid_main_key(key: &str) -> bool {
     // Named keys.
     matches!(
         key,
-        "Space" | "Tab" | "Escape" | "Enter" | "Insert" | "Delete"
-            | "Home" | "End" | "PageUp" | "PageDown"
-            | "Up" | "Down" | "Left" | "Right" | "Backspace"
-            | "NumpadAdd" | "NumpadSubtract" | "NumpadMultiply" | "NumpadDivide"
-            | "NumpadDecimal" | "NumpadEnter" | "Numpad0" | "Numpad1"
-            | "Numpad2" | "Numpad3" | "Numpad4" | "Numpad5" | "Numpad6"
-            | "Numpad7" | "Numpad8" | "Numpad9"
+        "Space"
+            | "Tab"
+            | "Escape"
+            | "Enter"
+            | "Insert"
+            | "Delete"
+            | "Home"
+            | "End"
+            | "PageUp"
+            | "PageDown"
+            | "Up"
+            | "Down"
+            | "Left"
+            | "Right"
+            | "Backspace"
+            | "NumpadAdd"
+            | "NumpadSubtract"
+            | "NumpadMultiply"
+            | "NumpadDivide"
+            | "NumpadDecimal"
+            | "NumpadEnter"
+            | "Numpad0"
+            | "Numpad1"
+            | "Numpad2"
+            | "Numpad3"
+            | "Numpad4"
+            | "Numpad5"
+            | "Numpad6"
+            | "Numpad7"
+            | "Numpad8"
+            | "Numpad9"
     )
 }
 
@@ -239,6 +263,10 @@ pub fn apply_window_config(app: &AppHandle, conn: &Connection) {
     apply_dock_visibility(app, cfg.show_in_dock);
     apply_drag_mode(app, cfg.window_display_mode == "fixed");
     apply_hotkey(app, &cfg.hotkey);
+    // Main popover always-on-top — floating mode keeps it above other apps.
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_always_on_top(cfg.window_display_mode == "always_on_top");
+    }
     crate::ui::tray::refresh_from_db(app, conn);
 }
 
@@ -275,9 +303,6 @@ mod tests {
 
     #[test]
     fn accepts_function_keys() {
-        assert_eq!(
-            map_accelerator("Meta+F12").unwrap(),
-            "CommandOrControl+F12"
-        );
+        assert_eq!(map_accelerator("Meta+F12").unwrap(), "CommandOrControl+F12");
     }
 }

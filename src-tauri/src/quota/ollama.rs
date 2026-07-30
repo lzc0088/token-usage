@@ -37,22 +37,27 @@ fn is_recognized_session_cookie(name: &str) -> bool {
 
 /// Parse a `name=value; name=value` cookie header into validated pairs.
 fn cookie_pairs(header: &str) -> Vec<(String, String)> {
-    header.split(';').filter_map(|part| {
-        let sep = part.find('=')?;
-        if sep == 0 {
-            return None;
-        }
-        let name = part[..sep].trim();
-        let value = part[sep + 1..].trim();
-        let valid_name = !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+.^_`|~-".contains(c));
-        let valid_value = !value.is_empty() && !value.chars().any(|c| c.is_control());
-        if valid_name && valid_value {
-            Some((name.to_string(), value.to_string()))
-        } else {
-            None
-        }
-    }).collect()
+    header
+        .split(';')
+        .filter_map(|part| {
+            let sep = part.find('=')?;
+            if sep == 0 {
+                return None;
+            }
+            let name = part[..sep].trim();
+            let value = part[sep + 1..].trim();
+            let valid_name = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+.^_`|~-".contains(c));
+            let valid_value = !value.is_empty() && !value.chars().any(|c| c.is_control());
+            if valid_name && valid_value {
+                Some((name.to_string(), value.to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Strip a leading `Cookie:` prefix and surrounding quotes.
@@ -231,13 +236,18 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     // Accept either a raw cookie string or a JSON `{"cookie": "..."}` blob.
     let raw = serde_json::from_str::<serde_json::Value>(credential)
         .ok()
-        .and_then(|v| v.get("cookie").and_then(|c| c.as_str()).map(|s| s.to_string()))
+        .and_then(|v| {
+            v.get("cookie")
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| credential.to_string());
 
     let cookie = normalize_cookie(&raw);
     if cookie.is_empty() {
         return Err(VendorError::Parse(
-            "缺少有效的会话 Cookie（需包含 session / wos-session / next-auth.session-token 等）".into(),
+            "缺少有效的会话 Cookie（需包含 session / wos-session / next-auth.session-token 等）"
+                .into(),
         ));
     }
 
@@ -264,10 +274,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
         })
         .collect();
 
-    let used_pct = q_windows
-        .iter()
-        .map(|w| w.used_pct)
-        .fold(0.0f64, f64::max);
+    let used_pct = q_windows.iter().map(|w| w.used_pct).fold(0.0f64, f64::max);
 
     Ok(Quota {
         vendor: "ollama".into(),
@@ -295,13 +302,18 @@ impl Http for UreqHttp {
     fn get(&self, url: &str, cookie: &str) -> Result<String, VendorError> {
         let resp = ureq::get(url)
             .set("Cookie", cookie)
-            .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .set(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .set("Accept-Language", "en-US,en;q=0.9")
             .set("Referer", "https://ollama.com/")
             .set("User-Agent", USER_AGENT)
             .call();
         match resp {
-            Ok(r) => r.into_string().map_err(|e| VendorError::Network(e.to_string())),
+            Ok(r) => r
+                .into_string()
+                .map_err(|e| VendorError::Network(e.to_string())),
             Err(ureq::Error::Status(code, _r)) => {
                 if code == 401 || code == 403 {
                     Err(VendorError::Auth("status code 401".into()))
@@ -333,12 +345,18 @@ mod tests {
 
     #[test]
     fn normalize_cookie_keeps_recognized_names_only() {
-        assert_eq!(normalize_cookie("wos-session=current"), "wos-session=current");
+        assert_eq!(
+            normalize_cookie("wos-session=current"),
+            "wos-session=current"
+        );
         assert_eq!(
             normalize_cookie("aid=1; wos-session=current; cf_clearance=ok"),
             "aid=1; wos-session=current; cf_clearance=ok"
         );
-        assert_eq!(normalize_cookie("__Secure-session=legacy"), "__Secure-session=legacy");
+        assert_eq!(
+            normalize_cookie("__Secure-session=legacy"),
+            "__Secure-session=legacy"
+        );
         // Bare values rejected.
         assert_eq!(normalize_cookie("raw-token-without-name"), "");
         assert_eq!(normalize_cookie(&format!("{}==", "a".repeat(80))), "");
@@ -347,7 +365,10 @@ mod tests {
     #[test]
     fn normalize_cookie_strips_cookie_prefix_and_quotes() {
         assert_eq!(normalize_cookie(r#""wos-session=abc""#), "wos-session=abc");
-        assert_eq!(normalize_cookie("Cookie: wos-session=abc"), "wos-session=abc");
+        assert_eq!(
+            normalize_cookie("Cookie: wos-session=abc"),
+            "wos-session=abc"
+        );
     }
 
     #[test]
@@ -388,7 +409,9 @@ mod tests {
 
     #[test]
     fn looks_signed_out_detects_signin_form() {
-        assert!(looks_signed_out(r#"<form action="/signin"><input type="email"></form>"#));
+        assert!(looks_signed_out(
+            r#"<form action="/signin"><input type="email"></form>"#
+        ));
         assert!(!looks_signed_out(SETTINGS_HTML));
     }
 

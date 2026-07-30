@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import type { Config } from "../../lib/api";
   import { api, type ClientStatus, type TokscaleStatus } from "../../lib/api";
+  import { COLLECTION_UPDATED } from "../../lib/events";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
@@ -124,7 +125,7 @@
 
   $effect(() => {
     void loadArchivedCount();
-    const un = listen<void>("collection:updated", () => void loadArchivedCount());
+    const un = listen<void>(COLLECTION_UPDATED, () => void loadArchivedCount());
     return () => { un.then((u) => u()); };
   });
 </script>
@@ -226,7 +227,7 @@
         {#if t}
           <div class="trow">
             <div class="tleft">
-              <ToolIcon vendor={t.client} size={22} />
+              <ToolIcon vendor={t.client} size={22} color="var(--text-dim)" />
               <div class="tinfo">
                 <span class="tname">{t.label}{#if t.diagnostics?.length}
                   <span class="t-diag" title={t.diagnostics.map(d => d.message).join("\n")}>ℹ</span>

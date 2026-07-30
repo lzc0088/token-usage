@@ -30,7 +30,8 @@ pub fn not_in_clause<'a, T: rusqlite::ToSql>(
     }
     let placeholders = items.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!("{column} NOT IN ({placeholders})");
-    let params: Vec<&'a dyn rusqlite::ToSql> = items.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params: Vec<&'a dyn rusqlite::ToSql> =
+        items.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
     (sql, params)
 }
 

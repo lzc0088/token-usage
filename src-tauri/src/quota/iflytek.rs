@@ -346,7 +346,9 @@ impl UreqHttp {
         use std::sync::OnceLock;
         static INSTANCE: OnceLock<UreqHttp> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {
-            agent: ureq::AgentBuilder::new().redirects(0).build(),
+            agent: crate::utils::http::direct_agent_builder()
+                .redirects(0)
+                .build(),
         })
     }
 }
@@ -506,8 +508,7 @@ mod tests {
 
     #[test]
     fn parse_balance_missing_data_returns_none() {
-        let b = parse_balance(r#"{"code":0,"data":null}"#)
-            .expect("should parse");
+        let b = parse_balance(r#"{"code":0,"data":null}"#).expect("should parse");
         assert!(b.is_none());
     }
 

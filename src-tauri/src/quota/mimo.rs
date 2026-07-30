@@ -390,7 +390,7 @@ impl UreqHttp {
         use std::sync::OnceLock;
         static INSTANCE: OnceLock<UreqHttp> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {
-            agent: ureq::AgentBuilder::new()
+            agent: crate::utils::http::direct_agent_builder()
                 .redirects(0) // match token-monitor redirect: 'manual'
                 .build(),
         })

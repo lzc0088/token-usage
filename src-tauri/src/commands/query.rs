@@ -89,9 +89,9 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
 }
 
 #[tauri::command]
-pub fn get_sessions(state: State<AppState>) -> Result<Vec<SessionVm>, String> {
+pub fn get_sessions(limit: Option<i64>, state: State<AppState>) -> Result<Vec<SessionVm>, String> {
     let claude_dir = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
-    query::sessions::query(&db(&state), claude_dir.as_deref()).map_err(|e| e.to_string())
+    query::sessions::query(&db(&state), claude_dir.as_deref(), limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

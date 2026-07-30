@@ -11,6 +11,14 @@ use crate::storage;
 
 pub struct AppState {
     pub(crate) db: Arc<Mutex<Connection>>,
+    /// Cross-window bridge: the settings page the settings window should
+    /// navigate to on its next focus. `None` = no pending open (window just
+    /// regained focus from another app — don't reset the user's current page).
+    /// `Some(page)` = an open_settings call is pending; consume → navigate.
+    /// Set by `open_settings` (main popover) / tray, consumed by the settings
+    /// window's focus handler — the two windows are separate webviews with
+    /// independent JS contexts, so JS module state can't cross between them.
+    pub(crate) settings_target: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -23,6 +31,7 @@ impl AppState {
         let conn = storage::open_db(&path)?;
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
+            settings_target: Mutex::new(None),
         })
     }
 
@@ -40,5 +49,15 @@ impl AppState {
     pub fn load_config(&self) -> Result<Config, storage::StorageError> {
         let conn = self.db_guard();
         crate::config::load(&conn)
+    }
+
+    /// Construct an AppState from an already-built shared DB handle. Used by
+    /// tests that build an in-memory DB directly instead of via `open_default`.
+    #[cfg(test)]
+    pub(crate) fn with_db(db: Arc<Mutex<Connection>>) -> Self {
+        Self {
+            db,
+            settings_target: Mutex::new(None),
+        }
     }
 }

@@ -140,9 +140,15 @@ impl VendorId {
             | VendorId::Mimo
             | VendorId::GlmTeam => CredentialCategory::ApiKey,
             // stepfun / iflytek / qoder / cursor / copilot / ollama / opencode / claude / codex use cookie / OAuth token.
-            VendorId::Stepfun | VendorId::Iflytek | VendorId::Qoder | VendorId::Cursor | VendorId::Copilot | VendorId::Ollama | VendorId::Opencode | VendorId::Claude | VendorId::Codex => {
-                CredentialCategory::Cookie
-            }
+            VendorId::Stepfun
+            | VendorId::Iflytek
+            | VendorId::Qoder
+            | VendorId::Cursor
+            | VendorId::Copilot
+            | VendorId::Ollama
+            | VendorId::Opencode
+            | VendorId::Claude
+            | VendorId::Codex => CredentialCategory::Cookie,
         }
     }
 }
@@ -268,5 +274,208 @@ pub fn format_validate_error(msg: &str) -> String {
         "请填写完整的凭证".into()
     } else {
         format!("凭证验证失败: {msg}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_header_safe ──────────────────────────────────────────
+
+    #[test]
+    fn validate_header_safe_rejects_empty() {
+        let result = validate_header_safe("");
+        assert!(result.is_err());
+        match result {
+            Err(VendorError::Parse(msg)) => assert!(msg.contains("empty")),
+            _ => panic!("expected Parse error"),
+        }
+    }
+
+    #[test]
+    fn validate_header_safe_rejects_control_chars() {
+        assert!(validate_header_safe("sk-test\x00hidden").is_err());
+    }
+
+    #[test]
+    fn validate_header_safe_rejects_crlf() {
+        assert!(validate_header_safe("sk-good\r\nInjected: yes").is_err());
+    }
+
+    #[test]
+    fn validate_header_safe_rejects_too_long() {
+        let long = "a".repeat(4097);
+        assert!(validate_header_safe(&long).is_err());
+    }
+
+    #[test]
+    fn validate_header_safe_accepts_valid_key() {
+        assert!(validate_header_safe("sk-abc123").is_ok());
+    }
+
+    #[test]
+    fn validate_header_safe_accepts_boundary_length() {
+        assert!(validate_header_safe(&"a".repeat(4096)).is_ok());
+    }
+
+    // ── extract_key ───────────────────────────────────────────────────
+
+    #[test]
+    fn extract_key_plain_string_passthrough() {
+        assert_eq!(extract_key("sk-my-key"), "sk-my-key");
+    }
+
+    #[test]
+    fn extract_key_json_extracts_key_field() {
+        assert_eq!(extract_key(r#"{"key":"sk-123"}"#), "sk-123");
+    }
+
+    #[test]
+    fn extract_key_json_missing_key_falls_back() {
+        assert_eq!(extract_key(r#"{"token":"abc"}"#), r#"{"token":"abc"}"#);
+    }
+
+    #[test]
+    fn extract_key_trims_outer_whitespace() {
+        assert_eq!(extract_key("  sk-spaces  "), "sk-spaces");
+    }
+
+    #[test]
+    fn extract_key_json_trims_inner_key_value() {
+        assert_eq!(extract_key(r#"  {"key":"  sk-nested  "}  "#), "sk-nested");
+    }
+
+    // ── is_auth_error ─────────────────────────────────────────────────
+
+    #[test]
+    fn is_auth_error_true_for_explicit_auth() {
+        assert!(is_auth_error(&VendorError::Auth("expired".into())));
+    }
+
+    #[test]
+    fn is_auth_error_true_for_401() {
+        assert!(is_auth_error(&VendorError::Api {
+            status: 401,
+            body: "Unauthorized".into()
+        }));
+    }
+
+    #[test]
+    fn is_auth_error_true_for_403() {
+        assert!(is_auth_error(&VendorError::Api {
+            status: 403,
+            body: "Forbidden".into()
+        }));
+    }
+
+    #[test]
+    fn is_auth_error_false_for_network_error() {
+        assert!(!is_auth_error(&VendorError::Network("timeout".into())));
+    }
+
+    #[test]
+    fn is_auth_error_false_for_innocent_parse() {
+        assert!(!is_auth_error(&VendorError::Parse("malformed json".into())));
+    }
+
+    // ── format_validate_error ─────────────────────────────────────────
+
+    #[test]
+    fn format_validate_error_auth_message() {
+        for msg in &["401", "403", "unauthorized", "Unauthorized"] {
+            assert!(
+                format_validate_error(msg).contains("API 密钥无效"),
+                "msg={msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_validate_error_network_message() {
+        for msg in &["timeout", "timed out", "connection refused", "No address"] {
+            assert!(
+                format_validate_error(msg).contains("网络连接失败"),
+                "msg={msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_validate_error_empty_credential_message() {
+        assert!(format_validate_error("empty credential").contains("请填写完整"));
+        assert!(format_validate_error("缺少必需").contains("请填写完整"));
+    }
+
+    #[test]
+    fn format_validate_error_fallback_includes_original() {
+        let r = format_validate_error("something unexpected");
+        assert!(r.contains("凭证验证失败"));
+        assert!(r.contains("something unexpected"));
+    }
+
+    // ── adapter_for ───────────────────────────────────────────────────
+
+    #[test]
+    fn adapter_for_all_tracked_vendors_return_some() {
+        assert_eq!(TRACKED_VENDORS.len(), 16);
+        for vendor in TRACKED_VENDORS {
+            assert!(adapter_for(vendor).is_some(), "tracked '{vendor}' must map");
+        }
+    }
+
+    #[test]
+    fn adapter_for_unknown_returns_none() {
+        assert!(adapter_for("nonexistent").is_none());
+        assert!(adapter_for("").is_none());
+    }
+
+    #[test]
+    fn adapter_for_produced_variants_have_nonempty_labels() {
+        for vendor in TRACKED_VENDORS {
+            assert!(!adapter_for(vendor).unwrap().label().is_empty(), "{vendor}");
+        }
+    }
+
+    // ── VendorId ──────────────────────────────────────────────────────
+
+    #[test]
+    fn vendor_label_samples() {
+        assert_eq!(VendorId::Deepseek.label(), "DeepSeek");
+        assert_eq!(VendorId::Glm.label(), "GLM");
+        assert_eq!(VendorId::Codex.label(), "Codex");
+        assert_eq!(VendorId::Claude.label(), "Claude Code");
+    }
+
+    #[test]
+    fn vendor_category_api_key() {
+        for v in &[
+            VendorId::Deepseek,
+            VendorId::Glm,
+            VendorId::Minimax,
+            VendorId::Kimi,
+            VendorId::Volcengine,
+            VendorId::Mimo,
+            VendorId::GlmTeam,
+        ] {
+            assert_eq!(v.category(), CredentialCategory::ApiKey, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn vendor_category_cookie() {
+        for v in &[
+            VendorId::Stepfun,
+            VendorId::Iflytek,
+            VendorId::Qoder,
+            VendorId::Cursor,
+            VendorId::Copilot,
+            VendorId::Ollama,
+            VendorId::Opencode,
+            VendorId::Claude,
+            VendorId::Codex,
+        ] {
+            assert_eq!(v.category(), CredentialCategory::Cookie, "{v:?}");
+        }
     }
 }

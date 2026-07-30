@@ -21,21 +21,43 @@ let visible = $state<Record<ModuleKey, boolean>>({
   limits: true,
 });
 
-// Load from config on init.
-api.getConfig().then(cfg => {
-  if (cfg?.layout_overview_sub) {
-    const s = new Set(cfg.layout_overview_sub);
-    for (const k of MODULE_ORDER) {
-      visible[k] = s.has(k);
+// Guards: true after loadConfig resolves, preventing toggleModule (which reads
+// default state and persists it to config) from racing with initial config load.
+let loaded = false;
+
+// Load from config on init. Retry up to 3 times with backoff (250ms/500ms/1000ms)
+// in case the Tauri IPC isn't ready when this module initializes (e.g. cold start
+// where the webview loads before the Rust backend completes setup).
+async function loadConfig(retries = 3): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const cfg = await api.getConfig();
+      if (cfg?.layout_overview_sub) {
+        const s = new Set(cfg.layout_overview_sub);
+        for (const k of MODULE_ORDER) {
+          visible[k] = s.has(k);
+        }
+      }
+      loaded = true;
+      return; // success — stop retrying
+    } catch {
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, 250 * (1 << i))); // 250, 500, 1000 ms
+      }
     }
   }
-}).catch(() => {});
+}
+
+loadConfig();
 
 export function isModuleVisible(k: ModuleKey): boolean {
   return visible[k];
 }
 
 export async function toggleModule(k: ModuleKey): Promise<void> {
+  // Wait for initial config load before toggling, otherwise toggling on the
+  // default state then having loadConfig overwrite visible would undo the toggle.
+  if (!loaded) return;
   visible[k] = !visible[k];
   // Persist to config so settings page stays in sync.
   const keys = MODULE_ORDER.filter(kk => visible[kk]);

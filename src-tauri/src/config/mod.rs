@@ -47,7 +47,8 @@ pub struct Config {
     /// How the popover is triggered: "click" (tray click) | "hover" (mouse over tray).
     #[serde(default = "default_trigger_mode")]
     pub trigger_mode: String,
-    /// Window display mode: "normal" (draggable) | "fixed" (pinned position).
+    /// Window display mode: "normal" (draggable) | "fixed" (pinned position)
+    /// | "always_on_top" (floating above other apps). Main popover only.
     #[serde(default = "default_window_display_mode")]
     pub window_display_mode: String,
     /// Tray display style: today_tokens | today_cost | today_both |
@@ -203,6 +204,18 @@ pub fn load(conn: &Connection) -> Result<Config, StorageError> {
 pub fn save(conn: &Connection, cfg: &Config) -> Result<(), StorageError> {
     let json = serde_json::to_string(cfg)?;
     set_raw(conn, KEY_CONFIG, &json)
+}
+
+/// Atomic load-modify-save. Reads the current config, passes it to `f` for
+/// mutation, and persists the result — all within a single function call so
+/// concurrent callers can't overwrite each other's changes.
+///
+/// The DB connection is held for the duration of the closure; keep `f` fast
+/// (no I/O, no network).
+pub fn with_config(conn: &Connection, f: impl FnOnce(&mut Config)) -> Result<(), StorageError> {
+    let mut cfg = load(conn)?;
+    f(&mut cfg);
+    save(conn, &cfg)
 }
 
 // ── raw kv helpers (also used by credentials-adjacent / scheduler state) ────

@@ -132,6 +132,13 @@ export interface TokscaleStatus {
   version: string | null;
 }
 
+/** Phase 1 result from copilot_login: user code + verification URL. */
+export interface CopilotLoginStart {
+  user_code: string;
+  verification_url: string;
+  expires_in: number;
+}
+
 export type Currency = "usd" | "cny" | "both";
 
 export type QuotaStatus = "ok" | "low" | "danger";
@@ -193,8 +200,8 @@ export interface Config {
   auto_close_on_blur?: boolean;
   /** Popover trigger: "click" (tray click) | "hover" (mouse over tray). */
   trigger_mode?: "click" | "hover";
-  /** Window display mode: "normal" (draggable) | "fixed" (pinned). */
-  window_display_mode?: "normal" | "fixed";
+  /** Window display mode: "normal" (draggable) | "fixed" (pinned) | "always_on_top" (floating). */
+  window_display_mode?: "normal" | "fixed" | "always_on_top";
   /** Tray display style. */
   tray_display?:
     | "today_tokens"
@@ -272,7 +279,7 @@ export const api = {
 
   getTrends: (period: Period) => invoke<Trends>("get_trends", { period }),
 
-  getSessions: () => invoke<SessionVm[]>("get_sessions"),
+  getSessions: (limit?: number) => invoke<SessionVm[]>("get_sessions", { limit: limit ?? null }),
 
   getSessionDetail: (tool: string, sessionId: string) =>
     invoke<SessionDetailRow[]>("get_session_detail", { tool, sessionId }),
@@ -318,9 +325,13 @@ export const api = {
   clearCredentialFields: (vendor: string, fields: string[]) =>
     invoke<void>("clear_credential_fields", { vendor, fields }),
 
-  /** Run the GitHub Copilot OAuth Device Flow. Emits `copilot:login_status`
-   *  events as it progresses; resolves to the GitHub access token on success. */
-  copilotLogin: () => invoke<string>("copilot_login"),
+  /** Phase 1: request device code from GitHub. Returns user code + URL. */
+  copilotLogin: () => invoke<CopilotLoginStart>("copilot_login"),
+  /** Phase 2: poll for access token until user authorizes in browser. */
+  pollCopilotToken: () => invoke<string>("poll_for_token"),
+
+  /** Dev diagnostics: bridge a frontend log line to the Rust terminal. */
+  feLog: (msg: string) => invoke<void>("frontend_log", { msg }).catch(() => {}),
 
   /** Run `codex login` OAuth flow. Emits `codex:login_status` events as it
    *  progresses; the frontend opens the authorize URL when detected. */

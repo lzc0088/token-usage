@@ -18,11 +18,13 @@
     vendor,
     badge = false,
     size = 14,
+    color: _color_override,
   }: {
     tool?: string;
     vendor?: string;
     badge?: boolean;
     size?: number;
+    color?: string;
   } = $props();
 
   // Resolve meta: try tool first, then vendor.
@@ -46,6 +48,8 @@
 
   let svg = $derived(meta.icon);
   let iconSize = $derived(badge ? 28 : size);
+  // When _color_override is provided, use it instead of meta.color for inline mode.
+  let resolvedColor = $derived(_color_override || meta.color);
 </script>
 
 {#if badge}
@@ -59,7 +63,7 @@
 {:else}
   <span
     class="ti-inline"
-    style="width:{iconSize}px;height:{iconSize}px;color:{meta.color}"
+    style="width:{iconSize}px;height:{iconSize}px;color:{resolvedColor}"
     title={meta.label}
   >
     {@html svg}

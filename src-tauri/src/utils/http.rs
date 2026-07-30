@@ -109,6 +109,49 @@ pub fn proxy_agent_builder() -> ureq::AgentBuilder {
     builder
 }
 
+/// Proxy-related env var keys that ureq reads automatically.
+const PROXY_ENV_KEYS: &[&str] = &[
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+];
+
+/// Temporarily strip proxy env vars, run `f`, then restore them.
+/// Use this to wrap HTTP calls to **domestic** services (e.g. bigmodel.cn,
+/// kimi.com, minimaxi.com) that must connect directly even when the user has
+/// a global proxy configured for international services.
+pub fn without_proxy_env<T>(f: impl FnOnce() -> T) -> T {
+    let saved: Vec<(String, String)> = PROXY_ENV_KEYS
+        .iter()
+        .filter_map(|&k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .collect();
+    for &k in PROXY_ENV_KEYS {
+        std::env::remove_var(k);
+    }
+    let result = f();
+    for (k, v) in saved {
+        std::env::set_var(k, v);
+    }
+    result
+}
+
+/// Build an agent for **domestic** services — no proxy, direct connection.
+/// Strips env-var proxies around the build so ureq doesn't pick up a global
+/// proxy meant for international sites.
+pub fn direct_agent_builder() -> ureq::AgentBuilder {
+    without_proxy_env(ureq::AgentBuilder::new)
+}
+
+/// A shared direct-connection agent (no proxy) for domestic services.
+/// Built once; cached for the process lifetime.
+pub fn direct_agent() -> &'static Agent {
+    static AGENT: OnceLock<Agent> = OnceLock::new();
+    AGENT.get_or_init(|| direct_agent_builder().build())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

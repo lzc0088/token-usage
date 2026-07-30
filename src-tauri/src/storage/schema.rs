@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use super::StorageError;
 
 /// Current schema version. Bump + add a migration step on schema change.
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 5;
 
 /// v1: initial tables + indexes.
 const V1: &str = r#"
@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS quota_cache (
   fetched_at INTEGER NOT NULL          -- epoch ms
 );
 "#;
+/// v5: add composite index on (tool, session_id) so session-list queries
+/// (GROUP BY tool, session_id) avoid a full table scan.
+const V5: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_sessions_tool_sid ON sessions(tool, session_id);
+"#;
+
 const V3: &str = r#"
 CREATE TABLE IF NOT EXISTS exchange_rate (
   from_currency TEXT NOT NULL,
@@ -118,6 +124,10 @@ pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     if current < 4 {
         conn.execute_batch(V4)?;
         conn.pragma_update(None, "user_version", 4)?;
+    }
+    if current < 5 {
+        conn.execute_batch(V5)?;
+        conn.pragma_update(None, "user_version", 5)?;
     }
     Ok(())
 }
@@ -187,6 +197,7 @@ mod tests {
             "idx_daily_model",
             "idx_session_lastused",
             "idx_session_project",
+            "idx_sessions_tool_sid",
         ] {
             assert!(
                 idxs.contains(&expected.to_string()),

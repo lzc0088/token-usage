@@ -13,10 +13,11 @@
 //! Faithfully ported from token-monitor src/shared/copilotLimits.js +
 //! copilotDeviceFlow.js. Client ID `Iv1.b507a08c87ecfe98` is a public OAuth App.
 
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::types::{parse_iso, Quota, QuotaStatus, QuotaWindow};
 use super::VendorError;
@@ -31,6 +32,14 @@ const ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 const USAGE_URL: &str = "https://api.github.com/copilot_internal/user";
 
 const USER_AGENT: &str = "GitHubCopilotChat/0.26.7";
+
+/// Storage for the device code between Phase 1 (request) and Phase 2 (poll).
+/// Set in `request_device_code_info`, consumed in `poll_for_access_token`.
+fn device_code_storage() -> &'static Mutex<Option<DeviceCodeResp>> {
+    DEVICE_CODE_STORAGE.get_or_init(|| Mutex::new(None))
+}
+
+static DEVICE_CODE_STORAGE: OnceLock<Mutex<Option<DeviceCodeResp>>> = OnceLock::new();
 
 // ── Quota fetch ─────────────────────────────────────────────────────────────
 
@@ -266,22 +275,59 @@ pub enum LoginStatus {
 }
 
 /// POST a form-urlencoded body and return the JSON response string.
+/// Uses the macOS system proxy (from System Settings → Proxies), ignoring any
+/// stale HTTPS_PROXY env vars that may point to a dead proxy.
 fn post_form(url: &str, body: &str) -> Result<String, VendorError> {
-    let resp = ureq::post(url)
-        .set("Accept", "application/json")
-        .set("Content-Type", "application/x-www-form-urlencoded")
-        .send_string(body);
+    let resp = without_proxy_env(|| {
+        // After clearing env-var proxies, proxy_agent_builder() will only pick
+        // up the macOS system proxy (scutil --proxy). If none, connects directly.
+        crate::utils::http::proxy_agent_builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .post(url)
+            .set("Accept", "application/json")
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_string(body)
+    });
     match resp {
-        Ok(r) => r
-            .into_string()
-            .map_err(|e| VendorError::Network(e.to_string())),
+        Ok(r) => {
+            let s = r
+                .into_string()
+                .map_err(|e| VendorError::Network(e.to_string()))?;
+            Ok(s)
+        }
         Err(ureq::Error::Status(code, r)) => {
-            // GitHub returns 200 even for pending; a non-200 here is a real error.
             let body = r.into_string().unwrap_or_default();
             Err(VendorError::Network(format!("status code {code}: {body}")))
         }
         Err(e) => Err(VendorError::Network(e.to_string())),
     }
+}
+
+/// Temporarily remove proxy-related env vars, run `f`, then restore them.
+/// This prevents ureq from using stale HTTPS_PROXY env vars while still
+/// allowing proxy_agent_builder() to detect the macOS system proxy.
+fn without_proxy_env<T>(f: impl FnOnce() -> T) -> T {
+    const KEYS: &[&str] = &[
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+    let saved: Vec<(String, String)> = KEYS
+        .iter()
+        .filter_map(|&k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .collect();
+    for &k in KEYS {
+        std::env::remove_var(k);
+    }
+    let result = f();
+    for (k, v) in saved {
+        std::env::set_var(k, v);
+    }
+    result
 }
 
 fn form_encode(s: &str) -> String {
@@ -330,12 +376,12 @@ pub async fn poll_access_token(
     );
     let started = std::time::Instant::now();
     let deadline = Duration::from_secs(device_code.expires_in.unwrap_or(15 * 60));
-    let mut interval_ms = device_code
-        .interval
-        .unwrap_or(DEFAULT_POLL_INTERVAL_SECS)
-        * 1000;
+    let mut interval_ms = device_code.interval.unwrap_or(DEFAULT_POLL_INTERVAL_SECS) * 1000;
 
     let _ = app.emit("copilot:login_status", LoginStatus::Polling);
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.emit("copilot:login_status", LoginStatus::Polling);
+    }
     loop {
         if started.elapsed() >= deadline {
             return Err(VendorError::Network("GitHub device code expired".into()));
@@ -343,12 +389,15 @@ pub async fn poll_access_token(
         tokio::time::sleep(Duration::from_millis(interval_ms)).await;
 
         let raw = post_form(ACCESS_TOKEN_URL, &body)?;
-        let v: serde_json::Value = serde_json::from_str(&raw)
-            .map_err(|e| VendorError::Parse(e.to_string()))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| VendorError::Parse(e.to_string()))?;
 
         if let Some(token) = v.get("access_token").and_then(|t| t.as_str()) {
             if !token.is_empty() {
                 let _ = app.emit("copilot:login_status", LoginStatus::Success);
+                if let Some(w) = app.get_webview_window("settings") {
+                    let _ = w.emit("copilot:login_status", LoginStatus::Success);
+                }
                 return Ok(token.to_string());
             }
         }
@@ -370,18 +419,25 @@ pub async fn poll_access_token(
                     .get("error_description")
                     .and_then(|d| d.as_str())
                     .unwrap_or(other);
-                return Err(VendorError::Network(format!("GitHub sign-in failed: {desc}")));
+                return Err(VendorError::Network(format!(
+                    "GitHub sign-in failed: {desc}"
+                )));
             }
         }
     }
 }
 
-/// Run the full Device Flow: request code → emit authorize status → poll.
-/// The frontend listens for `copilot:login_status` (phase `authorize`) to open
-/// the browser via the shell plugin and show the user code; this returns the
-/// access token on success.
-pub async fn run_device_flow(app: &AppHandle) -> Result<String, VendorError> {
-    let code = request_device_code()?;
+/// Phase 1 of Device Flow: request device code from GitHub and return
+/// the authorize info (user code + verification URL). The frontend displays
+/// the code and opens the browser. No events emitted.
+pub async fn request_device_code_info() -> Result<LoginStart, VendorError> {
+    let code = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::task::spawn_blocking(request_device_code),
+    )
+    .await
+    .map_err(|_| VendorError::Network("request device code timed out".into()))?
+    .map_err(|e| VendorError::Network(format!("join: {e}")))??;
     let user_code = code.user_code.clone().unwrap_or_default();
     let verification_url = code
         .verification_uri_complete
@@ -390,15 +446,24 @@ pub async fn run_device_flow(app: &AppHandle) -> Result<String, VendorError> {
         .unwrap_or_default();
     let expires_in = code.expires_in.unwrap_or(15 * 60);
 
-    let _ = app.emit(
-        "copilot:login_status",
-        LoginStatus::Authorize {
-            user_code: user_code.clone(),
-            verification_url: verification_url.clone(),
-            expires_in,
-        },
-    );
+    // Store the raw device code for Phase 2 polling.
+    *device_code_storage().lock().unwrap() = Some(code);
 
+    Ok(LoginStart {
+        user_code,
+        verification_url,
+        expires_in,
+    })
+}
+
+/// Phase 2 of Device Flow: poll for access token. Called after the user has
+/// seen the code and authorized in the browser. Returns the access token on success.
+pub async fn poll_for_access_token(app: &AppHandle) -> Result<String, VendorError> {
+    let code = device_code_storage()
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| VendorError::Parse("No pending login — call copilot_login first".into()))?;
     poll_access_token(code, app).await
 }
 
@@ -428,7 +493,8 @@ mod tests {
     #[test]
     fn parse_entitlement_remaining_fallback() {
         // No percent_remaining → derive from entitlement/remaining.
-        let body = r#"{"quota_snapshots":{"premium_interactions":{"entitlement":200,"remaining":50}}}"#;
+        let body =
+            r#"{"quota_snapshots":{"premium_interactions":{"entitlement":200,"remaining":50}}}"#;
         let (premium, _, _) = parse(body).unwrap();
         assert!((premium.unwrap() - 75.0).abs() < 1e-6); // (1 - 50/200)*100 = 75 remaining → 25 used
     }
@@ -462,7 +528,10 @@ mod tests {
                 Ok(r#"{"quota_snapshots":{}}"#.into())
             }
         }
-        assert!(matches!(fetch_with(&Mock, "gho_token"), Err(VendorError::Empty)));
+        assert!(matches!(
+            fetch_with(&Mock, "gho_token"),
+            Err(VendorError::Empty)
+        ));
     }
 
     #[test]
@@ -473,7 +542,8 @@ mod tests {
                 Ok(r#"{"quota_snapshots":{
                     "premium_interactions":{"percent_remaining":40},
                     "chat":{"percent_remaining":90}
-                }}"#.into())
+                }}"#
+                .into())
             }
         }
         let q = fetch_with(&Mock, "gho_token").unwrap();
@@ -488,6 +558,9 @@ mod tests {
     #[test]
     fn form_encode_encodes_special_chars() {
         assert_eq!(form_encode("a b&c"), "a%20b%26c");
-        assert_eq!(form_encode("urn:ietf:params:oauth"), "urn%3Aietf%3Aparams%3Aoauth");
+        assert_eq!(
+            form_encode("urn:ietf:params:oauth"),
+            "urn%3Aietf%3Aparams%3Aoauth"
+        );
     }
 }

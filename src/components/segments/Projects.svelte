@@ -133,13 +133,7 @@
       {@const rowKey = p.full_path ?? `${p.name}#${i}`}
       {@const st = splitTokens(p.tokens)}
       {@const open = expanded === rowKey}
-      <div
-        class="prow"
-        role="button"
-        tabindex="0"
-        onclick={() => toggleExpand(rowKey)}
-        onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(rowKey); } }}
-      >
+      <button type="button" class="prow" onclick={() => toggleExpand(rowKey)}>
         <span class="pk">📁</span>
         <div class="p-main">
           <div class="p-top">
@@ -157,7 +151,7 @@
           <span class="p-tokens">{st.value}<span class="tku">{st.unit}</span></span>
           <span class="p-days">{p.messages} 条</span>
         </div>
-      </div>
+      </button>
       {#if open}
         <div class="p-detail">
           {#if p.full_path}
@@ -333,8 +327,11 @@
     align-items: center;
     gap: 12px;
     padding: 9px 16px;
-    border-bottom: 1px dashed var(--border-dim);
     cursor: pointer;
+    /* button reset FIRST, then re-declare the divider so `border:none` shorthand
+       doesn't clobber border-bottom (which wiped the row dividers). */
+    background: none; border: none; font-family: inherit; text-align: left; width: 100%; font-size: inherit;
+    border-bottom: 1px dashed var(--border-dim);
   }
   .prow:last-child {
     border-bottom: none;

@@ -91,10 +91,7 @@ pub fn parse_refresh_interval_secs(raw: &str) -> Option<u64> {
 
 /// Resolve the next history-loop interval from config when a DB handle is
 /// available; falls back to `cfg.history_interval` otherwise (tests / no DB).
-fn next_history_interval(
-    db: &Option<Arc<Mutex<Connection>>>,
-    fallback: Duration,
-) -> Duration {
+fn next_history_interval(db: &Option<Arc<Mutex<Connection>>>, fallback: Duration) -> Duration {
     let Some(db) = db else {
         return fallback;
     };

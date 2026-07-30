@@ -21,12 +21,21 @@ use std::path::PathBuf;
 ///                 `~/.config` linux, `%APPDATA%` windows)
 const PROBES: &[(&str, &[&str])] = &[
     ("claude", &["{home}/.claude"]),
-    ("codex", &["{home}/.codex", "{apps}/ChatGPT.app", "{apps}/Codex.app"]),
-    ("cursor", &["{apps}/Cursor.app", "{config}/tokscale/cursor-cache"]),
+    (
+        "codex",
+        &["{home}/.codex", "{apps}/ChatGPT.app", "{apps}/Codex.app"],
+    ),
+    (
+        "cursor",
+        &["{apps}/Cursor.app", "{config}/tokscale/cursor-cache"],
+    ),
     ("warp", &["{apps}/Warp.app", "{home}/.warp"]),
     ("zed", &["{apps}/Zed.app", "{home}/.zed"]),
     ("gemini", &["{home}/.gemini"]),
-    ("opencode", &["{home}/.local/share/opencode", "{data}/opencode"]),
+    (
+        "opencode",
+        &["{home}/.local/share/opencode", "{data}/opencode"],
+    ),
     ("openclaw", &["{home}/.openclaw"]),
     ("kimi", &["{home}/.kimi", "{home}/.kimi-code"]),
     ("qwen", &["{home}/.qwen"]),
@@ -35,12 +44,24 @@ const PROBES: &[(&str, &[&str])] = &[
     ("kiro", &["{apps}/Kiro.app", "{home}/.kiro"]),
     ("trae", &["{apps}/Trae.app", "{apps}/Trae CN.app"]),
     ("zcode", &["{home}/.zcode"]),
-    ("micode", &["{home}/.local/share/mimocode", "{data}/mimocode"]),
+    (
+        "micode",
+        &["{home}/.local/share/mimocode", "{data}/mimocode"],
+    ),
     ("cline", &["{home}/.cline", "{config}/cline"]),
-    ("antigravity", &["{apps}/Antigravity.app", "{config}/tokscale/antigravity-cache"]),
+    (
+        "antigravity",
+        &[
+            "{apps}/Antigravity.app",
+            "{config}/tokscale/antigravity-cache",
+        ],
+    ),
     ("antigravity-cli", &["{apps}/Antigravity.app"]),
     ("goose", &["{config}/goose", "{home}/.goose"]),
-    ("roocode", &["{config}/Code/User/globalStorage/rooveterinaryinc.roo-cline"]),
+    (
+        "roocode",
+        &["{config}/Code/User/globalStorage/rooveterinaryinc.roo-cline"],
+    ),
     ("amp", &["{home}/.config/amp", "{home}/.amp"]),
     ("droid", &["{home}/.factory", "{config}/factory"]),
     ("codebuff", &["{home}/.codebuff", "{config}/codebuff"]),
@@ -49,7 +70,10 @@ const PROBES: &[(&str, &[&str])] = &[
     ("devin-desktop", &["{apps}/Devin.app", "{home}/.devin"]),
     ("codebuddy", &["{home}/.codebuddy"]),
     ("workbuddy", &["{home}/.workbuddy"]),
-    ("kilocode", &["{config}/Code/User/globalStorage/kilocode.kilo-code"]),
+    (
+        "kilocode",
+        &["{config}/Code/User/globalStorage/kilocode.kilo-code"],
+    ),
     ("kilo", &["{home}/.kilo", "{config}/kilo"]),
 ];
 
@@ -78,7 +102,9 @@ pub fn is_installed(client: &str) -> bool {
     let Some(templates) = PROBES.iter().find(|(c, _)| *c == client).map(|(_, t)| *t) else {
         return false;
     };
-    templates.iter().any(|t| resolve(t).is_some_and(|p| p.exists()))
+    templates
+        .iter()
+        .any(|t| resolve(t).is_some_and(|p| p.exists()))
 }
 
 #[cfg(test)]

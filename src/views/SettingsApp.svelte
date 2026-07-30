@@ -5,7 +5,6 @@
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config } from "../lib/api";
   import { applyAppearance, initAppearanceListeners } from "../lib/appearance";
-  import { getSettingsPartition, setSettingsPartition } from "../stores/settings.svelte";
   import General from "../components/settings/General.svelte";
   import MainView from "../components/settings/MainView.svelte";
   import Window from "../components/settings/Window.svelte";
@@ -14,6 +13,10 @@
 
   let cfg = $state<Config>({ currency: "both" });
   let loaded = $state(false);
+
+  // Active settings page — LOCAL $state, set by nav clicks and by the
+  // consume-target handler when opened via a quota quick-link.
+  let active = $state("general");
 
   $effect(() => {
     api.getConfig()
@@ -34,9 +37,10 @@
     return initAppearanceListeners();
   });
 
-  // Reload config from DB whenever the settings window gains focus —
-  // picks up changes made from the tray menu (theme, window mode, etc.)
-  // without needing a manual refresh.
+  // On focus: reload config (picks up tray-menu changes) and consume the
+  // pending landing page (set by open_settings, take semantics) — quota
+  // quick-links open settings on a specific page. App-switch focus returns
+  // null, so the user's current page is preserved.
   $effect(() => {
     async function onFocus() {
       try {
@@ -44,6 +48,12 @@
         cfg = c;
         applyAppearance(c);
       } catch { /* ignore */ }
+      try {
+        const target = await invoke<string | null>("consume_settings_target");
+        if (target !== null && target !== undefined && target !== "") {
+          active = target;
+        }
+      } catch { /* consume failed — keep current page */ }
     }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -56,7 +66,10 @@
     { k: "collection", l: "采集追踪", i: "▤" },
     { k: "account", l: "账号额度", i: "◉" },
   ];
-  let active = $derived(getSettingsPartition());
+
+  function onNavClick(target: string): void {
+    active = target;
+  }
 
   function close(): void {
     invoke("close_settings");
@@ -67,7 +80,7 @@
   <div class="setmain">
     <nav class="setnav">
       {#each NAV as n (n.k)}
-        <button class="item" class:active={active === n.k} onclick={() => setSettingsPartition(n.k)}>
+        <button class="item" class:active={active === n.k} onclick={() => onNavClick(n.k)}>
           <span class="si">{n.i}</span><span class="sl">{n.l}</span>
         </button>
       {/each}

@@ -13,9 +13,9 @@
 //!   - JSON: `{"access_token":"sk-...","account_id":"acc-..."}`
 
 use regex::Regex;
-use std::sync::LazyLock;
 use serde::Deserialize;
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use tauri::Emitter;
 
 use super::types::{epoch_to_iso, Quota, QuotaStatus, QuotaWindow};
@@ -38,8 +38,14 @@ pub trait Http {
 
 fn parse_credential(credential: &str) -> (String, Option<String>) {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(credential) {
-        let access = v.get("access_token").and_then(|k| k.as_str()).map(|s| s.to_string());
-        let account = v.get("account_id").and_then(|k| k.as_str()).map(|s| s.to_string());
+        let access = v
+            .get("access_token")
+            .and_then(|k| k.as_str())
+            .map(|s| s.to_string());
+        let account = v
+            .get("account_id")
+            .and_then(|k| k.as_str())
+            .map(|s| s.to_string());
         if access.is_some() || account.is_some() {
             return (access.unwrap_or_default(), account);
         }
@@ -55,7 +61,15 @@ fn parse_credential(credential: &str) -> (String, Option<String>) {
 /// Returns None if the CLI is unavailable or returns non-JSON.
 fn call_codex_rpc() -> Option<serde_json::Value> {
     let output = Command::new("codex")
-        .args(["--quiet", "--json", "rpc", "--method", "codex/listRateLimits", "--args", "[]"])
+        .args([
+            "--quiet",
+            "--json",
+            "rpc",
+            "--method",
+            "codex/listRateLimits",
+            "--args",
+            "[]",
+        ])
         .env("NO_COLOR", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -115,7 +129,10 @@ struct CreditEntry {
 
 fn extract_rate_limits(payload: &serde_json::Value) -> Option<RateLimitSnapshot> {
     // Try direct rate_limits first.
-    if let Some(rl) = payload.get("rateLimits").or_else(|| payload.get("rate_limits")) {
+    if let Some(rl) = payload
+        .get("rateLimits")
+        .or_else(|| payload.get("rate_limits"))
+    {
         if let Ok(snap) = serde_json::from_value::<RateLimitSnapshot>(rl.clone()) {
             if snap.primary.is_some() || snap.secondary.is_some() {
                 return Some(snap);
@@ -165,7 +182,13 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
                     .resets_at
                     .as_ref()
                     .and_then(|s| s.parse::<i64>().ok())
-                    .map(|ts| if ts > 1_000_000_000_000 { ts } else { ts * 1000 })
+                    .map(|ts| {
+                        if ts > 1_000_000_000_000 {
+                            ts
+                        } else {
+                            ts * 1000
+                        }
+                    })
                     .unwrap_or(now_ms + 5 * 60 * 60 * 1000);
                 windows.push(QuotaWindow {
                     label: "5h".into(),
@@ -180,7 +203,13 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
                     .resets_at
                     .as_ref()
                     .and_then(|s| s.parse::<i64>().ok())
-                    .map(|ts| if ts > 1_000_000_000_000 { ts } else { ts * 1000 })
+                    .map(|ts| {
+                        if ts > 1_000_000_000_000 {
+                            ts
+                        } else {
+                            ts * 1000
+                        }
+                    })
                     .unwrap_or(now_ms + 7 * 24 * 60 * 60 * 1000);
                 windows.push(QuotaWindow {
                     label: "周".into(),
@@ -426,17 +455,16 @@ pub async fn codex_login(app: &tauri::AppHandle) -> Result<(), String> {
         let status = child.wait();
         match status {
             Ok(s) if s.success() => {
-                let _ = app_handle.emit(
-                    "codex:login_status",
-                    CodexLoginStatus::Success,
-                );
+                let _ = app_handle.emit("codex:login_status", CodexLoginStatus::Success);
                 Ok(())
             }
             Ok(s) => {
                 let msg = format!("codex login 退出码: {}", s.code().unwrap_or(-1));
                 let _ = app_handle.emit(
                     "codex:login_status",
-                    CodexLoginStatus::Error { message: msg.clone() },
+                    CodexLoginStatus::Error {
+                        message: msg.clone(),
+                    },
                 );
                 Err(msg)
             }
@@ -444,7 +472,9 @@ pub async fn codex_login(app: &tauri::AppHandle) -> Result<(), String> {
                 let msg = format!("codex login 失败: {e}");
                 let _ = app_handle.emit(
                     "codex:login_status",
-                    CodexLoginStatus::Error { message: msg.clone() },
+                    CodexLoginStatus::Error {
+                        message: msg.clone(),
+                    },
                 );
                 Err(msg)
             }
@@ -466,4 +496,3 @@ pub enum CodexLoginStatus {
     /// Something went wrong.
     Error { message: String },
 }
-
