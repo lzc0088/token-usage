@@ -109,6 +109,22 @@ jobs:
           TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
         run: node scripts/fetch-tokscale.mjs
 
+      # macOS only: pre-sign the tokscale sidecar with hardened runtime before
+      # Tauri bundles it as a resource. Apple notarization requires EVERY
+      # executable under .app/Contents/Resources to be signed + hardened +
+      # timestamped (tauri#11992). Tauri's shallow bundle signing skips these.
+      - name: Pre-sign tokscale sidecar (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          BIN="src-tauri/bin/tokscale"
+          if [ -f "$BIN" ]; then
+            codesign --force --sign "Developer ID Application: Ze Chuan Liu (2F74TS79TL)" \
+              --options runtime --timestamp --options runtime \
+              "$BIN"
+            echo "✓ signed $BIN with hardened runtime + secure timestamp"
+            codesign --verify --verbose "$BIN"
+          fi
+
       - name: Read release notes
         id: notes
         shell: bash
