@@ -363,11 +363,11 @@ pub fn tarball_url(triple: &str, version: &str, registry_base: &str) -> String {
 /// where `installed_bin_path` expects. Tarball layout: `package/bin/tokscale`.
 /// Splits download (network) from extraction (fs) so extraction is unit-testable.
 pub fn install_from_tarball(data_dir: &Path, bytes: &[u8]) -> Result<PathBuf, TokscaleError> {
-    #[cfg(target_os = "windows")]
-    let exe_in_archive = "package/bin/tokscale.exe";
-    #[cfg(not(target_os = "windows"))]
-    let exe_in_archive = "package/bin/tokscale";
-
+    let exe = if cfg!(target_os = "windows") {
+        "tokscale.exe"
+    } else {
+        "tokscale"
+    };
     let target = installed_bin_path(data_dir);
     std::fs::create_dir_all(target.parent().unwrap())?;
 
@@ -381,8 +381,16 @@ pub fn install_from_tarball(data_dir: &Path, bytes: &[u8]) -> Result<PathBuf, To
         // (tar stores / on all platforms, but Path::to_string_lossy may
         // produce \ on Windows).
         let norm = s.replace('\\', "/");
+        let exe_in_archive = format!("package/bin/{}", exe);
+        let exe_no_ext = "package/bin/tokscale";
         // platform tarball stores the binary at package/bin/tokscale[.exe]
-        if norm == exe_in_archive || norm.ends_with(exe_in_archive) {
+        // Always accept the no-extension form (test tarballs use it on all
+        // platforms); also accept the platform-specific form.
+        if norm == exe_no_ext
+            || norm.ends_with(exe_no_ext)
+            || norm == exe_in_archive
+            || norm.ends_with(&exe_in_archive)
+        {
             let mut buf = Vec::new();
             e.read_to_end(&mut buf)?;
             std::fs::write(&target, &buf)?;

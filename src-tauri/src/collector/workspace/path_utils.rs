@@ -77,7 +77,9 @@ pub fn decode_workspace(
     if !is_safe_workspace_key(key) {
         return super::types::DecodedWorkspace::default();
     }
-    if key.starts_with('/') {
+    // Absolute paths (Unix `/...` or Windows `C:\...`) carry their own full
+    // path; no need to look up session files.
+    if Path::new(key).is_absolute() {
         let latest = path_mtime_date(Path::new(key));
         return super::types::DecodedWorkspace {
             name: if label.is_empty() {
