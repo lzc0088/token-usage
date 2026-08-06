@@ -1,19 +1,23 @@
 //! Workspace-key security validation (defense-in-depth).
 
+use std::path::Path;
+
 /// Reject workspace keys that could escape the intended directory.
-/// Encoded keys must start with `-`; absolute keys must start with `/`.
-/// Both are checked for `..` components via `Path` decomposition (handles
-/// encoded and unencoded forms). Data source is trusted (local tokscale
-/// binary); this is a defense-in-depth safety net.
+/// Valid keys: encoded (`-foo`), absolute (`/foo` or `C:\foo`), or plain
+/// alphanumeric names (e.g. `ZCodeProject` from tokscale output). All are
+/// checked for `..` components via `Path` decomposition.
 pub(crate) fn is_safe_workspace_key(key: &str) -> bool {
     if key.is_empty() {
         return false;
     }
-    if std::path::Path::new(key)
+    if Path::new(key)
         .components()
         .any(|c| c == std::path::Component::ParentDir)
     {
         return false;
     }
-    key.starts_with('-') || key.starts_with('/')
+    // Accept encoded keys, absolute paths (any OS), or plain alphanumeric names.
+    key.starts_with('-')
+        || key.starts_with('/')
+        || key.chars().next().is_some_and(|c| c.is_alphabetic())
 }

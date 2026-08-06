@@ -113,13 +113,13 @@ pub fn decode_workspace(
     }
 }
 
-/// Last segment of a path string (`/a/b/c` → `c`).
+/// Last segment of a path string (`/a/b/c` → `c`, `C:\a\b\c` → `c`).
 pub(crate) fn last_segment(path: &str) -> String {
-    path.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or(path)
-        .to_string()
+    use std::path::Path;
+    Path::new(path)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
 }
 
 /// Prefix an absolute path with `~` when it's under the user's home dir.
