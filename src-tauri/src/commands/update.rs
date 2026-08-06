@@ -418,15 +418,35 @@ pub fn get_app_version() -> String {
 
 /// Simple semver comparison: strips "v" prefix and compares major.minor.patch.
 /// Returns true when `candidate` is strictly greater than `current`.
+///
+/// Handles suffixes like `-test`, `-beta`, `-rc1` by extracting only the leading
+/// digits from each segment (e.g. `1.0.1-test` → `[1, 0, 1]`).
 fn is_newer(current: &str, candidate: &str) -> bool {
     let cur = strip_version(current);
     let cand = strip_version(candidate);
     if cur == cand {
         return false;
     }
-    // If either can't be parsed, fall back to string comparison.
-    let cur_parts: Vec<u32> = cur.split('.').filter_map(|s| s.parse().ok()).collect();
-    let cand_parts: Vec<u32> = cand.split('.').filter_map(|s| s.parse().ok()).collect();
+    let cur_parts: Vec<u32> = cur
+        .split('.')
+        .filter_map(|s| {
+            s.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .ok()
+        })
+        .collect();
+    let cand_parts: Vec<u32> = cand
+        .split('.')
+        .filter_map(|s| {
+            s.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .ok()
+        })
+        .collect();
     for i in 0..3 {
         let c = cand_parts.get(i).copied().unwrap_or(0);
         let p = cur_parts.get(i).copied().unwrap_or(0);
@@ -467,6 +487,17 @@ mod tests {
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("0.2.0", "0.1.0"));
         assert!(!is_newer("1.0.0", "0.9.9"));
+    }
+
+    #[test]
+    fn newer_with_suffix_tags() {
+        // Suffixes like -test, -beta are stripped; only digits matter.
+        assert!(is_newer("1.0.0", "v1.0.1-test"));
+        assert!(is_newer("1.0.0", "v1.0.1-beta"));
+        assert!(is_newer("1.0.1", "v1.0.2-rc1"));
+        assert!(is_newer("0.9.0", "v1.0.0-dev"));
+        // Same numeric version with suffix → not newer.
+        assert!(!is_newer("1.0.1", "v1.0.1-test"));
     }
 
     #[test]

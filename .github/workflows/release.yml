@@ -38,6 +38,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS only: import the Developer ID certificate for signing + notarizing.
+      - name: Import Apple certificate (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Decode the base64 .p12 into a temp keychain, so tauri/codesign can
+          # find the "Developer ID Application" identity during build.
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "build-keychain" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "build-keychain" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "build-keychain" build.keychain
+          rm -f certificate.p12
+
       - name: Install Node
         uses: actions/setup-node@v4
         with:
@@ -94,6 +112,12 @@ jobs:
           JUHE_API_KEY: ${{ secrets.JUHE_API_KEY }}
           # Vite injects this at frontend build time — settings page default repo.
           VITE_UPDATE_REPO: github.com/lzc0088/token-usage
+          # macOS signing + notarization (only read on the macos-latest job).
+          # Tauri reads these to sign the .app and submit it to Apple for
+          # notarization + stapling. See tauri.conf.json → bundle.macOS.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
