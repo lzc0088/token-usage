@@ -15,6 +15,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -69,6 +72,19 @@ jobs:
           TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
         run: node scripts/fetch-tokscale.mjs
 
+      - name: Read release notes
+        id: notes
+        run: |
+          if [ -f scripts/RELEASE_NOTES.md ]; then
+            {
+              echo 'body<<RELEASE_EOF'
+              cat scripts/RELEASE_NOTES.md
+              echo 'RELEASE_EOF'
+            } >> "${GITHUB_OUTPUT}"
+          else
+            echo "body=## Token Usage \${{ github.ref_name }}" >> "${GITHUB_OUTPUT}"
+          fi
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,3 +97,4 @@ jobs:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Token Usage ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
