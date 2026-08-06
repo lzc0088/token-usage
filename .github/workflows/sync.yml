@@ -34,10 +34,12 @@ jobs:
         env:
           # secret / 仓库标识走 env，不直接插值进 run 命令（防注入 + 不进 ps 列表）
           GH_PAT: ${{ secrets.GH_PAT }}
+          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
           TARGET_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          git clone --mirror https://gitee.com/lzc0088/token-usage.git repo
+          # Gitee 仓库私有，clone 需带 token 认证（用户名用账号名，token 作密码）。
+          git clone --mirror "https://lzc0088:${GITEE_TOKEN}@gitee.com/lzc0088/token-usage.git" repo
           cd repo
           # --prune: 删除 GitHub 上有但 Gitee 上已不存在的 ref（纯镜像）
           # 只推 heads + tags，避免误碰其他 ref
