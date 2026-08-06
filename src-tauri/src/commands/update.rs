@@ -3,14 +3,14 @@
 //! Uses `ureq` (blocking) inside an async Tauri command — `ureq` is sync but
 //! Tauri runs commands on a blocking thread pool, so this is fine.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::state::AppState;
 use crate::GITEE_TOKEN;
 
 /// Response from the update check.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {
     /// Whether a newer version is available.
     pub has_update: bool,
@@ -27,9 +27,71 @@ pub struct UpdateInfo {
     /// Error message when the check failed (network, API error, etc.).
     /// Empty when the check succeeded.
     pub error: String,
+    /// Machine-readable failure kind: "" (ok) | "rate_limited" | "network"
+    /// | "api_error" | "parse". Lets the UI localize + decide whether to retry.
+    #[serde(default)]
+    pub error_kind: String,
     /// Direct download URL for the first release asset (e.g. .dmg file).
     /// None when no asset is available.
     pub download_url: Option<String>,
+}
+
+// ── persistent cooldown (app_config KV) ─────────────────────────────────────
+//
+// update checks are rate-limited by Gitee/GitHub (~60/hour unauthenticated).
+// We persist the last check timestamp + last-known-good result so:
+//   - within the cooldown we short-circuit to the cached result (no network);
+//   - on a transient failure we surface the last-known result instead of
+//     misleading the UI with `has_update: false` (the prior bug).
+
+/// Background (no-update) cooldown: once we know we're up-to-date, don't
+/// re-check for 24h.
+const BG_COOLDOWN_MS: i64 = 24 * 60 * 60 * 1000;
+/// Outdated (has-update) cooldown: once we know an update exists, re-check
+/// every 1h so the user sees a freshly-published build reasonably soon.
+const OUTDATED_COOLDOWN_MS: i64 = 60 * 60 * 1000;
+const KV_LAST_CHECK_MS: &str = "update_last_check_ms";
+const KV_LAST_KNOWN: &str = "update_last_known";
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Decide whether a new network check can be skipped because the cached result
+/// is still within its cooldown. Pure (no I/O) so it's unit-testable.
+///
+/// - `cached_has_update` → 1h cooldown (re-fetch a freshly-published build soon).
+/// - otherwise → 24h cooldown (we're up-to-date; don't hammer the API).
+fn within_cooldown(last_check_ms: i64, now_ms: i64, cached_has_update: bool) -> bool {
+    let cooldown = if cached_has_update {
+        OUTDATED_COOLDOWN_MS
+    } else {
+        BG_COOLDOWN_MS
+    };
+    now_ms - last_check_ms < cooldown
+}
+
+/// Load cached (last-check-ms, last-known UpdateInfo) from the app_config KV.
+fn load_cached(conn: &rusqlite::Connection) -> (Option<i64>, Option<UpdateInfo>) {
+    let last_check = crate::config::get_json::<i64>(conn, KV_LAST_CHECK_MS)
+        .ok()
+        .flatten();
+    let last_known = crate::config::get_json::<UpdateInfo>(conn, KV_LAST_KNOWN)
+        .ok()
+        .flatten();
+    (last_check, last_known)
+}
+
+/// Persist the attempt timestamp (always) and the successful result (on Ok).
+fn persist(
+    conn: &rusqlite::Connection,
+    last_check_ms: i64,
+    success: Option<&UpdateInfo>,
+) {
+    let _ = crate::config::set_json(conn, KV_LAST_CHECK_MS, &last_check_ms);
+    if let Some(info) = success {
+        let _ = crate::config::set_json(conn, KV_LAST_KNOWN, info);
+    }
 }
 
 /// Platform for the releases API.
@@ -91,18 +153,47 @@ fn parse_repo(raw: &str) -> (String, String, Platform) {
 }
 
 /// Query the releases API and compare with the current version.
-/// On network/API failure, returns `has_update: false` with an error message
-/// so the UI can surface the problem to the user.
+///
+/// Cooldown: within `BG_COOLDOWN_MS` (24h, no update) or `OUTDATED_COOLDOWN_MS`
+/// (1h, has update) of the last check, short-circuit to the cached result
+/// without hitting the network — Gitee/GitHub rate-limit unauthenticated
+/// requests to ~60/hour.
+///
+/// On a transient failure (network / rate-limit / API error), the last-known
+/// result is returned if present (so the UI never forgets an available update
+/// due to a flaky network); only when there is no cache do we surface the error
+/// with a machine-readable `error_kind`.
 #[tauri::command]
 pub fn check_update(
-    _state: State<AppState>,
+    state: State<AppState>,
     repo: String,
     current_version: String,
 ) -> Result<UpdateInfo, String> {
     let (owner, repo_name, platform) = parse_repo(&repo);
-    let mut url = platform.api_url(&owner, &repo_name);
 
-    // Private Gitee repos require an access_token.
+    // ── 1. Cooldown short-circuit (cached path, no network) ────────────────
+    {
+        let conn = state.db_read();
+        let (last_check, last_known) = load_cached(&conn);
+        if let (Some(last), Some(known)) = (last_check, last_known) {
+            let now = now_ms();
+            if within_cooldown(last, now, known.has_update) {
+                let cooldown = if known.has_update {
+                    OUTDATED_COOLDOWN_MS
+                } else {
+                    BG_COOLDOWN_MS
+                };
+                tracing::debug!(
+                    "update check skipped: within {}ms cooldown",
+                    cooldown
+                );
+                return Ok(known);
+            }
+        }
+    } // conn guard dropped before the network call
+
+    // ── 2. Network call ─────────────────────────────────────────────────────
+    let mut url = platform.api_url(&owner, &repo_name);
     if platform == Platform::Gitee {
         let token = GITEE_TOKEN;
         if !token.is_empty() {
@@ -110,37 +201,89 @@ pub fn check_update(
         }
     }
 
-    let resp = match ureq::get(&url).call() {
-        Ok(r) => r,
-        Err(e) => {
-            return Ok(UpdateInfo {
-                has_update: false,
-                version: String::new(),
-                name: String::new(),
-                changelog: String::new(),
-                url: String::new(),
-                published_at: None,
-                error: format!("网络请求失败：{}", e),
-                download_url: None,
-            })
-        }
-    };
+    let resp_result = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(15))
+        .call();
 
-    if resp.status() != 200 {
-        return Ok(UpdateInfo {
+    // On any failure: record the attempt timestamp, then return last-known if
+    // we have it (don't mislead the UI with has_update:false), else the error.
+    let handle_failure = |kind: &str, msg: String, last_known: Option<UpdateInfo>| -> UpdateInfo {
+        {
+            let conn = state.db_write();
+            persist(&conn, now_ms(), None);
+        }
+        if let Some(known) = last_known {
+            return known;
+        }
+        UpdateInfo {
             has_update: false,
             version: String::new(),
             name: String::new(),
             changelog: String::new(),
             url: String::new(),
             published_at: None,
-            error: format!(
-                "API 返回错误 {} ({}): 请确认仓库地址是否正确，以及 Gitee 仓库已开启 Release 功能",
+            error: msg,
+            error_kind: kind.to_string(),
+            download_url: None,
+        }
+    };
+
+    let last_known_for_failure = {
+        let conn = state.db_read();
+        load_cached(&conn).1
+    };
+
+    let resp = match resp_result {
+        Ok(r) => r,
+        Err(ureq::Error::Status(429, _)) => {
+            return Ok(handle_failure(
+                "rate_limited",
+                "请求过于频繁，已触发限流，请稍后再试".into(),
+                last_known_for_failure,
+            ));
+        }
+        Err(ureq::Error::Status(403, r)) => {
+            // Gitee returns 403 for rate-limit exhaustion; distinguish from a
+            // genuine permission error by sniffing the body.
+            let body = r.into_string().unwrap_or_default();
+            let lower = body.to_lowercase();
+            let kind = if lower.contains("rate") || lower.contains("limit") {
+                "rate_limited"
+            } else {
+                "api_error"
+            };
+            return Ok(handle_failure(
+                kind,
+                format!("API 返回 403：{}", body.chars().take(200).collect::<String>()),
+                last_known_for_failure,
+            ));
+        }
+        Err(ureq::Error::Status(code, _)) => {
+            return Ok(handle_failure(
+                "api_error",
+                format!("API 返回错误 {}", code),
+                last_known_for_failure,
+            ));
+        }
+        Err(ureq::Error::Transport(e)) => {
+            return Ok(handle_failure(
+                "network",
+                format!("网络请求失败：{}", e),
+                last_known_for_failure,
+            ));
+        }
+    };
+
+    if resp.status() != 200 {
+        return Ok(handle_failure(
+            "api_error",
+            format!(
+                "API 返回错误 {} ({}): 请确认仓库地址正确，且 Gitee 仓库已开启 Release 功能",
                 resp.status(),
                 url
             ),
-            download_url: None,
-        });
+            last_known_for_failure,
+        ));
     }
 
     let body: serde_json::Value = {
@@ -148,16 +291,11 @@ pub fn check_update(
         match serde_json::from_reader(reader) {
             Ok(v) => v,
             Err(e) => {
-                return Ok(UpdateInfo {
-                    has_update: false,
-                    version: String::new(),
-                    name: String::new(),
-                    changelog: String::new(),
-                    url: String::new(),
-                    published_at: None,
-                    error: format!("解析响应失败：{}", e),
-                    download_url: None,
-                })
+                return Ok(handle_failure(
+                    "parse",
+                    format!("解析响应失败：{}", e),
+                    last_known_for_failure,
+                ));
             }
         }
     };
@@ -199,7 +337,7 @@ pub fn check_update(
     // None when there are no matching assets.
     let download_url = pick_matching_asset(&body);
 
-    Ok(UpdateInfo {
+    let info = UpdateInfo {
         has_update,
         version: latest_tag,
         name: latest_name,
@@ -207,8 +345,17 @@ pub fn check_update(
         url: html_url,
         published_at,
         error: String::new(),
+        error_kind: String::new(),
         download_url,
-    })
+    };
+
+    // ── 3. Persist the successful result ─────────────────────────────────────
+    {
+        let conn = state.db_write();
+        persist(&conn, now_ms(), Some(&info));
+    }
+
+    Ok(info)
 }
 
 /// Pick the release asset matching the current OS/architecture.
@@ -431,5 +578,71 @@ mod tests {
         assert_eq!(o, "lzc0088");
         assert_eq!(r, "token-usage");
         assert_eq!(p, Platform::Gitee);
+    }
+
+    #[test]
+    fn within_cooldown_uses_24h_when_up_to_date() {
+        // No update known → 24h cooldown. 23h later → still cached.
+        assert!(within_cooldown(0, 23 * 60 * 60 * 1000, false));
+        // 25h later → expired.
+        assert!(!within_cooldown(0, 25 * 60 * 60 * 1000, false));
+    }
+
+    #[test]
+    fn within_cooldown_uses_1h_when_update_available() {
+        // Update known → 1h cooldown (re-check sooner for fresh builds).
+        assert!(within_cooldown(0, 59 * 60 * 1000, true));
+        assert!(!within_cooldown(0, 61 * 60 * 1000, true));
+    }
+
+    #[test]
+    fn persist_then_load_roundtrips_last_known_and_timestamp() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&mut conn).unwrap();
+
+        let info = UpdateInfo {
+            has_update: true,
+            version: "v0.2.0".into(),
+            name: "Release 0.2.0".into(),
+            changelog: "fixes".into(),
+            url: "https://example.com/r".into(),
+            published_at: Some("2026-08-01T00:00:00Z".into()),
+            error: String::new(),
+            error_kind: String::new(),
+            download_url: Some("https://example.com/asset.dmg".into()),
+        };
+        persist(&conn, 1_700_000_000_000, Some(&info));
+
+        let (last_check, last_known) = load_cached(&conn);
+        assert_eq!(last_check, Some(1_700_000_000_000));
+        let known = last_known.expect("last-known should round-trip");
+        assert!(known.has_update);
+        assert_eq!(known.version, "v0.2.0");
+        assert_eq!(known.error_kind, "");
+        assert_eq!(known.download_url.as_deref(), Some("https://example.com/asset.dmg"));
+    }
+
+    #[test]
+    fn persist_records_attempt_without_overwriting_last_known_on_failure() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&mut conn).unwrap();
+
+        // Seed a successful last-known.
+        let good = UpdateInfo {
+            has_update: true,
+            version: "v0.2.0".into(),
+            name: "".into(), changelog: "".into(), url: "".into(),
+            published_at: None, error: String::new(), error_kind: String::new(),
+            download_url: None,
+        };
+        persist(&conn, 1_000, Some(&good));
+
+        // A later failed attempt persists the timestamp but NOT a new result.
+        persist(&conn, 2_000, None);
+
+        let (last_check, last_known) = load_cached(&conn);
+        assert_eq!(last_check, Some(2_000), "attempt timestamp must update");
+        // last-known must be preserved (failure must not erase it).
+        assert_eq!(last_known.unwrap().version, "v0.2.0");
     }
 }

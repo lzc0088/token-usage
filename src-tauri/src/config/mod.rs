@@ -41,6 +41,9 @@ pub struct Config {
     /// Default period in the popover — "day" | "month" | "total".
     #[serde(default = "default_period")]
     pub default_period: String,
+    /// Hero token-rate readout mode — "speed" (output tok/s) | "burn" (total tok/min).
+    #[serde(default = "default_token_rate_mode")]
+    pub token_rate_mode: String,
     /// Auto-hide popover when window loses focus.
     #[serde(default = "default_true")]
     pub auto_close_on_blur: bool,
@@ -124,6 +127,7 @@ impl Default for Config {
             auto_start: false,
             language: default_language(),
             default_period: default_period(),
+            token_rate_mode: default_token_rate_mode(),
             auto_close_on_blur: default_true(),
             trigger_mode: default_trigger_mode(),
             window_display_mode: default_window_display_mode(),
@@ -154,6 +158,9 @@ fn default_language() -> String {
 }
 fn default_period() -> String {
     "day".into()
+}
+fn default_token_rate_mode() -> String {
+    "speed".into()
 }
 fn default_true() -> bool {
     true
@@ -292,12 +299,20 @@ pub fn get_int(conn: &Connection, key: &str) -> Result<Option<u64>, StorageError
 }
 
 /// Atomically increment an integer value in app_config. Creates the key if missing.
+/// Uses a single SQL statement to avoid the read-modify-write race in `get_int`
+/// + `set_raw`.
 pub fn incr_int(conn: &Connection, key: &str, delta: u64) -> Result<u64, StorageError> {
-    let current = get_int(conn, key)?.unwrap_or(0);
-    let new_value = current.saturating_add(delta);
-    set_raw(conn, key, &new_value.to_string())?;
-    Ok(new_value)
+    let now_ms = crate::utils::time::now_ms();
+    let delta_str = delta.to_string();
+    conn.execute(
+        "INSERT INTO app_config (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?",
+        rusqlite::params![key, delta_str, now_ms, delta_str],
+    )?;
+    let new_val = get_int(conn, key)?.unwrap_or(0);
+    Ok(new_val)
 }
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::schema;

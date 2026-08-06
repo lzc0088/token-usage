@@ -4,6 +4,7 @@
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
+  import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
 
   const DETAIL_CAPABLE_TOOLS = ["claude", "codex", "opencode"] as const;
@@ -94,7 +95,7 @@
       const mv = modelVendor(first);
       return { tag: first || "—", isCount: false, color: mv?.color };
     }
-    return { tag: `${count} 个模型`, isCount: true };
+    return { tag: `${count}${t("sessions.modelsCount")}`, isCount: true };
   }
 
   function projectLabel(s: SessionVm): string {
@@ -104,11 +105,11 @@
   const palette = PALETTE;
 
   function composeDetail(dr: SessionDetailRow): { label: string; tokens: number; pct: number; color: string }[] {
-    const t = dr.tokens || 1;
+    const total = dr.tokens || 1;
     return [
-      { label: "输入", tokens: dr.input, pct: (dr.input / t) * 100, color: palette[0] },
-      { label: "输出", tokens: dr.output, pct: (dr.output / t) * 100, color: palette[1] },
-      { label: "缓存", tokens: dr.cache_read, pct: (dr.cache_read / t) * 100, color: palette[2] },
+      { label: t("detail.input"), tokens: dr.input, pct: (dr.input / total) * 100, color: palette[0] },
+      { label: t("detail.output"), tokens: dr.output, pct: (dr.output / total) * 100, color: palette[1] },
+      { label: t("detail.cache"), tokens: dr.cache_read, pct: (dr.cache_read / total) * 100, color: palette[2] },
     ];
   }
 </script>
@@ -118,9 +119,9 @@
     <!-- ── session detail page ── -->
     <div class="view-header">
       <button type="button" class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
-      <span class="view-title">会话详情<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
+      <span class="view-title">{t("sessions.detail")}<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
       <div class="rd-sort">
-        {#each [["time", "时间"], ["token", "TOKEN"]] as [k, label] (k)}
+        {#each [["time", t("sessions.sortTime")], ["token", t("sessions.sortToken")]] as [k, label] (k)}
           <button class:on={roundSort === (k as RoundSort)} aria-pressed={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
         {/each}
       </div>
@@ -128,9 +129,9 @@
     <!-- round list (one row per user input) -->
     <div class="view-body">
       {#if viewRounds === null}
-        <p class="det-loading">加载中…</p>
+        <p class="det-loading">{t("projects.loading")}</p>
       {:else if viewRounds.length === 0}
-        <p class="det-empty">暂无对话数据</p>
+        <p class="det-empty">{t("sessions.noRounds")}</p>
       {:else}
         {#each sortedRounds as r, ri (ri)}
           {@const ts = splitTokens(r.total_tokens)}
@@ -138,7 +139,7 @@
             <div class="rd-main">
               <div class="rd-line1">
                 <span class="rd-user">👤</span>
-                <span class="rd-text">{r.user_text || "(无文本输入)"}</span>
+                <span class="rd-text">{r.user_text || t("sessions.noText")}</span>
               </div>
               <div class="rd-line2">
                 <span class="rd-time">{r.timestamp ?? ""}</span>
@@ -165,18 +166,18 @@
   {:else}
     <!-- ── session list ── -->
     <div class="bd-header">
-      <span class="bd-title">会话历史<span class="bd-count">{sorted.length}</span></span>
+      <span class="bd-title">{t("sessions.history")}<span class="bd-count">{sorted.length}</span></span>
       <div class="bd-sort">
-        {#each [["latest", "最近"], ["token", "TOKEN"], ["proj", "项目"], ["tool", "工具"]] as [k, label] (k)}
+        {#each [["latest", t("sessions.sortLatest")], ["token", t("sessions.sortToken")], ["proj", t("sessions.sortProj")], ["tool", t("sessions.sortTool")]] as [k, label] (k)}
           <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
         {/each}
       </div>
     </div>
 
     {#if sessions === null}
-      <p class="loading">加载中…</p>
+      <p class="loading">{t("projects.loading")}</p>
     {:else if sessions.length === 0}
-      <p class="empty">暂无会话数据</p>
+      <p class="empty">{t("sessions.empty")}</p>
     {:else}
       {#each sorted as s (s.tool + s.session_id)}
         {@const st = splitTokens(s.tokens)}
@@ -204,7 +205,7 @@
             </div>
             <div class="s-line s-l4">
               <span class="s-time">{s.last_used_at ?? "—"}</span>
-              <span class="s-msgs">{s.messages} 条</span>
+              <span class="s-msgs">{s.messages}{t("breakdown.msgs")}</span>
             </div>
           </div>
           <div class="s-right">
@@ -215,8 +216,8 @@
             {#if (DETAIL_CAPABLE_TOOLS as readonly string[]).includes(s.tool)}
               <button
                 class="s-arr"
-                title="查看详情"
-                aria-label="查看详情"
+                title={t("sessions.viewDetail")}
+                aria-label={t("sessions.viewDetail")}
                 onclick={(e: MouseEvent) => openDetail(s, e)}
               >→</button>
             {/if}
@@ -225,7 +226,7 @@
         {#if open}
           <div class="s-detail">
             {#if detail === null}
-              <p class="det-loading">加载中…</p>
+              <p class="det-loading">{t("projects.loading")}</p>
             {:else if detail.length === 0}
               <p class="det-empty">暂无详情</p>
             {:else}

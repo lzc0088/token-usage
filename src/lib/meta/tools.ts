@@ -49,6 +49,13 @@ import gjcIcon from "../icons/tools/gjc.svg?raw";
 import jcodeIcon from "../icons/tools/jcode.svg?raw";
 import commandcodeIcon from "../icons/tools/commandcode.svg?raw";
 import devinIcon from "../icons/tools/devin.svg?raw";
+import augmentIcon from "../icons/tools/augment.svg?raw";
+import codebuffIcon from "../icons/tools/codebuff.svg?raw";
+import junieIcon from "../icons/tools/junie.svg?raw";
+import kimchiIcon from "../icons/tools/kimchi.svg?raw";
+import micodeIcon from "../icons/tools/micode.svg?raw";
+import reasonixIcon from "../icons/tools/reasonix.svg?raw";
+import senpiIcon from "../icons/tools/senpi.svg?raw";
 
 // Vendor icons for model breakdown
 import deepseekVendorIcon from "../icons/vendors/deepseek.svg?raw";
@@ -107,7 +114,13 @@ const ICONS: Record<string, string> = {
   devin: devinIcon,
   // micode (MiMo Code CLI) → shares the Xiaomi/MiMo vendor brand icon
   // (mimo itself is already mapped in the vendor-icons block above).
-  micode: mimoVendorIcon,
+  micode: micodeIcon,
+  augment: augmentIcon,
+  codebuff: codebuffIcon,
+  kimchi: kimchiIcon,
+  reasonix: reasonixIcon,
+  senpi: senpiIcon,
+  junie: junieIcon,
 
   // ── Vendor icons (for model keys not in KNOWN) ──
   deepseek: deepseekVendorIcon,
@@ -167,7 +180,7 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   mux:         { label: "Mux",         icon: ICONS.mux,         color: "var(--text-dim)" },
   micode:      { label: "MiMo Code",   icon: ICONS.micode,      color: "#FF6900" },
   mimo:        { label: "MiMo",        icon: ICONS.mimo,        color: "#FF6900" },
-  junie:       { label: "Junie",       icon: ICONS.jetbrains,   color: "#FE2857" },
+  junie:       { label: "Junie",       icon: ICONS.junie,       color: "#FE2857" },
   amp:         { label: "Amp",         icon: ICONS.amp,         color: "var(--violet)" },
   droid:       { label: "Droid",       icon: ICONS.droid,       color: "var(--lime)" },
   goose:       { label: "Goose",       icon: ICONS.goose,       color: "#64b4ff" },
@@ -175,6 +188,11 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   jcode:       { label: "Jcode",       icon: ICONS.jcode,       color: "var(--amber)" },
   commandcode: { label: "Command Code", icon: ICONS.commandcode, color: "var(--lime)" },
   devin:       { label: "Devin",       icon: ICONS.devin,       color: "#FE2857" },
+  augment:     { label: "Augment",     icon: ICONS.augment,     color: "#6366f1" },
+  codebuff:   { label: "CodeBuff",    icon: ICONS.codebuff,    color: "var(--amber)" },
+  kimchi:     { label: "Kimchi",      icon: ICONS.kimchi,      color: "#22c55e" },
+  reasonix:   { label: "Reasonix",    icon: ICONS.reasonix,    color: "#a855f7" },
+  senpi:      { label: "Senpi",       icon: ICONS.senpi,       color: "#f97316" },
   ollama:      { label: "Ollama ( Ollama Cloud )",      icon: ICONS.ollama,      color: "var(--text-dim)" },
   zai_team:    { label: "GLM Team",   icon: ICONS.zai_team,   color: "var(--amber)" },
   // model-level keys (used by model breakdown — vendor icon for the model)

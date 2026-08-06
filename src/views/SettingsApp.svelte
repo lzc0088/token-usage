@@ -5,6 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config } from "../lib/api";
   import { applyAppearance, initAppearanceListeners } from "../lib/appearance";
+  import { setLang } from "../lib/i18n.svelte";
   import General from "../components/settings/General.svelte";
   import MainView from "../components/settings/MainView.svelte";
   import Window from "../components/settings/Window.svelte";
@@ -18,10 +19,20 @@
   // consume-target handler when opened via a quota quick-link.
   let active = $state("general");
 
+  // Sync language to i18n module whenever config changes.
+  $effect(() => { setLang(cfg.language ?? "zh"); });
+
   $effect(() => {
+    let cancelled = false;
     api.getConfig()
-      .then((c) => { cfg = c; loaded = true; })
+      .then((c) => {
+        if (!cancelled) {
+          cfg = c;
+          loaded = true;
+        }
+      })
       .catch(() => { loaded = true; });
+    return () => { cancelled = true; };
   });
 
   function onUpdate(part: Partial<Config>): void {
@@ -36,6 +47,12 @@
   $effect(() => {
     return initAppearanceListeners();
   });
+
+  // Settings window is intentionally fixed (not draggable) so that row-drag
+  // in the Account / Collection pages works reliably without conflicting
+  // with OS-level window drag gestures. The main popover drags via
+  // MovableByWindowBackground; the settings window doesn't.
+
 
   // On focus: reload config (picks up tray-menu changes) and consume the
   // pending landing page (set by open_settings, take semantics) — quota
@@ -59,13 +76,15 @@
     return () => window.removeEventListener("focus", onFocus);
   });
 
-  const NAV = [
-    { k: "general", l: "基本设置", i: "◯" },
-    { k: "mainview", l: "预览界面", i: "▣" },
-    { k: "window", l: "窗口外观", i: "▢" },
-    { k: "collection", l: "采集追踪", i: "▤" },
-    { k: "account", l: "账号额度", i: "◉" },
-  ];
+  // Reactive nav labels — language-aware via cfg.language prop read.
+  function label(zh: string, en: string): string { return cfg.language === "en" ? en : zh; }
+  let NAV = $derived([
+    { k: "general", l: label("基本设置", "General"), i: "◯" },
+    { k: "mainview", l: label("预览界面", "Preview"), i: "▣" },
+    { k: "window", l: label("窗口外观", "Appearance"), i: "▢" },
+    { k: "collection", l: label("采集追踪", "Collection"), i: "▤" },
+    { k: "account", l: label("账号额度", "Account"), i: "◉" },
+  ]);
 
   function onNavClick(target: string): void {
     active = target;
@@ -115,16 +134,12 @@
     background: var(--bg);
     border-radius: var(--radius);
     position: relative;
-    -webkit-app-region: drag; /* make the whole window draggable */
-    cursor: grab;
   }
 
   .setmain {
     flex: 1;
     display: flex;
     min-height: 0;
-    -webkit-app-region: drag;
-    cursor: grab;
   }
 
   .setnav {
@@ -172,8 +187,6 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    -webkit-app-region: drag;
-    cursor: grab;
   }
   .setpanel::-webkit-scrollbar {
     width: 6px;

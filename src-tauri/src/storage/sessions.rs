@@ -131,11 +131,14 @@ pub fn ingest_sessions(
 }
 
 /// Count sessions whose `tool` is NOT in the installed-clients list. An empty
-/// `installed` list means "nothing is currently installed" → every session is
-/// archived. Used by the 归档会话 count in 采集追踪 settings.
+/// `installed` list means "no tools detected" → returns 0 (matches the
+/// `prune_uninstalled` guard: detection failure should not count as archived).
 pub fn archived_count(conn: &Connection, installed: &[String]) -> Result<i64, StorageError> {
     use crate::storage::not_in_clause;
-    let (clause, params) = not_in_clause(installed, "tool");
+    if installed.is_empty() {
+        return Ok(0);
+    }
+    let (clause, params) = not_in_clause(installed, "tool")?;
     let sql = format!("SELECT COUNT(*) FROM sessions WHERE {clause}");
     Ok(conn.query_row(&sql, params.as_slice(), |r| r.get(0))?)
 }
@@ -148,9 +151,86 @@ pub fn prune_uninstalled(conn: &Connection, installed: &[String]) -> Result<usiz
     if installed.is_empty() {
         return Ok(0);
     }
-    let (clause, params) = not_in_clause(installed, "tool");
+    let (clause, params) = not_in_clause(installed, "tool")?;
     let sql = format!("DELETE FROM sessions WHERE {clause}");
     Ok(conn.execute(&sql, params.as_slice())?)
+}
+
+/// Batch-update `project_path` for sessions found in the given mapping.
+/// Each entry is `(tool, session_id, project_path)`. Only rows where the current
+/// `project_path` is NULL or empty are updated (first-write-wins, since a later
+/// ingest might overwrite the path with newer data).
+pub fn batch_update_project_paths(
+    conn: &mut Connection,
+    paths: &[(&str, &str, &str)],
+) -> Result<usize, StorageError> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let tx = conn.transaction()?;
+    let mut n = 0;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE sessions SET project_path = ?1
+             WHERE tool = ?2 AND session_id = ?3
+               AND (project_path IS NULL OR project_path = '')",
+        )?;
+        for &(tool, session_id, project_path) in paths {
+            let rows = stmt.execute(rusqlite::params![project_path, tool, session_id])?;
+            n += rows;
+        }
+    }
+    tx.commit()?;
+    Ok(n)
+}
+
+/// Set project_path for a single session (used by runtime backfill).
+pub fn set_session_project_path(
+    conn: &Connection,
+    tool: &str,
+    session_id: &str,
+    project_path: &str,
+) -> Result<bool, StorageError> {
+    let updated = conn.execute(
+        "UPDATE sessions SET project_path = ?1
+         WHERE tool = ?2 AND session_id = ?3
+           AND (project_path IS NULL OR project_path = '')",
+        rusqlite::params![project_path, tool, session_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Query project-like aggregates from sessions that have project_path set.
+/// Returns (project_path, name, tokens, cost_usd, messages) sorted by tokens DESC.
+pub fn query_project_aggregates(
+    conn: &Connection,
+    min_messages: i64,
+    limit: i64,
+) -> Result<Vec<(String, String, i64, f64, i64)>, StorageError> {
+    let cap = limit.clamp(1, 500);
+    let mut stmt = conn.prepare(
+        "SELECT project_path,
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(cost_usd), 0) AS cost,
+                COALESCE(SUM(message_count), 0) AS messages
+         FROM sessions
+         WHERE project_path IS NOT NULL AND project_path != ''
+         GROUP BY project_path
+         HAVING messages >= ?1
+         ORDER BY tokens DESC
+         LIMIT ?2",
+    )?;
+    let out = stmt.query_map(rusqlite::params![min_messages, cap], |r| {
+        let raw_path: String = r.get(0)?;
+        // Derive display name from last path segment
+        let name = raw_path
+            .split('/')
+            .rfind(|s| !s.is_empty())
+            .unwrap_or(&raw_path)
+            .to_string();
+        Ok((raw_path, name, r.get(1)?, r.get(2)?, r.get(3)?))
+    })?;
+    out.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -280,8 +360,8 @@ mod tests {
             archived_count(&conn, &["claude".into(), "codex".into()]).unwrap(),
             0
         );
-        // Empty installed list → all archived.
-        assert_eq!(archived_count(&conn, &[]).unwrap(), 3);
+        // Empty installed list → 0 (matches prune_uninstalled guard).
+        assert_eq!(archived_count(&conn, &[]).unwrap(), 0);
     }
 
     #[test]

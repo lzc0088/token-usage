@@ -23,6 +23,12 @@ export interface Summary {
   messages: number;
   delta_pct: number | null;
   delta_label: string | null;
+  /** Real-time throughput counters (live today path only). Undefined for
+   *  month/total or when no session reported a duration. Frontend derives
+   *  tokens/s (speed) or tokens/min (burn) from these. */
+  timed_output_tokens?: number;
+  timed_tokens?: number;
+  timed_duration_ms?: number;
 }
 
 export interface BreakdownEntry {
@@ -197,6 +203,9 @@ export interface Config {
   auto_start?: boolean;
   language?: "zh" | "en";
   default_period?: "day" | "month" | "total";
+  /** Token-rate readout mode: "speed" (output tokens/s of model-busy time)
+   *  | "burn" (total tokens/min). */
+  token_rate_mode?: "speed" | "burn";
   auto_close_on_blur?: boolean;
   /** Popover trigger: "click" (tray click) | "hover" (mouse over tray). */
   trigger_mode?: "click" | "hover";
@@ -220,7 +229,7 @@ export interface Config {
   /** Animation preference: "system" | "on" | "off". */
   animation?: "system" | "on" | "off";
   /** Data refresh interval. */
-  refresh_interval?: "manual" | "30s" | "60s" | "300s" | "600s";
+  refresh_interval?: "manual" | "30s" | "60s" | "300s";
   /** Collection mode: "live" (file-watch realtime) | "smart" (10min interval, activity-gated)
    * | "interval" (fixed interval only, no file watch). */
   collection_mode?: "live" | "smart" | "interval";
@@ -265,6 +274,10 @@ export interface UpdateInfo {
   published_at: string | null;
   /** Error message when the check failed; empty on success. */
   error: string;
+  /** Machine-readable failure kind: "" | "rate_limited" | "network" | "api_error" | "parse".
+   *  Lets the UI localize + decide whether to retry. Empty on success or when
+   *  the last-known-good result is being surfaced despite a transient failure. */
+  error_kind: string;
   /** Direct download URL for the release asset (e.g. .dmg). */
   download_url: string | null;
 }
@@ -290,7 +303,8 @@ export const api = {
   getSessionRounds: (tool: string, sessionId: string) =>
     invoke<SessionRoundVm[]>("get_session_rounds", { tool, sessionId }),
 
-  getProjects: (period: Period) => invoke<ProjectVm[]>("get_projects", { period }),
+  getProjects: (period: Period, offset?: number, limit?: number) =>
+    invoke<ProjectVm[]>("get_projects", { period, offset: offset ?? null, limit: limit ?? null }),
 
   getToolsStatus: () => invoke<ClientStatus[]>("get_tools_status"),
 

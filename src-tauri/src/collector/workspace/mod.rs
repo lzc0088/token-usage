@@ -31,6 +31,7 @@ pub use filesystem::{
     session_project_map,
 };
 pub use path_utils::decode_workspace;
+pub(crate) use path_utils::{project_root, read_cwds, tilde_prefix};
 pub use projects::{
     build_projects_from_sessions, build_projects_from_sessions_with_map, merge_project,
 };

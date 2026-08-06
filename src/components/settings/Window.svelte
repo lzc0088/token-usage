@@ -1,33 +1,38 @@
 <script lang="ts">
   // 窗口外观: 主题 / 动画 / 弹窗触发 / 窗口显示 / 菜单栏托盘.
   import type { Config } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   const THEME_OPTIONS: Array<{ value: NonNullable<Config["theme"]>; label: string }> = [
-    { value: "dark", label: "深色" },
-    { value: "light", label: "浅色" },
-    { value: "system", label: "跟随系统" },
+    { value: "dark", label: t("window.themeDark") },
+    { value: "light", label: t("window.themeLight") },
+    { value: "system", label: t("window.themeSystem") },
   ];
 
   const ANIMATION_OPTIONS: Array<{ value: NonNullable<Config["animation"]>; label: string }> = [
-    { value: "on", label: "开启" },
-    { value: "off", label: "关闭" },
-    { value: "system", label: "跟随系统" },
+    { value: "on", label: t("window.animOn") },
+    { value: "off", label: t("window.animOff") },
+    { value: "system", label: t("window.themeSystem") },
   ];
 
   const activeTheme = $derived(config.theme || "system");
   const activeAnimation = $derived(config.animation || "system");
+  let cfg_lang = $state("zh");
 
   // 菜单栏托盘显示方式的可选项（与 Rust default_tray_display 取值对齐）。
-  const TRAY_OPTIONS: Array<{ value: NonNullable<Config["tray_display"]>; label: string }> = [
-    { value: "today_tokens", label: "今日 Tokens" },
-    { value: "today_cost", label: "今日成本" },
-    { value: "today_both", label: "今日 Tokens + 成本" },
-    { value: "total_tokens", label: "累计 Tokens" },
-    { value: "total_cost", label: "累计成本" },
-    { value: "total_both", label: "累计 Tokens + 成本" },
-    { value: "icon_only", label: "仅显示图标" },
-  ];
+  let TRAY_OPTIONS = $derived.by(() => {
+    void cfg_lang;
+    return [
+      { value: "today_tokens", label: t("window.trayTodayTokens") },
+      { value: "today_cost", label: t("window.trayTodayCost") },
+      { value: "today_both", label: t("window.trayTodayBoth") },
+      { value: "total_tokens", label: t("window.trayTotalTokens") },
+      { value: "total_cost", label: t("window.trayTotalCost") },
+      { value: "total_both", label: t("window.trayTotalBoth") },
+      { value: "icon_only", label: t("window.trayIconOnly") },
+    ];
+  });
 
   // ── 快捷键录制 ──
   const MODIFIER_NAMES = new Set(["Alt", "Meta", "Shift", "Control"]);
@@ -119,14 +124,14 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<div class="sh"><h3>窗口外观</h3><div class="desc">主题、动画、弹窗触发与菜单栏显示方式</div></div>
+<div class="sh"><h3>{t("window.title")}</h3><div class="desc">{t("window.desc")}</div></div>
 <div class="sc">
 
   <!-- ══ 外观 ══ -->
-  <div class="section-title">外观</div>
+  <div class="section-title">{t("window.appearance")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">主题<div class="hint">浅色 / 深色 / 跟随系统</div></div>
+      <div class="lab">{t('window.theme')}<div class="hint">{t('window.themeHint')}</div></div>
       <div class="seg">
         {#each THEME_OPTIONS as opt (opt.value)}
           <button
@@ -141,7 +146,7 @@
       </div>
     </div>
     <div class="box-row">
-      <div class="lab">动画<div class="hint">界面过渡与交互动画</div></div>
+      <div class="lab">{t('window.animation')}<div class="hint">{t('window.animHint')}</div></div>
       <div class="seg">
         {#each ANIMATION_OPTIONS as opt (opt.value)}
           <button
@@ -155,13 +160,20 @@
         {/each}
       </div>
     </div>
+    <div class="box-row">
+      <div class="lab">{t('window.language')}<div class="hint">{t('window.langHint')}</div></div>
+      <select class="sel" value={config.language || "zh"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ language: target.value as Config["language"] }); }}>
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
   </div>
 
   <!-- ══ 行为 ══ -->
-  <div class="section-title">行为</div>
+  <div class="section-title">{t("window.behavior")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">弹出方式<div class="hint">点击或移上菜单栏图标时显示窗口</div></div>
+      <div class="lab">{t('window.trigger')}<div class="hint">{t('window.triggerHint')}</div></div>
       <select
         class="sel"
         value={config.trigger_mode || "click"}
@@ -170,16 +182,16 @@
           onSelect("trigger_mode", target.value as Config["trigger_mode"]);
         }}
       >
-        <option value="click">鼠标单击</option>
-        <option value="hover">鼠标移上</option>
+        <option value="click">{t('window.triggerClick')}</option>
+        <option value="hover">{t('window.triggerHover')}</option>
       </select>
     </div>
 
     <div class="box-row">
-      <div class="lab">快捷方式<div class="hint">全局快捷键，随时显示 / 隐藏窗口</div></div>
+      <div class="lab">{t('window.shortcut')}<div class="hint">{t('window.shortcutHint')}</div></div>
       <div class="hotkey-wrap">
         {#if recording}
-          <button type="button" class="hk recording" onclick={cancelRecording}>按下快捷键…</button>
+          <button type="button" class="hk recording" onclick={cancelRecording}>{t('window.shortcutRecording')}</button>
         {:else if config.hotkey}
           <button type="button" class="hk" onclick={startRecording}>
             {#each formatHotkey(config.hotkey) as sym, i (i)}
@@ -187,17 +199,17 @@
             {/each}
           </button>
         {:else}
-          <button type="button" class="hk empty" onclick={startRecording}>未设置</button>
+          <button type="button" class="hk empty" onclick={startRecording}>{t('window.shortcutNone')}</button>
         {/if}
       </div>
     </div>
   </div>
 
   <!-- ══ 显示 ══ -->
-  <div class="section-title">显示</div>
+  <div class="section-title">{t("window.display")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">窗口显示<div class="hint">仅针对主窗口 · 普通：可拖动记住位置 | 固定：贴托盘 | 置顶：浮在其他 App 上</div></div>
+      <div class="lab">{t('window.displayMode')}<div class="hint">{t('window.displayHint')}</div></div>
       <select
         class="sel"
         value={config.window_display_mode || "normal"}
@@ -206,14 +218,14 @@
           onSelect("window_display_mode", target.value as Config["window_display_mode"]);
         }}
       >
-        <option value="normal">普通窗口</option>
-        <option value="fixed">固定位置</option>
-        <option value="always_on_top">浮在其他 App 上</option>
+        <option value="normal">{t('window.displayNormal')}</option>
+        <option value="fixed">{t('window.displayFixed')}</option>
+        <option value="always_on_top">{t('window.displayTop')}</option>
       </select>
     </div>
 
     <div class="box-row">
-      <div class="lab">菜单托盘<div class="hint">菜单栏中图标的显示方式</div></div>
+      <div class="lab">{t('window.tray')}<div class="hint">{t('window.trayHint')}</div></div>
       <select
         class="sel"
         value={config.tray_display || "icon_only"}
@@ -229,14 +241,14 @@
     </div>
 
     <div class="box-row">
-      <div class="lab">程序坞图标<div class="hint">在 Dock 中显示应用图标（默认隐藏）</div></div>
+      <div class="lab">{t('window.dock')}<div class="hint">{t('window.dockHint')}</div></div>
       <div class="tg-placeholder">
         <button
           class="tg"
           class:on={!!config.show_in_dock}
           role="switch"
           aria-checked={!!config.show_in_dock}
-          aria-label="程序坞图标"
+          aria-label={t("window.dock")}
           onclick={() => onUpdate({ show_in_dock: !config.show_in_dock })}
         ></button>
       </div>

@@ -60,18 +60,28 @@ pub fn apply_dock_visibility(_app: &AppHandle, _show: bool) {}
 /// The settings window is unaffected.
 #[cfg(target_os = "macos")]
 pub fn apply_drag_mode(app: &AppHandle, fixed: bool) {
+    let flag: i8 = if fixed { 0 } else { 1 };
+    set_window_draggable(app, "main", flag != 0);
+}
+#[cfg(not(target_os = "macos"))]
+pub fn apply_drag_mode(_app: &AppHandle, _fixed: bool) {}
+
+/// Enable or disable native window dragging for any window by label.
+/// Called from the frontend when inputs gain/lose focus, so dragging the
+/// window doesn't interfere with text selection or typing.
+#[cfg(target_os = "macos")]
+pub fn set_window_draggable(app: &AppHandle, label: &str, enabled: bool) {
     use objc::{msg_send, sel, sel_impl};
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(label) {
         if let Ok(ns_win) = w.ns_window() {
             let win: *mut objc::runtime::Object = ns_win as *mut _;
-            // NSWindow.isMovableByWindowBackground: YES(1) when draggable.
-            let flag: i8 = if fixed { 0 } else { 1 };
+            let flag: i8 = if enabled { 1 } else { 0 };
             let _: () = unsafe { msg_send![win, setMovableByWindowBackground: flag] };
         }
     }
 }
 #[cfg(not(target_os = "macos"))]
-pub fn apply_drag_mode(_app: &AppHandle, _fixed: bool) {}
+pub fn set_window_draggable(_app: &AppHandle, _label: &str, _enabled: bool) {}
 
 /// Register (or clear) the global show/hide hotkey. Empty string unregisters
 /// everything. The recorded format is e.g. `Meta+Alt+T`; modifiers are mapped
@@ -214,10 +224,8 @@ pub fn cancel_hover_hide() {
 /// subsequent Enter.
 pub fn schedule_hover_hide(app: AppHandle) {
     let gen = HOVER_HIDE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    // Detached short delay (300ms) — cheap, avoids pulling tokio as a direct
-    // dep just for a timer. Invalidated by a subsequent Enter/Leave.
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
         if HOVER_HIDE_GEN.load(Ordering::SeqCst) != gen {
             return; // superseded by a newer Enter/Leave
         }

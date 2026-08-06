@@ -57,6 +57,10 @@ pub fn show_settings_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
+        // The settings window uses Tauri's `window.startDragging()` from a
+        // designated drag handle (left nav) rather than MovableByWindowBackground,
+        // which conflicts with row-drag on macOS (the OS intercepts mousedown
+        // at the NSWindow level before CSS `app-region` can block it).
     } else {
         tracing::warn!("settings window not found");
     }
@@ -115,4 +119,90 @@ pub fn open_external(url: String) -> Result<(), String> {
     }
     open::that(url).map_err(|e| format!("failed to open URL: {e}"))?;
     Ok(())
+}
+
+/// Temporarily enable/disable native window dragging. Used by the frontend
+/// when input fields gain/lose focus — dragging is disabled while the user
+/// is typing or selecting text, then restored when the input loses focus.
+#[tauri::command]
+pub fn set_window_draggable(label: String, enabled: bool, app: AppHandle) -> Result<(), String> {
+    crate::ui::window::set_window_draggable(&app, &label, enabled);
+    Ok(())
+}
+
+/// Temporarily disable native window dragging (e.g. while a row-drag is in
+/// progress) and restore the per-window baseline on resume.
+///
+/// `suspended = true`  → `MovableByWindowBackground = false`; label tracked.
+/// `suspended = false` → removed from the set; baseline restored:
+///   - "settings"  → always draggable (the settings window is opened with
+///                    native drag enabled in `show_settings_window`).
+///   - "main"      → `cfg.window_display_mode != "fixed"` (user setting).
+///   - any other   → drag enabled (safe default).
+///
+/// The suspended set ensures `false` is idempotent and that nested suspend /
+/// resume pairs (e.g. multiple drag systems on the same window) don't
+/// accidentally re-enable drag while another caller still wants it off.
+#[tauri::command]
+pub fn set_drag_suspended(
+    label: String,
+    suspended: bool,
+    state: tauri::State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let mut set = state.drag_suspended.lock().map_err(|e| e.to_string())?;
+    let was_in = set.contains(&label);
+    if suspended {
+        if !was_in {
+            set.insert(label.clone());
+            crate::ui::window::set_window_draggable(&app, &label, false);
+        }
+        return Ok(());
+    }
+    if !was_in {
+        return Ok(()); // resume with no prior suspend → no-op
+    }
+    set.remove(&label);
+    drop(set);
+    let main_baseline = state
+        .load_config()
+        .map(|c| c.window_display_mode != "fixed")
+        .unwrap_or(true);
+    let baseline = drag_baseline(&label, main_baseline);
+    crate::ui::window::set_window_draggable(&app, &label, baseline);
+    Ok(())
+}
+
+fn drag_baseline(label: &str, main_baseline: bool) -> bool {
+    match label {
+        // Settings uses Tauri's `window.startDragging()` from a designated
+        // handle (left nav) — no MovableByWindowBackground needed.
+        "settings" => false,
+        "main" => main_baseline,
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drag_baseline_is_always_off_for_settings() {
+        // Settings uses Tauri startDragging(), not MovableByWindowBackground.
+        assert!(!drag_baseline("settings", true));
+        assert!(!drag_baseline("settings", false));
+    }
+
+    #[test]
+    fn drag_baseline_tracks_main_baseline() {
+        assert!(drag_baseline("main", true));
+        assert!(!drag_baseline("main", false));
+    }
+
+    #[test]
+    fn drag_baseline_defaults_on_for_unknown_labels() {
+        assert!(drag_baseline("anything-else", true));
+        assert!(drag_baseline("anything-else", false));
+    }
 }

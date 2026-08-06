@@ -34,10 +34,15 @@ export interface InfoTag {
 export interface FieldDef {
   key: string;
   label: string;
+  enLabel?: string;
   placeholder: string;
+  enPlaceholder?: string;
   type?: "text" | "password" | "select" | "textarea";
   options?: string[];
   default?: string;
+  /** When true, validateFields skips the "required" check — the field is an
+   *  optional add-on (e.g. Volcengine's console cookie for expiry display). */
+  optional?: boolean;
 }
 
 export interface VendorDef {
@@ -50,21 +55,31 @@ export interface VendorDef {
   tags: InfoTag[];
   fields?: FieldDef[];
   loginLabel?: string;
+  enLoginLabel?: string;
 }
 
 const DEFAULT_KEY_FIELD: FieldDef = {
   key: "key",
   label: "API Key",
+  enLabel: "API Key",
   placeholder: "sk-…",
+  enPlaceholder: "sk-…",
   type: "password",
 };
 
 const DEFAULT_COOKIE_FIELD: FieldDef = {
   key: "cookie",
   label: "Cookie",
+  enLabel: "Cookie",
   placeholder: "粘贴 Cookie…",
+  enPlaceholder: "Paste Cookie…",
   type: "textarea",
 };
+
+const EN_TAG: Record<string,string> = { "订阅":"Subscription", "按量":"Pay-as-you-go", "区域":"Region", "余额":"Balance", "5h 窗口":"5h Window", "周窗口":"Weekly Window", "账单周期":"Billing Cycle", "5h":"5h Window", "周":"Weekly Window", "月":"Monthly Window", "月窗口":"Monthly Window", "MCP月":"MCP Monthly", "多字段":"Multiple fields", "需代理":"Proxy required" };
+export function tv(text: string, lang = "zh"): string { return lang === "en" ? (EN_TAG[text] ?? text) : text; }
+
+export function vl(v: VendorDef, lang = "zh"): string { return lang === "en" && v.enLoginLabel ? v.enLoginLabel : (v.loginLabel ?? ""); }
 
 export function fieldsFor(v: VendorDef): FieldDef[] {
   if (v.fields) return v.fields;
@@ -84,11 +99,13 @@ export const VENDORS: VendorDef[] = [
     tags: [
       { text: "5h 窗口", color: "amber" },
       { text: "周窗口", color: "amber" },
+      { text: "需代理", color: "coral" },
     ],
     fields: [
-      { key: "cookie", label: "Cookie", placeholder: "粘贴 sessionKey 的值…", type: "textarea" },
+      { key: "cookie", label: "Cookie", enLabel: "Cookie", placeholder: "粘贴 sessionKey 的值…", enPlaceholder: "Paste sessionKey value…", type: "textarea" },
     ],
     loginLabel: "运行 claude /login",
+    enLoginLabel: "Run claude /login",
   },
   {
     id: "codex",
@@ -100,8 +117,10 @@ export const VENDORS: VendorDef[] = [
     tags: [
       { text: "5h 窗口", color: "amber" },
       { text: "周窗口", color: "amber" },
+      { text: "需代理", color: "coral" },
     ],
     loginLabel: "运行 codex /login",
+    enLoginLabel: "Run codex /login",
   },
   {
     id: "cursor",
@@ -115,7 +134,9 @@ export const VENDORS: VendorDef[] = [
       {
         key: "cookie",
         label: "Session Token",
+        enLabel: "Session Token",
         placeholder: "粘贴 WorkosCursorSessionToken 的值…",
+        enPlaceholder: "Paste WorkosCursorSessionToken value…",
         type: "textarea",
       },
     ],
@@ -156,10 +177,11 @@ export const VENDORS: VendorDef[] = [
       { text: "MCP月", color: "lime" },
     ],
     fields: [
-      { key: "key", label: "API Key", placeholder: "ZAI/GLM Key…", type: "password" },
+      { key: "key", label: "API Key", enLabel: "API Key", placeholder: "ZAI/GLM Key…", enPlaceholder: "ZAI/GLM Key…", type: "password" },
       {
         key: "region",
         label: "区域",
+        enLabel: "Region",
         placeholder: "",
         type: "select",
         options: ["global", "bigmodel-cn"],
@@ -180,7 +202,7 @@ export const VENDORS: VendorDef[] = [
       { text: "月", color: "lime" },
     ],
     fields: [
-      { key: "cookie", label: "Cookie", placeholder: "粘贴 kimi-auth 的值…", type: "textarea" },
+      { key: "cookie", label: "Cookie", enLabel: "Cookie", placeholder: "粘贴 kimi-auth 的值…", enPlaceholder: "Paste kimi-auth value…", type: "textarea" },
     ],
   },
   {
@@ -198,16 +220,19 @@ export const VENDORS: VendorDef[] = [
       { text: "区域", color: "blue" },
     ],
     fields: [
-      { key: "key", label: "Ark Key / AK", placeholder: "ark-… 或 AKLT…", type: "password" },
+      { key: "key", label: "Ark Key / AK", enLabel: "Ark Key / AK", placeholder: "ark-… 或 AKLT…", enPlaceholder: "ark-… or AKLT…", type: "password" },
       {
         key: "secret",
         label: "Secret（AK+SK 时需要）",
+        enLabel: "Secret (required for AK+SK)",
         placeholder: "配合 AKLT 使用",
+        enPlaceholder: "Used with AKLT",
         type: "password",
       },
       {
         key: "region",
         label: "区域",
+        enLabel: "Region",
         placeholder: "",
         type: "select",
         options: ["cn-beijing"],
@@ -216,7 +241,10 @@ export const VENDORS: VendorDef[] = [
       {
         key: "cookie",
         label: "控制台 Cookie（可选）",
+        enLabel: "Console Cookie (optional)",
+        optional: true,
         placeholder: "粘贴 console.volcengine.com 的 Cookie（含 csrfToken），用于显示到期日期",
+        enPlaceholder: "Paste console.volcengine.com Cookie (with csrfToken) to show expiry date",
         type: "textarea",
       },
     ],
@@ -236,7 +264,9 @@ export const VENDORS: VendorDef[] = [
       {
         key: "cookie",
         label: "Cookie",
+        enLabel: "Cookie",
         placeholder: "粘贴 platform.stepfun.com 的 Cookie（含 Oasis-Token、Oasis-Webid）…",
+        enPlaceholder: "Paste platform.stepfun.com Cookie (with Oasis-Token, Oasis-Webid)…",
         type: "textarea",
       },
     ],
@@ -256,7 +286,9 @@ export const VENDORS: VendorDef[] = [
       {
         key: "cookie",
         label: "Cookie",
+        enLabel: "Cookie",
         placeholder: "粘贴 maas.xfyun.cn 控制台 Cookie（含 ssoSessionId）…",
+        enPlaceholder: "Paste maas.xfyun.cn console Cookie (with ssoSessionId)…",
         type: "textarea",
       },
     ],
@@ -271,8 +303,10 @@ export const VENDORS: VendorDef[] = [
     tags: [
       { text: "Premium", color: "amber" },
       { text: "Chat", color: "blue" },
+      { text: "需代理", color: "coral" },
     ],
     loginLabel: "GitHub 登录",
+    enLoginLabel: "GitHub Login",
   },
   {
     id: "mimo",
@@ -310,9 +344,9 @@ export const VENDORS: VendorDef[] = [
     desc: "智谱团队计划，需 Key + 组织 ID + 项目 ID",
     tags: [{ text: "多字段", color: "coral" }],
     fields: [
-      { key: "key", label: "Team API Key", placeholder: "Team Key…", type: "password" },
-      { key: "orgid", label: "Organization ID", placeholder: "Bigmodel-Organization", type: "text" },
-      { key: "projid", label: "Project ID", placeholder: "Bigmodel-Project", type: "text" },
+      { key: "key", label: "Team API Key", enLabel: "Team API Key", placeholder: "Team Key…", enPlaceholder: "Team Key…", type: "password" },
+      { key: "orgid", label: "Organization ID", enLabel: "Organization ID", placeholder: "Bigmodel-Organization", enPlaceholder: "Bigmodel-Organization", type: "text" },
+      { key: "projid", label: "Project ID", enLabel: "Project ID", placeholder: "Bigmodel-Project", enPlaceholder: "Bigmodel-Project", type: "text" },
     ],
   },
   {
@@ -324,8 +358,8 @@ export const VENDORS: VendorDef[] = [
     desc: "仪表盘 Cookie，区分国际站 / 中国站",
     tags: [{ text: "区域", color: "amber" }],
     fields: [
-      { key: "site", label: "站点", placeholder: "", type: "select", options: ["global", "cn"], default: "cn" },
-      { key: "cookie", label: "Cookie", placeholder: "粘贴仪表盘 Cookie…", type: "textarea" },
+      { key: "site", label: "站点", enLabel: "Site", placeholder: "", enPlaceholder: "", type: "select", options: ["global", "cn"], default: "cn" },
+      { key: "cookie", label: "Cookie", enLabel: "Cookie", placeholder: "粘贴仪表盘 Cookie…", enPlaceholder: "Paste dashboard Cookie…", type: "textarea" },
     ],
   },
   {

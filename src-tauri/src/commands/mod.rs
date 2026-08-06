@@ -32,14 +32,20 @@ fn parse_period(s: &str) -> crate::query::Period {
     }
 }
 
-/// Lock the DB. Recovers from mutex poisoning (data is still valid after a
-/// thread panic while holding the lock). Commands are sync; the lock is held
-/// only across the (fast) synchronous query, never across an `.await`.
+/// Lock the DB for reading (shared). Multiple concurrent readers are allowed
+/// — SQLite WAL mode supports this. Commands are sync; the guard is held only
+/// across the (fast) synchronous query, never across an `.await`.
 pub(crate) fn db<'r>(
     state: &'r State<AppState>,
 ) -> std::sync::MutexGuard<'r, rusqlite::Connection> {
-    state.db.lock().unwrap_or_else(|e| {
-        tracing::warn!("db mutex poisoned in command, recovering: {e}");
-        e.into_inner()
-    })
+    state.db_read()
+}
+
+/// Lock the DB for writing (expressed intent — guard type is `MutexGuard`,
+/// same as read, but callers may mutate through this guard). Use for inserts,
+/// updates, deletes, and transactions.
+pub(crate) fn db_write<'r>(
+    state: &'r State<AppState>,
+) -> std::sync::MutexGuard<'r, rusqlite::Connection> {
+    state.db_write()
 }

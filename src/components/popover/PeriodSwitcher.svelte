@@ -2,23 +2,18 @@
   // DAY / MONTH / TOTAL switcher. Writes the global period store; the popover
   // re-queries everything when it changes.
   import { getPeriod, setPeriod } from "../../stores/period.svelte";
-  import type { Period } from "../../lib/api";
 
-  const options: { key: Period; label: string }[] = [
-    { key: "day", label: "DAY" },
-    { key: "month", label: "MONTH" },
-    { key: "total", label: "TOTAL" },
-  ];
+  let { lang = "zh" }: { lang?: string } = $props();
 
   let current = $derived(getPeriod());
 </script>
 
-<div class="period">
-  <span class="period-lbl">时段</span>
+<div class="period" data-testid="period-switcher">
+  <span class="period-lbl">{lang === "en" ? "Period" : "时段"}</span>
   <div class="seg">
-    {#each options as o (o.key)}
-      <button class:active={current === o.key} onclick={() => setPeriod(o.key)}>{o.label}</button>
-    {/each}
+    <button data-testid="period-day" class:active={current === "day"} onclick={() => setPeriod("day")}>{lang === "en" ? "Today" : "今日"}</button>
+    <button data-testid="period-month" class:active={current === "month"} onclick={() => setPeriod("month")}>{lang === "en" ? "Month" : "本月"}</button>
+    <button data-testid="period-total" class:active={current === "total"} onclick={() => setPeriod("total")}>{lang === "en" ? "Total" : "累计"}</button>
   </div>
 </div>
 
@@ -51,16 +46,14 @@
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
-    padding: 4px 9px;
+    padding: 6px 10px;
     border-radius: 6px;
     cursor: pointer;
     transition: 0.15s;
     text-transform: uppercase;
     letter-spacing: 0.12em;
   }
-  .seg button:hover {
-    color: var(--text);
-  }
+  .seg button:hover { color: var(--text); }
   .seg button.active {
     background: var(--amber);
     color: var(--badge-text);

@@ -49,7 +49,7 @@ pub fn get_exchange_rate(state: State<'_, AppState>) -> Result<RateInfo, String>
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
     // 先尝试从缓存获取
-    let conn = state.db_guard();
+    let conn = state.db_read();
     match get_cached_rate(&conn, "USD", &today) {
         Ok(Some(cached)) => {
             debug!(rate = cached, "cache hit");
@@ -140,7 +140,7 @@ fn fetch_and_cache_rate(state: &AppState) -> Result<RateInfo, String> {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
     // 存入缓存
-    let conn = state.db_guard();
+    let conn = state.db_read();
     if let Err(e) = save_rate(&conn, "USD", rate, &today) {
         warn!(error = %e, "cache save failed");
         // 缓存保存失败不影响返回结果
@@ -187,7 +187,7 @@ fn save_rate(
 /// value (defaults to 7.2 when nothing is stored yet).
 #[tauri::command]
 pub fn get_latest_rate(state: State<'_, AppState>) -> Result<RateInfo, String> {
-    let conn = state.db_guard();
+    let conn = state.db_read();
     let latest = get_latest_cached_rate(&conn, "USD");
     let (rate, date, cached) = match latest {
         Ok(Some((rate, date))) => (rate, date, true),
@@ -226,7 +226,7 @@ pub fn set_manual_rate(
     }
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     {
-        let conn = state.db_guard();
+        let conn = state.db_read();
         if let Err(e) = save_rate(&conn, "USD", rate, &today) {
             error!(error = %e, "manual rate save failed");
             return Err(format!("保存失败: {e}"));
@@ -250,7 +250,7 @@ pub fn startup_auto_fetch(app: AppHandle) {
         let st = app.state::<AppState>();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let need_fetch = {
-            let conn = st.db_guard();
+            let conn = st.db_read();
             let mode = config::load(&conn)
                 .map(|c| c.rate_mode)
                 .unwrap_or_else(|_| "auto".into());

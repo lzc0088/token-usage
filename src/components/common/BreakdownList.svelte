@@ -4,6 +4,7 @@
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor, vendorIdForModel } from "../../lib/meta/models";
   import { toolMeta, vendorIcon } from "../../lib/meta/tools";
+  import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { api, type Breakdown, type BreakdownEntry, type Currency, type Dimension } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
@@ -25,24 +26,46 @@
   let expanded = $state<Set<string>>(new Set());
   let details = $state<Record<string, Breakdown | null>>({});
 
+  // Generation counter prevents a stale period's detail response from
+  // overwriting fresher data when the user switches periods rapidly.
+  let detailGen = 0;
+  const MAX_DETAILS = 10;
+
   async function toggleExpand(key: string) {
-    if (expanded.has(key)) { expanded = new Set(); return; }
+    if (expanded.has(key)) {
+      // Collapse: clear the detail cache for this key and reset expansion.
+      expanded = new Set();
+      return;
+    }
     // Accordion: only one open at a time.
     expanded = new Set([key]);
     if (!details[key]) {
+      const gen = ++detailGen;
       try {
         const d = await api.getDetailBreakdown(periodValue(), oppDim, key);
+        // Discard if a newer toggle happened while we were fetching.
+        if (gen !== detailGen) return;
         details = { ...details, [key]: d };
-      } catch { details = { ...details, [key]: null }; }
+        // Evict oldest entry if cache exceeds cap.
+        const keys = Object.keys(details);
+        if (keys.length > MAX_DETAILS) {
+          const next = { ...details };
+          delete next[keys[0]];
+          details = next;
+        }
+      } catch {
+        if (gen !== detailGen) return;
+        details = { ...details, [key]: null };
+      }
     }
   }
 
   /** Token-composition rows for the detail expand (input/output/cache). */
   function tokenComposition(e: BreakdownEntry): { label: string; key: string; tokens: number }[] {
     return [
-      { label: "输入", key: "input", tokens: e.input },
-      { label: "输出", key: "output", tokens: e.output },
-      { label: "缓存", key: "cache_read", tokens: e.cache_read },
+      { label: t("detail.input"), key: "input", tokens: e.input },
+      { label: t("detail.output"), key: "output", tokens: e.output },
+      { label: t("detail.cache"), key: "cache_read", tokens: e.cache_read },
     ];
   }
 
@@ -60,7 +83,7 @@
 <div class="bd-header">
   <span class="bd-title">{title}<span class="bd-count">{entries.length}</span></span>
   <div class="bd-sort">
-    {#each [["token", "TOKEN"], ["cost", "成本"], ["name", "名称"]] as [k, label] (k)}
+    {#each [["token", t("breakdown.sortToken")], ["cost", t("breakdown.sortCost")], ["name", t("breakdown.sortName")]] as [k, label] (k)}
       <button class:on={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
     {/each}
   </div>
@@ -91,8 +114,8 @@
   </button>
   {#if open}
     <div class="bd-detail">
-      <div class="det-row"><span>会话数</span><span class="det-val">{e.messages}</span></div>
-      <div class="det-row"><span>成本比</span><span class="det-val">{e.cost_pct.toFixed(1)}%</span></div>
+      <div class="det-row"><span>{t("detail.sessionCount")}</span><span class="det-val">{e.messages}</span></div>
+      <div class="det-row"><span>{t("detail.costRatio")}</span><span class="det-val">{e.cost_pct.toFixed(1)}%</span></div>
       <div class="det-sep"></div>
       {#each tokenComposition(e) as tc, ci (tc.key)}
         {@const tcp = e.tokens > 0 ? (tc.tokens / e.tokens) * 100 : 0}

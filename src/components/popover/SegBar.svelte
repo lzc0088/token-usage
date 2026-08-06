@@ -6,16 +6,21 @@
 
   let { config }: { config: Config } = $props();
 
+  // Label lookup — returns zh/en label based on config.language.
+  function label(zh: string, en: string): string {
+    return config.language === "en" ? en : zh;
+  }
+
   // Default segment order (all visible by default).
-  const DEFAULT_SEGMENTS = [
-    { key: "ov", label: "总览" },
-    { key: "tools", label: "工具" },
-    { key: "models", label: "模型" },
-    { key: "projects", label: "项目" },
-    { key: "sess", label: "会话" },
-    { key: "trend", label: "趋势" },
-    { key: "limit", label: "额度" },
-  ];
+  let DEFAULT_SEGMENTS = $derived([
+    { key: "ov", label: label("总览", "Overview") },
+    { key: "tools", label: label("工具", "Tools") },
+    { key: "models", label: label("模型", "Models") },
+    { key: "projects", label: label("项目", "Projects") },
+    { key: "sess", label: label("会话", "Sessions") },
+    { key: "trend", label: label("趋势", "Trends") },
+    { key: "limit", label: label("额度", "Quota") },
+  ]);
 
   // Map config.layout_modules keys to segment keys.
   const MODULE_KEY_MAP: Record<string, string> = {
@@ -29,8 +34,13 @@
   };
 
   // Build visible + ordered segments from config.
+  // - null / undefined  → never configured → show all (default).
+  // - [ … ]            → user has a custom order → show exactly that list.
+  //   An empty array means the user explicitly cleared every module, and the
+  //   tab bar should reflect that (no tabs) — NOT fall back to the default.
   const segments = $derived.by(() => {
-    const moduleKeys = config.layout_modules ?? DEFAULT_SEGMENTS.map(s => s.key);
+    const configured = config.layout_modules;
+    const moduleKeys = configured ?? DEFAULT_SEGMENTS.map(s => s.key);
     const visible: { key: string; label: string }[] = [];
     for (const mk of moduleKeys) {
       const sk = MODULE_KEY_MAP[mk];
@@ -39,16 +49,22 @@
         if (def) visible.push(def);
       }
     }
-    // Fallback: if no valid modules, show defaults.
-    return visible.length > 0 ? visible : DEFAULT_SEGMENTS;
+    // Only fall back when the config was genuinely absent (null); an explicit
+    // empty list is honoured as "show nothing".
+    return (configured != null || visible.length > 0) ? visible : DEFAULT_SEGMENTS;
   });
 
   let active = $derived(getSegment());
 </script>
 
-<nav class="segbar">
+<nav class="segbar" data-testid="segbar">
   {#each segments as s (s.key)}
-    <button class:active={active === s.key} aria-current={active === s.key ? "page" : undefined} onclick={() => setSegment(s.key)}>{s.label}</button>
+    <button
+      data-testid={"segment-" + s.key}
+      class:active={active === s.key}
+      aria-current={active === s.key ? "page" : undefined}
+      onclick={() => setSegment(s.key)}
+    >{s.label}</button>
   {/each}
 </nav>
 

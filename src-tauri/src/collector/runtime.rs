@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 use super::{scheduler, tokscale, watcher};
@@ -16,6 +16,7 @@ use super::{scheduler, tokscale, watcher};
 mod tests {
     use super::scheduler;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
 
     /// Verify the SchedulerConfig defaults used by runtime::start() produce
     /// sensible values. The history_interval of 15 minutes is the fallback when
@@ -25,6 +26,7 @@ mod tests {
         let cfg = scheduler::SchedulerConfig {
             history_interval: std::time::Duration::from_secs(15 * 60),
             enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(None)),
         };
         assert_eq!(cfg.history_interval, std::time::Duration::from_secs(900));
         assert!(cfg.enabled_clients.is_empty());
@@ -98,7 +100,6 @@ mod tests {
         assert_eq!(scheduler::parse_refresh_interval_secs("30s"), Some(30));
         assert_eq!(scheduler::parse_refresh_interval_secs("60s"), Some(60));
         assert_eq!(scheduler::parse_refresh_interval_secs("300s"), Some(300));
-        assert_eq!(scheduler::parse_refresh_interval_secs("600s"), Some(600));
         assert_eq!(scheduler::parse_refresh_interval_secs(""), None);
         assert_eq!(scheduler::parse_refresh_interval_secs("unknown"), None);
     }
@@ -154,7 +155,14 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
         Err(_) => return,
     };
     let (ev_tx, mut ev_rx) = mpsc::channel::<scheduler::CollectionEvent>(64);
+    let bin_for_snapshot = bin.clone();
     let scanner = scheduler::TokscaleScanner::new(bin, clients.clone());
+
+    // Config cache: shared between the scheduler (reader) and `set_config`
+    // (writer via AppState.update_config_cache). The scheduler reads this
+    // without a DB lock on every loop iteration.
+    let config_cache = app.state::<crate::state::AppState>().config_cache.clone();
+
     // Persist the discovered installed-clients list so backend commands can
     // compute 归档会话 (sessions whose tool is no longer installed) without
     // re-running tokscale. Best-effort — a write failure only means the archive
@@ -166,6 +174,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     let cfg = scheduler::SchedulerConfig {
         history_interval: Duration::from_secs(15 * 60),
         enabled_clients: clients,
+        cached_config: config_cache,
     };
     tauri::async_runtime::spawn(scheduler::run(
         scanner,
@@ -184,33 +193,80 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     if let Ok(mut conn) = db.lock() {
                         if let Err(e) = storage::daily_usage::ingest_graph(&mut conn, &v) {
                             tracing::warn!(error = %e, "ingest_graph failed");
+                            let _ = app.emit("collection:error", format!("graph ingest failed: {e}"));
                         }
                     }
                 }
                 scheduler::CollectionEvent::Sessions(v) => {
+                    // Phase 1: ingest sessions batch (fast upsert) — keep the
+                    // lock as short as possible.
                     if let Ok(mut conn) = db.lock() {
                         if let Err(e) = storage::sessions::ingest_sessions(&mut conn, &v) {
                             tracing::warn!(error = %e, "ingest_sessions failed");
-                        }
-                        // 会话保留 OFF → prune sessions whose tool is no longer
-                        // installed (auto-cleanup). ON (default) keeps everything.
-                        let keep = crate::config::load(&conn)
-                            .map(|c| c.session_archive_enabled)
-                            .unwrap_or(true);
-                        if !keep {
-                            if let Err(e) =
-                                storage::sessions::prune_uninstalled(&conn, &installed_clients)
-                            {
-                                tracing::warn!(error = %e, "prune_uninstalled failed");
-                            }
+                            let _ = app.emit("collection:error", format!("sessions ingest failed: {e}"));
                         }
                     }
+
+                    // Phase 2: backfill project_path + prune — spawned off the
+                    // consumer loop so file I/O and the second DB lock don't
+                    // block event processing. These are best-effort; failures
+                    // are logged and surfaced via collection:error.
+                    let db2 = db.clone();
+                    let app2 = app.clone();
+                    let installed2 = installed_clients.clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Backfill project_path from Claude JSONL cwd.
+                        if installed2.iter().any(|c| c == "claude") {
+                            if let Ok(mut conn) = db2.lock() {
+                                if let Err(e) =
+                                    backfill_claude_project_paths(&mut conn, &installed2)
+                                {
+                                    tracing::warn!(error = %e, "project_path backfill failed");
+                                    let _ = app2.emit("collection:error", format!("project backfill failed: {e}"));
+                                }
+                            }
+                        }
+
+                        // 会话保留 OFF → prune sessions whose tool is no longer
+                        // installed (auto-cleanup). ON (default) keeps everything.
+                        if let Ok(conn) = db2.lock() {
+                            let keep = crate::config::load(&conn)
+                                .map(|c| c.session_archive_enabled)
+                                .unwrap_or(true);
+                            if !keep {
+                                if let Err(e) =
+                                    storage::sessions::prune_uninstalled(&conn, &installed2)
+                                {
+                                    tracing::warn!(error = %e, "prune_uninstalled failed");
+                                    let _ = app2.emit("collection:error", format!("prune failed: {e}"));
+                                }
+                            }
+                        }
+                    });
+
+                    // P0-阶段3 (complete): precompute project snapshots for all 3
+                    // periods and persist to DB. Spawned off the consumer loop so
+                    // it doesn't block event processing (~2s of tokscale calls).
+                    // get_projects then reads these snapshots directly (pure DB).
+                    let bin_snap = bin_for_snapshot.clone();
+                    let db_snap = db.clone();
+                    tauri::async_runtime::spawn(async move {
+                        super::project_snapshot::precompute_and_persist(bin_snap, db_snap).await;
+                    });
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {
                     if let Ok(conn) = db.lock() {
                         tray::update_from_json(&app, &v, &conn);
                     }
                     if let Some(s) = summary::from_today_json(&v) {
+                        // Cache the live today Summary so get_summary("day") can
+                        // serve the same value the tray shows, instead of the
+                        // DB-backed daily_usage (which lags one history tick).
+                        if let Some(state) = app.try_state::<crate::state::AppState>() {
+                            if let Ok(mut cache) = state.last_today.lock() {
+                                *cache = Some(s.clone());
+                            }
+                        }
                         let _ = app.emit("today:updated", s);
                     }
                 }
@@ -222,4 +278,80 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
             }
         }
     });
+}
+
+/// Backfill project_path for Claude sessions by reading cwd from JSONL files.
+///
+/// Scans `~/.claude/projects/` for each known session, reads the first line's
+/// `cwd` field, and updates `sessions.project_path` in the DB. Only updates rows
+/// where project_path is currently NULL or empty (first-write-wins per session).
+///
+/// Optimized: collects all updates into a Vec first, then applies them in a
+/// single transaction with a prepared statement (was N individual transactions).
+fn backfill_claude_project_paths(
+    conn: &mut Connection,
+    installed_clients: &[String],
+) -> Result<usize, String> {
+    if !installed_clients.iter().any(|c| c == "claude") {
+        return Ok(0);
+    }
+    let Some(claude_projects) = dirs::home_dir().map(|h| h.join(".claude").join("projects")) else {
+        return Ok(0);
+    };
+    if !claude_projects.is_dir() {
+        return Ok(0);
+    }
+
+    // Find all Claude sessions in DB that still lack a project_path.
+    let session_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT session_id FROM sessions WHERE tool = 'claude' AND (project_path IS NULL OR project_path = '')")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        let collected: Vec<String> = rows.filter_map(Result::ok).collect();
+        collected
+    };
+
+    if session_ids.is_empty() {
+        return Ok(0);
+    }
+
+    // Phase 1: resolve all project paths in memory (no DB writes yet).
+    let mut updates: Vec<(String, String)> = Vec::with_capacity(session_ids.len());
+    for sid in &session_ids {
+        let Some(session_file) = super::workspace::find_session_file(&claude_projects, sid) else {
+            continue;
+        };
+        let cwds = super::workspace::read_cwds(&session_file);
+        if cwds.is_empty() {
+            continue;
+        }
+        let Some(root) = super::workspace::project_root(&cwds) else {
+            continue;
+        };
+        updates.push((sid.clone(), super::workspace::tilde_prefix(&root)));
+    }
+
+    if updates.is_empty() {
+        return Ok(0);
+    }
+
+    // Phase 2: batch UPDATE in a single transaction with a prepared statement.
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut updated = 0;
+    {
+        let mut upd = tx.prepare(
+            "UPDATE sessions SET project_path = ?1
+             WHERE tool = 'claude' AND session_id = ?2
+               AND (project_path IS NULL OR project_path = '')",
+        ).map_err(|e| e.to_string())?;
+        for (sid, path) in &updates {
+            let rows = upd.execute(rusqlite::params![path, sid]).map_err(|e| e.to_string())?;
+            updated += rows;
+        }
+        // `upd` dropped here (before tx.commit), releasing the borrow on `tx`.
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(updated)
 }

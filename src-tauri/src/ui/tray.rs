@@ -157,6 +157,9 @@ fn zero_summary() -> Summary {
         messages: 0,
         delta_pct: None,
         delta_label: None,
+        timed_output_tokens: None,
+        timed_tokens: None,
+        timed_duration_ms: None,
     }
 }
 
@@ -177,6 +180,9 @@ mod tests {
             messages: 0,
             delta_pct: None,
             delta_label: None,
+            timed_output_tokens: None,
+            timed_tokens: None,
+            timed_duration_ms: None,
         }
     }
 

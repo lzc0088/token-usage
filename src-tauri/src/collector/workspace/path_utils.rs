@@ -1,10 +1,65 @@
 //! Path resolution and time-formatting utilities.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde_json::Value;
 
 use super::security::is_safe_workspace_key;
+
+/// A size:mtime → result cache for `read_cwds`. When a JSONL file hasn't
+/// changed (same file size AND mtime), the previous parse result is reused
+/// without re-opening or re-parsing the file. This mirrors token-monitor's
+/// `projectPathCache` / `jsonlTimestampCache` pattern.
+///
+/// Bounded to 200 entries to prevent unbounded memory growth in a long-running
+/// menu-bar app. When the limit is hit, the oldest half of entries are evicted.
+const CACHE_MAX: usize = 200;
+type CwdCacheMap = HashMap<PathBuf, (u64, i64, Vec<String>)>;
+static CWD_CACHE: Mutex<Option<CwdCacheMap>> = Mutex::new(None);
+
+fn get_cached_cwds(path: &Path) -> Option<Vec<String>> {
+    let (size, mtime) = file_size_mtime(path)?;
+    // Recover from mutex poisoning (a panic during set_cached_cwds) instead of
+    // silently disabling the cache for the rest of the process lifetime.
+    let cache = CWD_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let entries = cache.as_ref()?;
+    let cached = entries.get(path)?;
+    if cached.0 == size && cached.1 == mtime {
+        Some(cached.2.clone())
+    } else {
+        None
+    }
+}
+
+fn set_cached_cwds(path: &Path, parsed: Vec<String>) {
+    let Some((size, mtime)) = file_size_mtime(path) else {
+        return;
+    };
+    if let Ok(mut cache) = CWD_CACHE.lock() {
+        let entries = cache.get_or_insert_with(HashMap::new);
+        if entries.len() >= CACHE_MAX {
+            // Evict the oldest half (lowest mtime) to bound memory.
+            let mut sorted_mtimes: Vec<_> = entries.values().map(|(_, mt, _)| *mt).collect();
+            sorted_mtimes.sort();
+            let cutoff = sorted_mtimes[sorted_mtimes.len() / 2];
+            entries.retain(|_, (_, mtime, _)| *mtime > cutoff);
+        }
+        entries.insert(path.to_path_buf(), (size, mtime, parsed));
+    }
+}
+
+fn file_size_mtime(path: &Path) -> Option<(u64, i64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let size = meta.len();
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)?;
+    Some((size, mtime))
+}
 
 /// Decode a single workspace key/label into display info.
 ///
@@ -101,8 +156,17 @@ pub(crate) fn mtime_to_hhmm(m: std::time::SystemTime) -> Result<String, String> 
     Ok(dt.format("%Y-%m-%d %H:%M").to_string())
 }
 
-/// Read all `cwd` values from a session jsonl file (capped to keep it cheap).
+/// Read all `cwd` values from a session jsonl file (capped to 40 lines).
+///
+/// Uses a `size×mtime` weak cache so idle session files aren't re-read on
+/// every tick/query. A file is only re-parsed when its size or modification
+/// time has changed — matching token-monitor's `projectPathCache` approach.
 pub(crate) fn read_cwds(path: &Path) -> Vec<String> {
+    // Check cache first (size×mtime weak cache).
+    if let Some(cached) = get_cached_cwds(path) {
+        return cached;
+    }
+
     use std::io::BufRead;
     let Ok(file) = std::fs::File::open(path) else {
         return Vec::new();
@@ -118,6 +182,8 @@ pub(crate) fn read_cwds(path: &Path) -> Vec<String> {
             }
         }
     }
+
+    set_cached_cwds(path, out.clone());
     out
 }
 

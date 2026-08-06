@@ -18,12 +18,14 @@ pub mod cursor;
 pub mod deepseek;
 pub mod glm;
 pub mod glm_team;
+pub mod grok;
 pub mod iflytek;
 pub mod kimi;
 pub mod mimo;
 pub mod minimax;
 pub mod ollama;
 pub mod opencode;
+pub mod openrouter;
 pub mod qoder;
 pub mod scheduler;
 pub mod stepfun;
@@ -41,7 +43,9 @@ pub const TRACKED_VENDORS: &[&str] = &[
     "deepseek",
     "minimax",
     "glm",
+    "grok",
     "kimi",
+    "openrouter",
     "volcengine",
     "stepfun",
     "iflytek",
@@ -72,6 +76,8 @@ pub fn adapter_for(id: &str) -> Option<VendorId> {
         "opencode" => Some(VendorId::Opencode),
         "claude" => Some(VendorId::Claude),
         "codex" => Some(VendorId::Codex),
+        "grok" => Some(VendorId::Grok),
+        "openrouter" => Some(VendorId::Openrouter),
         _ => None,
     }
 }
@@ -106,6 +112,8 @@ pub enum VendorId {
     Opencode,
     Claude,
     Codex,
+    Grok,
+    Openrouter,
 }
 
 impl VendorId {
@@ -126,6 +134,8 @@ impl VendorId {
             VendorId::Ollama => "Ollama ( Ollama Cloud )",
             VendorId::Opencode => "OpenCode ( OpenCode AI )",
             VendorId::Claude => "Claude Code",
+            VendorId::Grok => "Grok ( xAI )",
+            VendorId::Openrouter => "OpenRouter",
             VendorId::Codex => "Codex",
         }
     }
@@ -135,7 +145,9 @@ impl VendorId {
             VendorId::Deepseek
             | VendorId::Glm
             | VendorId::Minimax
+            | VendorId::Grok
             | VendorId::Kimi
+            | VendorId::Openrouter
             | VendorId::Volcengine
             | VendorId::Mimo
             | VendorId::GlmTeam => CredentialCategory::ApiKey,
@@ -222,6 +234,8 @@ pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorEr
         VendorId::Opencode => opencode::fetch(credential).await,
         VendorId::Claude => claude::fetch(credential).await,
         VendorId::Codex => codex::fetch(credential).await,
+        VendorId::Grok => grok::fetch(credential).await,
+        VendorId::Openrouter => openrouter::fetch(credential).await,
     }
 }
 
@@ -418,7 +432,7 @@ mod tests {
 
     #[test]
     fn adapter_for_all_tracked_vendors_return_some() {
-        assert_eq!(TRACKED_VENDORS.len(), 16);
+        assert_eq!(TRACKED_VENDORS.len(), 18);
         for vendor in TRACKED_VENDORS {
             assert!(adapter_for(vendor).is_some(), "tracked '{vendor}' must map");
         }

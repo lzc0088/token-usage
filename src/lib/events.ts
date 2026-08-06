@@ -13,6 +13,9 @@ export const RATE_UPDATED = "rate:updated";
 export const TRAY_REFRESH = "tray:refresh";
 /** Emitted after archived sessions are cleared or the installed-client list changes. */
 export const COLLECTION_UPDATED = "collection:updated";
+/** Emitted when a collection scan or data-ingest step fails so the UI can
+ *  show a degraded-state warning instead of silently stale data. */
+export const COLLECTION_ERROR = "collection:error";
 /** Emitted during the GitHub Copilot OAuth Device Flow. */
 export const COPILOT_LOGIN_STATUS = "copilot:login_status";
 /** Emitted during the Codex OAuth login flow. */

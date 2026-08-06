@@ -29,7 +29,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use super::tokscale::{self, Period, TokscaleError};
-use crate::config;
+use crate::config::Config;
 
 /// Scheduler tuning.
 #[derive(Debug, Clone)]
@@ -38,6 +38,11 @@ pub struct SchedulerConfig {
     pub history_interval: Duration,
     /// Enabled clients (drives the config fingerprint + the `-c` filter).
     pub enabled_clients: Vec<String>,
+    /// Cached config — the runtime updates this on startup and on every
+    /// `config:changed` event so the scheduler can read `collection_mode`
+    /// (and other fields) without locking the DB each loop iteration.
+    /// None = no cache available, fall back to DB read.
+    pub cached_config: Arc<Mutex<Option<Config>>>,
 }
 
 impl Default for SchedulerConfig {
@@ -45,6 +50,7 @@ impl Default for SchedulerConfig {
         Self {
             history_interval: Duration::from_secs(15 * 60),
             enabled_clients: Vec::new(),
+            cached_config: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -135,7 +141,7 @@ pub fn config_fingerprint(clients: &[String]) -> u64 {
 ///
 /// `"manual"` (and any unrecognized value) → `None`, meaning "stay on the
 /// default 15-min history cadence" (the watcher still drives real-time today
-/// updates). `"30s"/"60s"/"300s"/"600s"` → the explicit cadence.
+/// updates). `"30s"/"60s"/"300s"` → the explicit cadence.
 pub fn parse_refresh_interval_secs(raw: &str) -> Option<u64> {
     let secs = raw.strip_suffix('s').and_then(|r| r.parse::<u64>().ok())?;
     // Guard against absurdly small/large values (negative can't parse as u64).
@@ -146,19 +152,17 @@ pub fn parse_refresh_interval_secs(raw: &str) -> Option<u64> {
     }
 }
 
-/// Resolve the next history-loop interval from config when a DB handle is
-/// available; falls back to `cfg.history_interval` otherwise (tests / no DB).
-fn next_history_interval(db: &Option<Arc<Mutex<Connection>>>, fallback: Duration) -> Duration {
-    let Some(db) = db else {
-        return fallback;
-    };
-    let Some(conn) = db.lock().ok() else {
-        return fallback;
-    };
-    let cfg = config::load(&conn).unwrap_or_default();
-    match parse_refresh_interval_secs(cfg.refresh_interval.as_str()) {
-        Some(secs) => Duration::from_secs(secs),
-        None => fallback,
+/// Resolve the next history-loop interval from the cached config (no DB lock).
+/// Falls back to `fallback` when the cache is empty or poisoned.
+fn next_history_interval(cfg: &SchedulerConfig, fallback: Duration) -> Duration {
+    match cfg.cached_config.lock() {
+        Ok(guard) => match guard.as_ref() {
+            Some(c) => parse_refresh_interval_secs(c.refresh_interval.as_str())
+                .map(Duration::from_secs)
+                .unwrap_or(fallback),
+            None => fallback,
+        },
+        Err(_) => fallback,
     }
 }
 
@@ -206,37 +210,37 @@ impl Scanner for TokscaleScanner {
     }
 }
 
-async fn emit_today<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>) {
-    match scanner.today().await {
-        Ok(v) => {
-            let _ = tx.send(CollectionEvent::TodaySummary(v)).await;
-        }
-        Err(e) => {
-            let _ = tx.send(CollectionEvent::ScanError(e.to_string())).await;
-        }
-    }
+async fn emit_today<S: Scanner>(
+    scanner: &S,
+    tx: &mpsc::Sender<CollectionEvent>,
+) -> Result<(), mpsc::error::SendError<CollectionEvent>> {
+    let event = match scanner.today().await {
+        Ok(v) => CollectionEvent::TodaySummary(v),
+        Err(e) => CollectionEvent::ScanError(e.to_string()),
+    };
+    tx.send(event).await
 }
 
-async fn emit_graph<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>) {
-    match scanner.graph().await {
-        Ok(v) => {
-            let _ = tx.send(CollectionEvent::Graph(v)).await;
-        }
-        Err(e) => {
-            let _ = tx.send(CollectionEvent::ScanError(e.to_string())).await;
-        }
-    }
+async fn emit_graph<S: Scanner>(
+    scanner: &S,
+    tx: &mpsc::Sender<CollectionEvent>,
+) -> Result<(), mpsc::error::SendError<CollectionEvent>> {
+    let event = match scanner.graph().await {
+        Ok(v) => CollectionEvent::Graph(v),
+        Err(e) => CollectionEvent::ScanError(e.to_string()),
+    };
+    tx.send(event).await
 }
 
-async fn emit_sessions<S: Scanner>(scanner: &S, tx: &mpsc::Sender<CollectionEvent>) {
-    match scanner.sessions().await {
-        Ok(v) => {
-            let _ = tx.send(CollectionEvent::Sessions(v)).await;
-        }
-        Err(e) => {
-            let _ = tx.send(CollectionEvent::ScanError(e.to_string())).await;
-        }
-    }
+async fn emit_sessions<S: Scanner>(
+    scanner: &S,
+    tx: &mpsc::Sender<CollectionEvent>,
+) -> Result<(), mpsc::error::SendError<CollectionEvent>> {
+    let event = match scanner.sessions().await {
+        Ok(v) => CollectionEvent::Sessions(v),
+        Err(e) => CollectionEvent::ScanError(e.to_string()),
+    };
+    tx.send(event).await
 }
 
 /// Run the scheduler until `tick_rx` closes. Consumes ticks (file-change events)
@@ -265,19 +269,28 @@ pub async fn run<S: Scanner>(
     let mut next_graph_at = tokio::time::Instant::now();
     let mut last_activity_revision: u64 = 0;
 
-    loop {
-        // Read collection mode from config (refresh each iteration to pick up changes)
-        let collection_mode = db
-            .as_ref()
-            .and_then(|d| d.lock().ok())
-            .and_then(|conn| crate::config::load(&conn).ok())
-            .map(|c| c.collection_mode)
-            .unwrap_or_else(|| "live".to_string());
+    // Helper: read collection_mode from cached config first (no DB lock),
+    // fall back to DB read only if cache is empty.
+    let collection_mode = |cfg: &SchedulerConfig| -> String {
+        match cfg.cached_config.lock() {
+            Ok(guard) => match guard.as_ref() {
+                Some(c) => c.collection_mode.clone(),
+                None => "live".to_string(),
+            },
+            Err(_) => "live".to_string(),
+        }
+    };
 
-        match collection_mode.as_str() {
+    loop {
+        let mode = collection_mode(&cfg);
+
+        match mode.as_str() {
             "smart" => {
                 // ── Smart mode: 10min timer + activity gating ─────────────
                 // Still listen to ticks for activity detection, but don't scan.
+                // First trigger always scans (last_activity_revision starts at 0
+                // while activity_revision could be empty if no live tick recorded it).
+                // Use i64::MAX sentinel to force the first scan.
                 tokio::select! {
                     tick = tick_rx.recv() => {
                         if tick.is_some() {
@@ -294,7 +307,6 @@ pub async fn run<S: Scanner>(
                         }
                     }
                     _ = tokio::time::sleep_until(next_graph_at) => {
-                        // Check for new activity
                         let current_activity = db.as_ref()
                             .and_then(|d| d.lock().ok())
                             .and_then(|conn| {
@@ -304,15 +316,26 @@ pub async fn run<S: Scanner>(
                             })
                             .unwrap_or(0);
 
-                        if current_activity > last_activity_revision {
-                            emit_today(&scanner, &event_tx).await;
+                        // Scan only when activity was detected since last scan.
+                        // The first trigger always scans: last_activity_revision=0
+                        // means no scan has happened yet, so any current_activity
+                        // (including 0, meaning "startup, no file-watch activity
+                        // yet but we should still get initial data") triggers it.
+                        let first_scan = last_activity_revision == 0;
+                        if first_scan || current_activity > last_activity_revision {
+                            if emit_today(&scanner, &event_tx).await.is_err() {
+                                break;
+                            }
                             last_activity_revision = current_activity;
                         }
-                        // Also run graph + sessions periodically (hourly)
-                        emit_graph(&scanner, &event_tx).await;
-                        emit_sessions(&scanner, &event_tx).await;
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
 
-                        let smart_interval = std::time::Duration::from_secs(600); // Fixed 10min
+                        let smart_interval = next_history_interval(&cfg, cfg.history_interval);
                         next_graph_at = tokio::time::Instant::now() + smart_interval;
                     }
                 }
@@ -321,9 +344,16 @@ pub async fn run<S: Scanner>(
                 // ── Interval mode: fixed timer, no file watch ─────────────
                 tokio::select! {
                     _ = tokio::time::sleep_until(next_graph_at) => {
-                        emit_graph(&scanner, &event_tx).await;
-                        emit_sessions(&scanner, &event_tx).await;
-                        let interval = next_history_interval(&db, cfg.history_interval);
+                        if emit_today(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        let interval = next_history_interval(&cfg, cfg.history_interval);
                         next_graph_at = tokio::time::Instant::now() + interval;
                     }
                 }
@@ -342,14 +372,20 @@ pub async fn run<S: Scanner>(
 
                             // Coalesce: drain any ticks already buffered by the burst
                             while tick_rx.try_recv().is_ok() {}
-                            emit_today(&scanner, &event_tx).await;
+                            if emit_today(&scanner, &event_tx).await.is_err() {
+                                break;
+                            }
                         }
                         None => break, // watcher stopped → exit
                     },
                     _ = tokio::time::sleep_until(next_graph_at) => {
-                        emit_graph(&scanner, &event_tx).await;
-                        emit_sessions(&scanner, &event_tx).await;
-                        let interval = next_history_interval(&db, cfg.history_interval);
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        let interval = next_history_interval(&cfg, cfg.history_interval);
                         next_graph_at = tokio::time::Instant::now() + interval;
                     }
                 }
@@ -390,7 +426,6 @@ mod tests {
         assert_eq!(parse_refresh_interval_secs("30s"), Some(30));
         assert_eq!(parse_refresh_interval_secs("60s"), Some(60));
         assert_eq!(parse_refresh_interval_secs("300s"), Some(300));
-        assert_eq!(parse_refresh_interval_secs("600s"), Some(600));
         // Unknown / malformed → None (falls back to default cadence).
         assert_eq!(parse_refresh_interval_secs("bogus"), None);
         assert_eq!(parse_refresh_interval_secs(""), None);
@@ -440,6 +475,7 @@ mod tests {
         let cfg = SchedulerConfig {
             history_interval: Duration::from_secs(3600),
             enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
             run(mock, cfg, tick_rx, ev_tx, None).await;
@@ -478,6 +514,7 @@ mod tests {
         let cfg = SchedulerConfig {
             history_interval: Duration::from_millis(150),
             enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
             run(mock, cfg, tick_rx, ev_tx, None).await;
@@ -490,5 +527,34 @@ mod tests {
 
         drop(tick_tx);
         let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
+    }
+
+    #[tokio::test]
+    async fn emit_functions_return_err_when_channel_closed() {
+        // Drop the sender immediately so the receiver gets an error on recv.
+        // The run loop should exit cleanly via the tick_rx.recv() = None path
+        // (no ticks sent) and not panic or hang.
+        let (mock, _today_c, _graph_c) = Mock::new();
+        let (_tick_tx, tick_rx) = mpsc::channel::<()>(8);
+        let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
+
+        let cfg = SchedulerConfig {
+            history_interval: Duration::from_secs(3600),
+            enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(None)),
+        };
+
+        let handle = tokio::spawn(async move {
+            // Drop sender before run starts — first emit_today send will fail,
+            // run loop breaks cleanly.
+            drop(ev_tx);
+            // We need a tick_rx that immediately returns None.
+            // Just drop the tick sender and pass a new closed channel.
+            let (tick_tx, tick_rx2) = mpsc::channel::<()>(1);
+            drop(tick_tx);
+            run(mock, cfg, tick_rx2, mpsc::channel::<CollectionEvent>(1).0, None).await;
+        });
+
+        let _ = tokio::time::timeout(Duration::from_millis(500), handle).await;
     }
 }

@@ -3,7 +3,8 @@
   // All visibility/ordering is persisted to config (matching Collection/Account pattern).
   import { api, type Config } from "../../lib/api";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
-  import { VENDOR_LABELS } from "../../lib/meta/vendors";
+  import { rowDrag } from "../../lib/actions/rowDrag";
+  import { t, getLang } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   interface TreeItem {
@@ -17,16 +18,14 @@
   const DEFAULT_MODULES = ["overview", "tools", "models", "projects", "trends", "sessions", "quotas"];
   const DEFAULT_OVERVIEW_SUB = ["overview_io", "overview_tools", "overview_models", "overview_quotas"];
 
-  const MODULE_LABELS: Record<string, string> = {
-    overview: "总览", tools: "工具", models: "模型",
-    projects: "项目", trends: "趋势", sessions: "会话", quotas: "额度",
-  };
-  const SUB_LABELS: Record<string, string> = {
-    overview_io: "输入 / 输出 / 缓存",
-    overview_tools: "工具",
-    overview_models: "模型",
-    overview_quotas: "额度",
-  };
+  function modLabel(key: string): string {
+    const m: Record<string,string> = { overview: t("seg.overview"), tools: t("seg.tools"), models: t("seg.models"), projects: t("seg.projects"), trends: t("seg.trends"), sessions: t("seg.sessions"), quotas: t("seg.limits") };
+    return m[key] ?? key;
+  }
+  function subLabel(key: string): string {
+    const m: Record<string,string> = { overview_io: t("mainview.overviewSub"), overview_tools: t("seg.tools"), overview_models: t("seg.models"), overview_quotas: t("seg.limits") };
+    return m[key] ?? key;
+  }
 
   /** Merge a stored (possibly partial) order with the canonical key list.
    *  Preserves stored order; appends any missing keys at the end (they are hidden
@@ -56,9 +55,27 @@
         const q = await api.getQuotas();
         if (!cancelled) {
           activeVendors = q.map(v => v.vendor);
+          const l = getLang(); // current language for label map
           const labels: Record<string, string> = {};
+          const zhMap: Record<string, string> = {
+            deepseek: "DeepSeek ( 深度求索 )", glm: "GLM ( 智谱 )", minimax: "MiniMax ( 稀宇 )",
+            kimi: "Kimi ( 月之暗面 )", volcengine: "Volcengine ( 火山方舟 )", mimo: "MiMo ( 小米 )",
+            stepfun: "StepFun ( 阶跃星辰 )", iflytek: "iFlytek ( 讯飞星辰 )", copilot: "GitHub Copilot",
+            zai_team: "GLM Team ( 智谱团队 )", claude: "Claude Code ( Anthropic )",
+            codex: "Codex ( OpenAI )", opencode: "OpenCode ( OpenCode AI )",
+            qoder: "Qoder ( 阿里 )", ollama: "Ollama ( Ollama Cloud )", cursor: "Cursor ( Anysphere )",
+            grok: "Grok ( xAI )", openrouter: "OpenRouter",
+          };
+          const enMap: Record<string, string> = {
+            deepseek: "DeepSeek", glm: "GLM", minimax: "MiniMax", kimi: "Kimi",
+            volcengine: "Volcengine", mimo: "MiMo", stepfun: "StepFun", iflytek: "iFlytek",
+            copilot: "GitHub Copilot", zai_team: "GLM Team", claude: "Claude Code",
+            codex: "Codex", opencode: "OpenCode", qoder: "Qoder", ollama: "Ollama",
+            cursor: "Cursor", grok: "Grok", openrouter: "OpenRouter",
+          };
+          const src = l === "en" ? enMap : zhMap;
           for (const v of q) {
-            labels[v.vendor] = VENDOR_LABELS[v.vendor] ?? v.vendor;
+            labels[v.vendor] = src[v.vendor] ?? v.vendor;
           }
           vendorLabels = labels;
         }
@@ -67,13 +84,14 @@
     return () => { cancelled = true; };
   });
 
-  // Rebuild when config or active vendors change.
+  // Rebuild when config, active vendors, OR language changes.
   let navItems = $state<TreeItem[]>([]);
   let prevBuildSig = $state<string>("");
   $effect(() => {
     const sig = JSON.stringify([
       config?.layout_modules, config?.layout_overview_sub,
-      config?.overview_quota_vendors, activeVendors,
+      config?.overview_quota_vendors, activeVendors, getLang(),
+      config?.quota_active_vendors,
       [...expandedKeys],
     ]);
     if (sig === prevBuildSig) return;
@@ -98,20 +116,33 @@
 
     const modSet = new Set(modKeys ?? DEFAULT_MODULES);
     const subSet = new Set(subKeys ?? DEFAULT_OVERVIEW_SUB);
-    const vendorSet = new Set(quotaVendors ?? activeVendors);
 
-    // Quota vendor grandchild items (dynamic, from active vendors).
-    const quotaChildren: TreeItem[] = vendorOrder.map(v => ({
-      key: `quota_vendor_${v}`,
-      label: vendorLabels[v] ?? v,
-      visible: vendorSet.has(v),
-    }));
+    // Filter out vendors with no actual quota data (empty cache entries
+    // are now filtered by the Rust backend, but double-check here too).
+    // Only show vendors that are both enabled in Account (quota_active_vendors)
+    // AND have cached data in the quota list. If quota_active_vendors is null
+    // (never configured in Account), fall back to showing all with data.
+    const accountEnabled = config?.quota_active_vendors;
+    const accountSet = accountEnabled != null ? new Set(accountEnabled) : null;
+    // Visibility comes from the persisted preview config (quotaVendors);
+    // null means "never configured → show all". Non-null means only listed
+    // vendors are visible — their toggle state drives persistLayout(), which
+    // writes back to overview_quota_vendors.
+    const previewSet = quotaVendors != null ? new Set(quotaVendors) : null;
+    const quotaChildren: TreeItem[] = vendorOrder
+      .filter(v => vendorLabels[v]) // has data
+      .filter(v => accountSet == null || accountSet.has(v)) // enabled in Account
+      .map(v => ({
+        key: `quota_vendor_${v}`,
+        label: vendorLabels[v]!,
+        visible: previewSet != null ? previewSet.has(v) : true,
+      }));
 
     const overviewChildren: TreeItem[] = subOrder.map(k => {
       if (k === "overview_quotas") {
         return {
           key: k,
-          label: SUB_LABELS[k],
+          label: subLabel(k),
           visible: subSet.has(k),
           expanded: expanded.has(k),
           children: quotaChildren,
@@ -119,7 +150,7 @@
       }
       return {
         key: k,
-        label: SUB_LABELS[k],
+        label: subLabel(k),
         visible: subSet.has(k),
       };
     });
@@ -128,7 +159,7 @@
       if (key === "overview") {
         return {
           key,
-          label: MODULE_LABELS[key],
+          label: modLabel(key),
           visible: modSet.has(key),
           expanded: expanded.has(key),
           children: overviewChildren,
@@ -136,7 +167,7 @@
       }
       return {
         key,
-        label: MODULE_LABELS[key],
+        label: modLabel(key),
         visible: modSet.has(key),
       };
     });
@@ -193,36 +224,37 @@
     expandedKeys = next;
   }
 
-  /** Immutably rebuild the tree with `item` moved one slot in direction `dir`
-   *  (-1 = up, +1 = down) within its own list. Creates fresh array references
-   *  along the whole path so Svelte reactivity is unambiguous at every depth. */
-  function withMovedItem(tree: TreeItem[], item: TreeItem, dir: -1 | 1): TreeItem[] {
-    function rebuildList(list: TreeItem[]): TreeItem[] {
-      const idx = list.indexOf(item);
-      if (idx === -1) {
-        // Not in this list — recurse immutably into children.
-        return list.map(n => (n.children ? { ...n, children: rebuildList(n.children) } : n));
+  /** Move a tree item (by key) to `newIndex` within its parent's children
+   *  array. Immutable — returns a fresh tree, or the original if the item
+   *  isn't found or the index would be unchanged. */
+  function moveTreeItem(tree: TreeItem[], itemKey: string, newIndex: number): TreeItem[] {
+    function walk(items: TreeItem[]): TreeItem[] | null {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].key === itemKey) {
+          if (i === newIndex) return null; // no change
+          const out = [...items];
+          const [item] = out.splice(i, 1);
+          const insertAt = newIndex > i ? newIndex - 1 : newIndex;
+          out.splice(insertAt, 0, item!);
+          return out;
+        }
+        if (items[i].children) {
+          const result = walk(items[i].children!);
+          if (result != null) {
+            const out = [...items];
+            out[i] = { ...out[i]!, children: result };
+            return out;
+          }
+        }
       }
-      const j = idx + dir;
-      if (j < 0 || j >= list.length) return list; // at edge, no move
-      const next = [...list];
-      const tmp = next[idx] as TreeItem;
-      next[idx] = next[j] as TreeItem;
-      next[j] = tmp;
-      return next;
+      return null;
     }
-    return rebuildList(tree);
+    return walk(tree) ?? tree;
   }
 
-  function moveUp(item: TreeItem): void {
-    const next = withMovedItem(navItems, item, -1);
-    if (next === navItems) return;
-    navItems = next;
-    persistLayout();
-  }
-
-  function moveDown(item: TreeItem): void {
-    const next = withMovedItem(navItems, item, 1);
+  /** Called by `use:rowDrag` on drop. */
+  function moveToIndex(key: string, newIndex: number): void {
+    const next = moveTreeItem(navItems, key, newIndex);
     if (next === navItems) return;
     navItems = next;
     persistLayout();
@@ -244,40 +276,49 @@
   }
 </script>
 
-<div class="sh"><h3>预览界面</h3><div class="desc">弹窗默认时段、数据刷新与模块布局</div></div>
+<div class="sh"><h3>{t("mainview.title")}</h3><div class="desc">{t("mainview.desc")}</div></div>
 <div class="sc">
 
   <!-- ══ 基本 ══ -->
-  <div class="section-title">基本</div>
+  <div class="section-title">{t("mainview.basic")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">默认时段<div class="hint">弹窗统计的默认时间范围</div></div>
+      <div class="lab">{t("mainview.defaultPeriod")}<div class="hint">{t("mainview.defaultPeriodHint")}</div></div>
       <select class="sel" value={config.default_period || "day"}
         onchange={(e) => onUpdate({ default_period: (e.target as HTMLSelectElement).value as Config["default_period"] })}>
-        <option value="day">DAY（今日）</option>
-        <option value="month">MONTH（本月）</option>
-        <option value="total">TOTAL（全部）</option>
+        <option value="day">{t("mainview.periodDay")}</option>
+        <option value="month">{t("mainview.periodMonth")}</option>
+        <option value="total">{t("mainview.periodTotal")}</option>
       </select>
     </div>
   </div>
 
   <!-- ══ 布局 ══ -->
-  <div class="section-title">布局</div>
+  <div class="section-title">{t("mainview.layout")}</div>
   <div class="section-box">
 
     <div class="icon-legend">
-      <span class="legend-item">展开</span>
-      <span class="legend-item">上移</span>
-      <span class="legend-item">下移</span>
-      <span class="legend-item">显示</span>
+      <span class="legend-text">{t("account.dragReorder")}</span>
+      <div class="legend-actions">
+        <span class="legend-item">{t("mainview.expand")}</span>
+        <span class="legend-item">{t("mainview.show")}</span>
+      </div>
     </div>
 
     <div role="tree" aria-label="页面布局">
 
-    {#each navItems as item, i (item.key)}
-      <div class="tree-row" role="treeitem" aria-expanded={item.expanded ?? undefined} aria-level={1} aria-selected={false}>
+    {#each navItems as item (item.key)}
+      <div
+        class="tree-row"
+        role="treeitem"
+        aria-expanded={item.expanded ?? undefined}
+        aria-level={1}
+        aria-selected={false}
+        data-row-id={item.key}
+        use:rowDrag={{ id: item.key, onReorder: (newIndex) => moveToIndex(item.key, newIndex), siblingSelector: '[aria-level="1"]', excludeSelector: "button" }}
+      >
         <span class="tree-left">
-          <span class="grip" title="拖拽排序">
+          <span class="grip" title={t("mainview.dragHint")}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
           </span>
             {#if !["overview","tools","models","projects","trends","sessions","quotas"].includes(item.key)}
@@ -287,7 +328,7 @@
           </span>
         <span class="tree-right">
           {#if item.children}
-            <button type="button" class="act" title={item.expanded ? '折叠' : '展开'} aria-expanded={item.expanded} aria-label={item.expanded ? `折叠 ${item.label}` : `展开 ${item.label}`} onclick={() => toggleExpand(item)}>
+            <button type="button" class="act" title={item.expanded ? t("mainview.collapse") : t("mainview.expand")} aria-expanded={item.expanded} aria-label={item.expanded ? `折叠 ${item.label}` : `展开 ${item.label}`} onclick={() => toggleExpand(item)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                 {#if item.expanded}
                   <line x1="5" y1="12" x2="19" y2="12"/>
@@ -297,17 +338,7 @@
               </svg>
             </button>
           {/if}
-          <button type="button" class="mv" title="上移" disabled={i === 0} onclick={() => moveUp(item)}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-            </svg>
-          </button>
-          <button type="button" class="mv" title="下移" disabled={i === navItems.length - 1} onclick={() => moveDown(item)}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-            </svg>
-          </button>
-          <button class="vis" class:on={item.visible} title={item.visible ? '显示中' : '已隐藏'} onclick={() => toggleVisible(item.key)}>
+          <button class="vis" class:on={item.visible} title={item.visible ? t("mainview.visible") : t("mainview.hidden")} onclick={() => toggleVisible(item.key)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               {#if item.visible}
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -320,17 +351,25 @@
       </div>
 
       {#if item.children && item.expanded}
-        {#each item.children as child, j (child.key)}
-          <div class="tree-row child" role="treeitem" aria-expanded={child.expanded ?? undefined} aria-level={2} aria-selected={false}>
+        {#each item.children as child (child.key)}
+          <div
+            class="tree-row child"
+            role="treeitem"
+            aria-expanded={child.expanded ?? undefined}
+            aria-level={2}
+            aria-selected={false}
+            data-row-id={child.key}
+            use:rowDrag={{ id: child.key, onReorder: (newIndex) => moveToIndex(child.key, newIndex), siblingSelector: '[aria-level="2"]', excludeSelector: "button" }}
+          >
             <span class="tree-left">
-              <span class="grip" title="拖拽排序">
+              <span class="grip" title={t("mainview.dragHint")}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
               </span>
               <span class="tree-label">{child.label}</span>
             </span>
             <span class="tree-right">
               {#if child.children}
-                <button type="button" class="act" title={child.expanded ? '折叠' : '展开'} aria-expanded={child.expanded} aria-label={child.expanded ? `折叠 ${child.label}` : `展开 ${child.label}`} onclick={() => toggleExpand(child)}>
+                <button type="button" class="act" title={child.expanded ? t("mainview.collapse") : t("mainview.expand")} aria-expanded={child.expanded} aria-label={child.expanded ? `折叠 ${child.label}` : `展开 ${child.label}`} onclick={() => toggleExpand(child)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                     {#if child.expanded}
                       <line x1="5" y1="12" x2="19" y2="12"/>
@@ -340,17 +379,7 @@
                   </svg>
                 </button>
               {/if}
-              <button type="button" class="mv" title="上移" disabled={j === 0} onclick={() => moveUp(child)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-                </svg>
-              </button>
-              <button type="button" class="mv" title="下移" disabled={j === (item.children?.length ?? 1) - 1} onclick={() => moveDown(child)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-                </svg>
-              </button>
-              <button class="vis" class:on={child.visible} title={child.visible ? '显示中' : '已隐藏'} disabled={!item.visible || isUnderHiddenParent(child)} onclick={() => toggleVisible(child.key)}>
+              <button class="vis" class:on={child.visible} title={child.visible ? t("mainview.visible") : t("mainview.hidden")} disabled={!item.visible || isUnderHiddenParent(child)} onclick={() => toggleVisible(child.key)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if child.visible}
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -362,26 +391,23 @@
             </span>
           </div>
           {#if child.children && child.expanded}
-            {#each child.children as grandchild, k (grandchild.key)}
-              <div class="tree-row grandchild" role="treeitem" aria-level={3} aria-selected={false}>
+            {#each child.children as grandchild (grandchild.key)}
+              <div
+                class="tree-row grandchild"
+                role="treeitem"
+                aria-level={3}
+                aria-selected={false}
+                data-row-id={grandchild.key}
+                use:rowDrag={{ id: grandchild.key, onReorder: (newIndex) => moveToIndex(grandchild.key, newIndex), siblingSelector: '[aria-level="3"]', excludeSelector: "button" }}
+              >
                 <span class="tree-left">
-                  <span class="grip" title="拖拽排序">
+                  <span class="grip" title={t("mainview.dragHint")}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
                   </span>
                   <span class="tree-label">{grandchild.label}</span>
                 </span>
                 <span class="tree-right">
-                  <button type="button" class="mv" title="上移" disabled={k === 0} onclick={() => moveUp(grandchild)}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-                    </svg>
-                  </button>
-                  <button type="button" class="mv" title="下移" disabled={k === (child.children?.length ?? 1) - 1} onclick={() => moveDown(grandchild)}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-                    </svg>
-                  </button>
-                  <button class="vis" class:on={grandchild.visible} title={grandchild.visible ? '显示中' : '已隐藏'} disabled={!child.visible || isUnderHiddenParent(grandchild)} onclick={() => toggleVisible(grandchild.key)}>
+                  <button class="vis" class:on={grandchild.visible} title={grandchild.visible ? t("mainview.visible") : t("mainview.hidden")} disabled={!child.visible || isUnderHiddenParent(grandchild)} onclick={() => toggleVisible(grandchild.key)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       {#if grandchild.visible}
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -410,32 +436,56 @@
   .icon-legend {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
+    justify-content: space-between;
     margin-top: 0;
     margin-bottom: 0;
     padding: 0;
+    gap: 4px;
+  }
+  .icon-legend .legend-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px; /* match .tree-right button gap */
   }
   .icon-legend .legend-item {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
+    width: 28px; /* match .act/.vis button width */
     height: 28px;
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-faint);
     line-height: 1;
+  }
+  .icon-legend .legend-text {
+    font-size: 10.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
 
   .tree-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 0;
+    padding: 6px 4px 6px 6px;
     border-bottom: none;
     gap: 12px;
+    border-radius: 4px;
+    cursor: grab;
+    transition: background 0.12s;
   }
+  .tree-row:hover { background: var(--surface-tint); }
+  .tree-row:active { cursor: grabbing; }
   .tree-row:last-child { border-bottom: none; }
+  .tree-row:global(.row-drag-source) { opacity: 0.35; }
+  :global(.row-drag-ghost) {
+    pointer-events: none;
+    opacity: 0.75;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    background: var(--surface-tint-strong);
+    border-radius: 5px;
+    will-change: transform;
+  }
   .tree-row.child .tree-label { padding-left: 18px; }
   .tree-row.grandchild .tree-label { padding-left: 36px; font-size: 11px; color: var(--text-dim); }
 
@@ -475,7 +525,7 @@
   .tree-left svg { width: 14px; height: 14px; }
 
   /* ── icon buttons (shared) ── */
-  .act, .mv, .vis {
+  .act, .vis {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -490,19 +540,16 @@
     transition: all 0.15s;
   }
   .act { color: var(--amber); }
-  .mv { color: var(--text-faint); }
   .vis { color: var(--text-faint); }
 
-  .act:hover, .mv:hover:not(:disabled), .vis:hover {
+  .act:hover, .vis:hover {
     background: var(--glass-subtle-strong);
     color: var(--amber);
     transform: scale(1.05);
   }
-  .act:active, .mv:active:not(:disabled), .vis:active {
+  .act:active, .vis:active {
     transform: scale(0.95);
   }
-  .mv:disabled { opacity: 0.15; cursor: default; }
-  .mv:disabled:hover { background: none; color: var(--text-faint); transform: none; }
   .vis.on { color: var(--amber); }
   .vis.on:hover { background: var(--amber-hover); }
 </style>

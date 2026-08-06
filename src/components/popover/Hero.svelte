@@ -1,39 +1,73 @@
 <script lang="ts">
-  // Hero: period label + total tokens (big, with small unit) + cost (CNY first) + delta.
+  // Hero: period label + total tokens (big, with small unit) + cost (CNY first) + delta
+  //       + live token-rate readout (click to toggle speed / burn).
   import type { Summary, Currency } from "../../lib/api";
-  import { formatCost, splitTokensCN } from "../../lib/format";
+  import { formatCost, formatTokenRate, splitTokens, splitTokensCN } from "../../lib/format";
+  import { t } from "../../lib/i18n.svelte";
 
   let {
     summary,
     currency,
     cnyRate = 7.2,
-  }: { summary: Summary | null; currency: Currency; cnyRate?: number } = $props();
+    lang = "zh",
+    rateMode = "speed",
+    onToggleRateMode,
+  }: {
+    summary: Summary | null;
+    currency: Currency;
+    cnyRate?: number;
+    lang?: string;
+    rateMode?: "speed" | "burn";
+    onToggleRateMode?: () => void;
+  } = $props();
 
-  function periodLabel(p: string): string {
-    if (p === "month") return "本月 · MONTH";
-    if (p === "total") return "全部 · TOTAL";
-    return "今日 · TODAY";
-  }
-
-  const label = $derived(summary ? periodLabel(summary.period) : "今日 · TODAY");
-  const t = $derived(summary ? splitTokensCN(summary.total_tokens, 3) : { value: "—", unit: "" });
+  const tokenDisplay = $derived(summary
+    ? (lang === "en" ? splitTokens(summary.total_tokens, 2) : splitTokensCN(summary.total_tokens, 3))
+    : { value: "—", unit: "" });
   const deltaDir = $derived(
     summary?.delta_pct != null ? (summary.delta_pct >= 0 ? "↑" : "↓") : "",
   );
+  // Live throughput readout. Empty when there's no model-busy duration in the
+  // window (e.g. month/total periods, or a quiet today) — see formatTokenRate.
+  const rateText = $derived(
+    summary
+      ? formatTokenRate(rateMode, summary.timed_output_tokens, summary.timed_tokens, summary.timed_duration_ms)
+      : "",
+  );
+
+  function deltaText(raw: string | null | undefined): string {
+    if (!raw) return "";
+    const cleaned = raw.replace("较", "");
+    if (lang === "en") {
+      if (cleaned === "昨日") return "yesterday";
+      if (cleaned === "上月") return "last month";
+    }
+    return cleaned;
+  }
 </script>
 
-<div class="hero-l">
-  <span class="lbl">{label}</span>
-  <span class="big">{t.value}<span class="big-unit">{t.unit}</span>
+<div class="hero-l" data-testid="hero-section">
+  <span class="big">{tokenDisplay.value}<span class="big-unit">{tokenDisplay.unit}</span>
     {#if summary?.delta_pct != null}
       <span class="delta" class:up={summary.delta_pct >= 0} class:down={summary.delta_pct < 0}>
-        {deltaDir}{Math.abs(summary.delta_pct).toFixed(0)}<span class="delta-unit">%</span> vs {summary.delta_label?.replace("较", "")}
+        {deltaDir}{Math.abs(summary.delta_pct).toFixed(0)}<span class="delta-unit">%</span> vs {deltaText(summary.delta_label)}
       </span>
     {/if}
   </span>
-  {#if summary}
-    <span class="cost">{formatCost(summary.cost_usd, currency, cnyRate)}</span>
-  {/if}
+  <div class="subline">
+    {#if summary}
+      <span class="cost">{formatCost(summary.cost_usd, currency, cnyRate)}</span>
+    {/if}
+    {#if rateText}
+      <button
+        type="button"
+        class="rate"
+        title={t("hero.rateToggleHint")}
+        aria-label={t("hero.rateToggleHint")}
+        onclick={(e) => { e.stopPropagation(); onToggleRateMode?.(); }}
+      >⚡ {rateText}</button>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -41,14 +75,6 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-  }
-  .lbl {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    font-weight: 600;
   }
   .big {
     font-family: "Fraunces", var(--font-ui);
@@ -78,6 +104,29 @@
     user-select: text;
     -webkit-user-select: text;
   }
+  .subline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .rate {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-ui);
+    color: var(--text-dim);
+    background: var(--surface-tint);
+    border: 1px solid var(--border-dim);
+    border-radius: 5px;
+    padding: 1px 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-app-region: no-drag;
+  }
+  .rate:hover { color: var(--amber); border-color: var(--amber); background: var(--amber-hover); }
   .delta {
     margin-left: 8px;
     font-size: 12px;

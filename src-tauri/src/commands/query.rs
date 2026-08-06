@@ -2,71 +2,72 @@
 //! `sessions` via the `query` layer.
 
 use tauri::State;
+use tracing::warn;
 
-use std::collections::HashSet;
-
-use crate::collector::project_cache::ProjectCache;
-use crate::collector::workspace::{
-    build_projects_from_sessions_with_map, filter_out_client, merge_project,
-    parse_workspace_report, scan_claude_filesystem, ProjectAgg,
-};
-use crate::commands::{db, parse_period, today};
-use crate::query::summary::Summary;
-use crate::query::{self, breakdown::Breakdown, sessions::SessionVm, trends::Trends, Dimension};
-use crate::state::AppState;
 use rusqlite::Connection;
 
-/// Compute a fingerprint of the collection config that affects project visibility.
-/// Changes to tracked/visible tool lists should invalidate the project cache.
-fn collection_config_fingerprint(conn: &Connection) -> Result<u64, String> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-    let mut h = DefaultHasher::new();
-
-    // Load collection_tracked and collection_visible from config
-    let tracked: Vec<String> = crate::config::get_json(conn, "collection_tracked")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-    let visible: Vec<String> = crate::config::get_json(conn, "collection_visible")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-
-    // Hash sorted lists (order-independent for tracked, order-dependent for visible)
-    let mut sorted_tracked = tracked.clone();
-    sorted_tracked.sort();
-    for item in sorted_tracked {
-        h.write(item.as_bytes());
-        h.write_u8(0);
-    }
-
-    for item in &visible {
-        h.write(item.as_bytes());
-        h.write_u8(1);
-    }
-
-    Ok(h.finish())
-}
+use crate::collector::workspace::ProjectAgg;
+use crate::commands::{db, parse_period, today};
+use crate::query::summary::Summary;
+use crate::query::DateRange;
+use crate::query::{self, breakdown::Breakdown, sessions::SessionVm, trends::Trends, Dimension};
+use crate::state::AppState;
 
 #[tauri::command]
 pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, String> {
     let p = parse_period(&period);
+
+    // For "day", prefer the cached LIVE today Summary (written by the
+    // collector on every `tokscale --today` scan). This keeps the popover in
+    // sync with the tray title — both show the same real-time value. The
+    // DB-backed `daily_usage` query lags one history tick (~15 min) and would
+    // make the popover appear stale vs. the tray.
+    if matches!(p, query::Period::Day) {
+        if let Ok(cache) = state.last_today.lock() {
+            if let Some(ref live) = *cache {
+                // Recompute the vs-yesterday delta on top of the live value
+                // (the live Summary has delta_pct = None).
+                let mut s = live.clone();
+                let t = today();
+                if let Some((prev_range, label)) = query::prev_range_for_period(p, &t) {
+                    s.delta_pct = try_delta(&db(&state), s.total_tokens, &prev_range);
+                    if s.delta_pct.is_some() {
+                        s.delta_label = Some(label.to_string());
+                    }
+                }
+                return Ok(s);
+            }
+        }
+    }
+
     let t = today();
     let range = query::range_for_period(p, &t);
     let mut s = query::summary::query(&db(&state), &range).map_err(|e| e.to_string())?;
 
     // Compute delta vs previous period (e.g. 较昨日 / 较上月).
     if let Some((prev_range, label)) = query::prev_range_for_period(p, &t) {
-        if let Ok(prev) = query::summary::query(&db(&state), &prev_range) {
-            if prev.total_tokens > 0 {
-                let delta =
-                    (s.total_tokens - prev.total_tokens) as f64 / prev.total_tokens as f64 * 100.0;
-                s.delta_pct = Some(delta);
-                s.delta_label = Some(label.to_string());
-            }
+        s.delta_pct = try_delta(&db(&state), s.total_tokens, &prev_range);
+        if s.delta_pct.is_some() {
+            s.delta_label = Some(label.to_string());
         }
     }
 
     Ok(s)
+}
+
+/// Try to compute the delta percentage between a live total and the previous
+/// period's total. Logs a warning on DB errors so debugging is possible.
+fn try_delta(conn: &Connection, live_total: i64, prev_range: &DateRange) -> Option<f64> {
+    match query::summary::query(conn, prev_range) {
+        Ok(prev) if prev.total_tokens > 0 => {
+            Some((live_total - prev.total_tokens) as f64 / prev.total_tokens as f64 * 100.0)
+        }
+        Ok(_) => None,
+        Err(e) => {
+            warn!(error = %e, "delta query failed");
+            None
+        }
+    }
 }
 
 #[tauri::command]
@@ -160,61 +161,82 @@ pub async fn get_session_rounds(
     .map_err(|e| e.to_string())
 }
 
-/// Build the project list by merging two tokscale reports:
+/// Return the project list.
 ///
-/// 1. `--group-by session,model` → for **Claude** sessions, each session is
-///    mapped to its JSONL `cwd` so subdirectories like
-///    `bee_miniprogram/uniapp-field` appear as independent projects.
-/// 2. `--group-by workspace,model` → for **non-Claude** tools (codex, zcode,
-///    workbuddy, etc.), the workspaceKey is already the real project path.
+/// **Primary path (instant)**: read a precomputed snapshot from the DB. The
+/// collector builds snapshots for today / month / total on each history tick
+/// (~15 min) via `project_snapshot::precompute_and_persist`, so the common case
+/// is a pure DB read — no tokscale call, no filesystem scan.
 ///
-/// A filesystem scan of `~/.claude/projects/` supplements projects with zero
-/// activity in the queried period.
-///
-/// Results are cached for 5 minutes (config key: "projects_cache_v1") and
-/// invalidated when collection_tracked / collection_visible change.
+/// **Fallback path (~2s)**: if no snapshot exists yet (very first run before
+/// any collection tick), fetch live from tokscale in parallel. The next tick
+/// will build the snapshot, so subsequent opens are instant.
 #[tauri::command]
-pub async fn get_projects<'a>(
+pub async fn get_projects(
     app: tauri::AppHandle,
     period: String,
-    state: State<'a, AppState>,
+    state: State<'_, AppState>,
+    offset: Option<i64>,
+    limit: Option<i64>,
 ) -> Result<Vec<ProjectAgg>, String> {
-    // ── 0. Quick cache check (drop DB guard before any await) ───────────
+    // ── 0. Snapshot read (pure DB, instant) ─────────────────────────────
     {
         let conn = db(&state);
-        let now = chrono::Utc::now().timestamp();
-        if let Ok(Some(cache)) = crate::config::get_json::<ProjectCache>(&conn, "projects_cache_v1")
+        // Frontend period "day" maps to the "today" snapshot key.
+        let snap_period = if period == "day" { "today" } else { &period };
+        if let Some(projects) =
+            crate::collector::project_snapshot::load_snapshot(&conn, snap_period)
         {
-            if let Ok(fingerprint) = collection_config_fingerprint(&conn) {
-                if cache.is_fresh(now, fingerprint) {
-                    tracing::debug!("projects cache hit (age {}s)", now - cache.cached_at);
-                    return Ok(cache
-                        .projects
-                        .into_iter()
-                        .map(|e| ProjectAgg {
-                            name: e.name,
-                            full_path: e.full_path,
-                            latest_date: e.latest_date,
-                            tokens: e.tokens,
-                            cost_usd: e.cost_usd,
-                            messages: e.messages,
-                            models: Vec::new(),
-                            tools: Vec::new(),
-                        })
-                        .collect());
-                }
-            }
+            tracing::debug!(
+                "projects snapshot hit (period={period}, {})",
+                projects.len()
+            );
+            return Ok(apply_pagination(projects, offset, limit));
         }
     } // conn guard dropped here
 
-    // ── 2. Cache miss or stale — fetch fresh data ───────────────────────
+    // ── 1. Fallback: no snapshot yet → live tokscale ────────────────────
+    let session_map: std::collections::HashMap<String, (String, String, Option<String>)> = {
+        let conn = db(&state);
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id, project_path, MAX(last_used_at) AS last_used
+                 FROM sessions
+                 WHERE tool = 'claude'
+                   AND project_path IS NOT NULL AND project_path != ''
+                 GROUP BY session_id, project_path",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let sid: String = r.get(0)?;
+                let path: String = r.get(1)?;
+                let name = path
+                    .split('/')
+                    .rfind(|s| !s.is_empty())
+                    .unwrap_or(&path)
+                    .to_string();
+                let date = r.get::<_, Option<i64>>(2)?.and_then(|ts| {
+                    Some(
+                        chrono::DateTime::from_timestamp_millis(ts)?
+                            .format("%Y-%m-%d")
+                            .to_string(),
+                    )
+                });
+                Ok((sid, (name, path, date)))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+        rows.into_iter().collect()
+    }; // conn guard dropped here
+
     let p = parse_period(&period);
     let tp = match p {
         query::Period::Day => crate::collector::tokscale::Period::Today,
         query::Period::Month => crate::collector::tokscale::Period::Month,
         query::Period::Total => crate::collector::tokscale::Period::All,
     };
-
     let data = match crate::collector::tokscale::app_bin_dir() {
         Some(d) => d,
         None => return Ok(Vec::new()),
@@ -225,114 +247,67 @@ pub async fn get_projects<'a>(
         Err(_) => return Ok(Vec::new()),
     };
 
-    let claude_dir = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
-
-    // ── Two tokscale reports, run in parallel ───────────────────────────
-    // Report 1 (session,model, -c claude): Claude per-session data — small,
-    // fast, and precise enough to map each session to its JSONL cwd.
-    // Report 2 (workspace,model): non-Claude tools whose workspaceKey is a
-    // real path. Claude entries are filtered out in memory afterwards.
     let sess_args =
         crate::collector::tokscale::report_args(tp, &["claude".to_string()], "session,model");
     let ws_args = crate::collector::tokscale::report_args(tp, &[], "workspace,model");
+    let bin_cl = bin.clone();
     let (sess_res, ws_res) = tokio::join!(
         crate::collector::tokscale::run_json(&bin, &sess_args),
-        crate::collector::tokscale::run_json(&bin, &ws_args),
+        crate::collector::tokscale::run_json(&bin_cl, &ws_args),
     );
-    let sess_json = sess_res.map_err(|e| e.to_string())?;
-    let ws_json = ws_res.map_err(|e| e.to_string())?;
 
-    // ── Filesystem walk + aggregation on the blocking pool ──────────────
-    // scan_claude_filesystem walks ~/.claude/projects/ once (capped reads),
-    // yielding both the session→project map and the full project list —
-    // shared by the session grouping and the zero-activity supplement.
-    let projects = tauri::async_runtime::spawn_blocking(move || -> Vec<ProjectAgg> {
-        let empty: std::collections::HashMap<String, (String, String, Option<String>)> =
-            std::collections::HashMap::new();
-        let fs = claude_dir.as_deref().map(scan_claude_filesystem);
-        let session_map = fs.as_ref().map(|f| &f.session_map).unwrap_or(&empty);
-
-        let mut projects = build_projects_from_sessions_with_map(&sess_json, session_map);
-
-        // Non-Claude tool projects (workspace-level report, Claude filtered out).
-        let ws_non_claude = filter_out_client(&ws_json, "claude");
-        for ws in parse_workspace_report(&ws_non_claude, None) {
-            merge_project(&mut projects, ws);
-        }
-
-        // Zero-activity Claude projects (from the single filesystem scan).
-        if let Some(fs) = &fs {
-            let existing: HashSet<Option<String>> =
-                projects.iter().map(|p| p.full_path.clone()).collect();
-            for dw in &fs.all_projects {
-                if !existing.contains(&dw.full_path) {
-                    projects.push(ProjectAgg {
-                        name: dw.name.clone(),
-                        full_path: dw.full_path.clone(),
-                        latest_date: dw.latest_date.clone(),
-                        tokens: 0,
-                        cost_usd: 0.0,
-                        messages: 0,
-                        models: Vec::new(),
-                        tools: Vec::new(),
-                    });
-                }
+    let mut projects: Vec<ProjectAgg> = if session_map.is_empty() {
+        Vec::new()
+    } else {
+        match sess_res {
+            Ok(json) => crate::collector::workspace::build_projects_from_sessions_with_map(
+                &json,
+                &session_map,
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "tokscale session report failed");
+                Vec::new()
             }
         }
-
-        projects.sort_by_key(|p| std::cmp::Reverse(p.tokens));
-
-        // Filter out projects that would be invisible to the user — matches
-        // the frontend filter so we don't transfer useless data over IPC.
-        projects.retain(|p| {
-            (p.full_path.is_some() || p.latest_date.is_some())
-                && p.messages >= 5
-                && p.cost_usd >= 0.1
-        });
-
-        projects
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // ── 3. Update cache ─────────────────────────────────────────────────
-    // Re-acquire the DB connection (the earlier one was consumed by the blocking
-    // spawn above).
-    let conn = db(&state);
-    let now_save = match chrono::Utc::now().timestamp() {
-        ts if ts > 0 => ts,
-        _ => {
-            tracing::warn!("Failed to get timestamp for project cache save");
-            0
-        }
     };
-    if let Ok(fingerprint) = collection_config_fingerprint(&conn) {
-        let cache_entry = ProjectCache {
-            period: period.clone(),
-            projects: projects
-                .iter()
-                .map(|p| crate::collector::project_cache::ProjectCacheEntry {
-                    name: p.name.clone(),
-                    full_path: p.full_path.clone(),
-                    latest_date: p.latest_date.clone(),
-                    tokens: p.tokens,
-                    cost_usd: p.cost_usd,
-                    messages: p.messages,
-                })
-                .collect(),
-            cached_at: now_save,
-            config_fingerprint: fingerprint,
-        };
-        let _ = crate::config::set_json(&conn, "projects_cache_v1", &cache_entry);
+    if let Ok(ws_json) = ws_res {
+        let ws_non_claude = crate::collector::workspace::filter_out_client(&ws_json, "claude");
+        let ws_projects = crate::collector::workspace::parse_workspace_report(&ws_non_claude, None);
+        for ws in ws_projects {
+            crate::collector::workspace::merge_project(&mut projects, ws);
+        }
+    } else if projects.is_empty() {
+        // Both sources failed — surface an error so the frontend can show a message.
+        return Err("项目数据获取失败，请检查 tokscale 是否正常运行".into());
     }
 
-    Ok(projects)
+    projects.sort_by_key(|x| std::cmp::Reverse(x.tokens));
+    projects.retain(|x| {
+        (x.full_path.is_some() || x.latest_date.is_some()) && x.messages >= 5 && x.cost_usd >= 0.1
+    });
+
+    Ok(apply_pagination(projects, offset, limit))
+}
+
+/// Apply offset/limit pagination to the project list.
+fn apply_pagination(
+    mut projects: Vec<ProjectAgg>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> Vec<ProjectAgg> {
+    let offset_val = offset.unwrap_or(0).max(0);
+    let limit_val = limit.unwrap_or(100).clamp(1, 500);
+    if offset_val > 0 {
+        let start = (offset_val as usize).min(projects.len());
+        projects = projects.split_off(start);
+    }
+    projects.truncate(limit_val as usize);
+    projects
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
 
     #[test]
     fn parse_period_maps_strings() {
@@ -347,46 +322,5 @@ mod tests {
         let t = today();
         assert_eq!(t.len(), 10);
         assert_eq!(t.chars().nth(4), Some('-'));
-    }
-
-    #[test]
-    fn collection_config_fingerprint_stable_for_same_config() {
-        // In-memory DB with two config rows
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
-        crate::config::set_json(&conn, "collection_tracked", &["claude", "codex"]).unwrap();
-        crate::config::set_json(&conn, "collection_visible", &["claude", "codex"]).unwrap();
-
-        let fp1 = collection_config_fingerprint(&conn).unwrap();
-        let fp2 = collection_config_fingerprint(&conn).unwrap();
-        assert_eq!(fp1, fp2, "same config should produce same fingerprint");
-    }
-
-    #[test]
-    fn collection_config_fingerprint_changes_on_tracked() {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
-        crate::config::set_json(&conn, "collection_tracked", &["claude"]).unwrap();
-        crate::config::set_json(&conn, "collection_visible", &["claude"]).unwrap();
-
-        let fp1 = collection_config_fingerprint(&conn).unwrap();
-
-        // Change tracked list
-        crate::config::set_json(&conn, "collection_tracked", &["claude", "codex"]).unwrap();
-
-        let fp2 = collection_config_fingerprint(&conn).unwrap();
-        assert_ne!(fp1, fp2, "changing tracked list should change fingerprint");
-    }
-
-    #[test]
-    fn collection_config_fingerprint_empty_defaults() {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::storage::schema::migrate(&conn).unwrap(); // Initialize schema
-                                                         // No config rows — both tracked and visible default to empty
-        let fp = collection_config_fingerprint(&conn).unwrap();
-        assert!(
-            fp != 0,
-            "empty config should still produce a non-zero fingerprint"
-        );
     }
 }

@@ -3,6 +3,7 @@
   import BreakdownList from "../common/BreakdownList.svelte";
   import { api, type Breakdown, type Currency } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
+  import { t } from "../../lib/i18n.svelte";
 
   let {
     dim,
@@ -39,7 +40,7 @@
   {#if data}
     <BreakdownList entries={data.entries} {currency} {cnyRate} {title} {dim} />
   {:else}
-    <p class="loading">加载中…</p>
+    <p class="loading">{t("projects.loading")}</p>
   {/if}
 </div>
 

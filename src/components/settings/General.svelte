@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import type { Config, UpdateInfo } from "../../lib/api";
   import { api } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   // Git hosting repo from Vite env (full string, e.g. "gitee.com/owner/repo").
@@ -112,6 +113,7 @@
         has_update: false, version: "", name: "", changelog: "",
         url: "", published_at: null,
         error: "未配置更新仓库地址（VITE_UPDATE_REPO）",
+        error_kind: "api_error",
         download_url: null,
       };
       checking = false;
@@ -133,6 +135,7 @@
         has_update: false, version: "", name: "", changelog: "",
         url: "", published_at: null,
         error: "调用失败：" + (e instanceof Error ? e.message : String(e)),
+        error_kind: "network",
         download_url: null,
       };
       checking = false;
@@ -211,56 +214,56 @@
   }
 </script>
 
-<div class="sh"><h3>基本设置</h3><div class="desc">应用启动与数据基础行为</div></div>
+<div class="sh"><h3>{t("general.title")}</h3><div class="desc">{t("general.desc")}</div></div>
 <div class="sc">
 
   <!-- ══ 启动 ══ -->
-  <div class="section-title">启动</div>
+  <div class="section-title">{t("general.startup")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">开机自启动<div class="hint">登录时自动启动并驻留菜单栏</div></div>
-      <button type="button" class="tg" class:on={autoStartEnabled} role="switch" aria-checked={autoStartEnabled} aria-label="开机自启动" onclick={toggleAutoStart} disabled={autoStartToggling}></button>
+      <div class="lab">{t("general.autoStart")}<div class="hint">{t('general.autoStartHint')}</div></div>
+      <button type="button" class="tg" class:on={autoStartEnabled} role="switch" aria-checked={autoStartEnabled} aria-label={t("general.autoStart")} onclick={toggleAutoStart} disabled={autoStartToggling}></button>
     </div>
   </div>
 
   <!-- ══ 币种 ══ -->
-  <div class="section-title">币种</div>
+  <div class="section-title">{t("general.currency")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">费用显示<div class="hint">项目中费用的显示币种</div></div>
+      <div class="lab">{t('general.costDisplay')}<div class="hint">{t('general.costDisplayHint')}</div></div>
       <select class="sel" onchange={(e) => {
         const target = e.target as HTMLSelectElement;
         onUpdate({ currency: target.value as 'cny' | 'usd' | 'both' });
       }}>
-        <option value="cny" selected={config.currency === 'cny'}>CNY（人民币）</option>
-        <option value="usd" selected={config.currency === 'usd'}>USD（美元）</option>
-        <option value="both" selected={config.currency === 'both'}>同时显示</option>
+        <option value="cny" selected={config.currency === 'cny'}>{t('general.cnyLabel')}</option>
+        <option value="usd" selected={config.currency === 'usd'}>{t('general.usdLabel')}</option>
+        <option value="both" selected={config.currency === 'both'}>{t('general.bothLabel')}</option>
       </select>
     </div>
     <div class="box-row">
-      <div class="lab">汇率模式<div class="hint">USD ↔ CNY 汇率来源</div></div>
+      <div class="lab">{t('general.rateMode')}<div class="hint">{t('general.rateModeHint')}</div></div>
       <select class="sel" onchange={(e) => {
         const target = e.target as HTMLSelectElement;
         rateMode = target.value as 'auto' | 'manual';
         onUpdate({ rate_mode: target.value as "auto" | "manual" });
       }}>
-        <option value="auto" selected={rateMode === 'auto'}>自动获取</option>
-        <option value="manual" selected={rateMode === 'manual'}>手动输入</option>
+        <option value="auto" selected={rateMode === 'auto'}>{t('general.rateAuto')}</option>
+        <option value="manual" selected={rateMode === 'manual'}>{t('general.rateManual')}</option>
       </select>
     </div>
     {#if rateMode === 'auto'}
       <div class="box-row" style="padding-top: 4px">
-        <div class="lab">当前汇率<div class="hint">USD ↔ CNY 实时汇率</div></div>
+        <div class="lab">{t('general.currentRate')}<div class="hint">{t("general.usdCnyRate")}</div></div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="rate-display">1 USD ≈ {currentRate.toFixed(4)} CNY</span>
           <button type="button" class="btn-outline" onclick={refreshRate} disabled={refreshingRate}>
-            {refreshingRate ? "刷新中…" : "刷新"}
+            {refreshingRate ? t('general.refreshingRate') : t('general.refreshRate')}
           </button>
         </div>
       </div>
     {:else}
       <div class="box-row" style="padding-top: 4px">
-        <div class="lab">手动汇率<div class="hint">输入 1 USD 对应的 CNY 金额</div></div>
+        <div class="lab">{t('general.manualRate')}<div class="hint">{t("general.manualRateHint")}</div></div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <input
             type="text"
@@ -271,7 +274,7 @@
             inputmode="decimal"
           />
           <button type="button" class="btn-save" onclick={saveRate} disabled={savingRate || !validateRate(manualRate)}>
-            {savingRate ? "保存中…" : "保存"}
+            {savingRate ? t('general.saving') : t('general.rateSavedHint')}
           </button>
         </div>
       </div>
@@ -284,15 +287,15 @@
   </div>
 
   <!-- ══ 更新 ══ -->
-  <div class="section-title">更新</div>
+  <div class="section-title">{t("general.update")}</div>
   <div class="section-box no-divider">
     <div class="box-row">
       <div class="lab">
-        当前版本：
+        {t('general.currVersion')}：
         <span class="ver-num">{appVersion}</span>
       </div>
       <button type="button" class="btn-outline" onclick={checkUpdate} disabled={checking}>
-        {checking ? "检查中…" : "检查更新"}
+        {checking ? t('general.checking') : t('general.checkUpdate')}
       </button>
     </div>
 
@@ -307,7 +310,7 @@
       <div class="update-status has-update">
         <div class="update-info">
           <div class="update-top">
-            <span class="status-text">新版本：<span class="new-ver">{updateStatus.version}</span></span>
+            <span class="status-text">{t('general.newVersion')}：<span class="new-ver">{updateStatus.version}</span></span>
             {#if updateStatus.published_at}
               <span class="update-date">{new Date(updateStatus.published_at).toLocaleDateString("zh-CN")}</span>
             {/if}
@@ -317,32 +320,30 @@
           {/if}
           {#if updateStatus.download_url}
             <button type="button" class="btn-download" onclick={() => openExternal(updateStatus!.download_url!)}>
-              下载更新
+              {t("general.downloadUpdate")}
             </button>
           {:else}
             <button type="button" class="btn-download" onclick={() => openExternal(updateStatus!.url)}>
-              前往下载
+              {t("general.gotoDownload")}
             </button>
           {/if}
         </div>
       </div>
     {:else if showLatestAlert}
-      <div class="latest-alert">你当前使用的是最新版本</div>
+      <div class="latest-alert">{t('general.latestVersion')}</div>
     {/if}
   </div>
 
   <!-- ══ 关于 ══ -->
-  <div class="section-title">关于</div>
+  <div class="section-title">{t("general.about")}</div>
   <div class="section-box">
     <p class="about-text">
-      Token Usage 是一款跨平台菜单栏应用，用于实时统计本机各 AI 编码助手
-      （Claude Code、Codex / ZCode / WorkBuddy …）的 token 用量与费用。
-      数据 100% 本地存储，不上传云端。
+      {t("general.aboutText")}
     </p>
     <div class="about-links">
       {#if UPDATE_REPO}
         <a class="alink" href="{REPO_BASE_URL}/{REPO_PATH}" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`${REPO_BASE_URL}/${REPO_PATH}`); }}>{REPO_LABEL}</a>
-        <a class="alink" href="{REPO_BASE_URL}/{REPO_PATH}/issues/new" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`${REPO_BASE_URL}/${REPO_PATH}/issues/new`); }}>报告问题</a>
+        <a class="alink" href="{REPO_BASE_URL}/{REPO_PATH}/issues/new" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`${REPO_BASE_URL}/${REPO_PATH}/issues/new`); }}>{t('general.reportIssue')}</a>
       {/if}
     </div>
   </div>
@@ -372,7 +373,7 @@
   .sel { min-width: 150px; }
 
   /* ── rate display ── */
-  .rate-display { font-family: var(--font-mono); font-size: 12px; color: var(--text); font-weight: 500; background: rgba(0,0,0,0.04); padding: 3px 8px; border-radius: 5px; }
+  .rate-display { font-family: var(--font-mono); font-size: 12px; color: var(--lime); font-weight: 500; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 3px 8px; border-radius: 5px; }
 
   /* ── save button (local variant) ── */
   .btn-save { background: var(--amber); border: none; color: var(--badge-text); padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; min-width: 60px; height: 32px; }
@@ -387,7 +388,7 @@
   }
 
   /* ── version number ── */
-  .ver-num { font-family: var(--font-mono); font-size: 12px; color: var(--text); font-weight: 500; background: var(--glass-3); border: 1px solid var(--border-dim); padding: 2px 8px; border-radius: 5px; }
+  .ver-num { font-family: var(--font-mono); font-size: 12px; color: var(--lime); font-weight: 600; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 2px 8px; border-radius: 5px; }
 
   /* ── update status ── */
   .update-status { padding: 10px 12px; margin: 6px 0; border-radius: 7px; }

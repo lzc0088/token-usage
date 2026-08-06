@@ -4,12 +4,13 @@
    with expandable sub-items. -->
 
 <script lang="ts">
-  import { VENDOR_PANEL } from "../../lib/meta/panels";
+  import { VENDOR_PANEL, panelHint } from "../../lib/meta/panels";
   import ToolIcon from "../ui/ToolIcon.svelte";
   import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
-  import { formatRefreshed, formatExpiry, expiryUrgency, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
+  import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
   import { formatCost } from "../../lib/format";
+  import { getLang } from "../../lib/i18n.svelte";
   import type { Quota } from "../../lib/api";
 
   type ProgressMode = "用量" | "剩余";
@@ -33,6 +34,10 @@
      *  backgrounded webview. */
     onQuotaChanged?: () => Promise<void> | void;
   } = $props();
+
+  
+  function l(zh: string, en: string): string { return getLang() === "en" ? en : zh; }
+  let _lang = $derived(getLang());
 
   // ── Inline cookie editor (per-card state) ──
   // `null` = not editing, string = vendor being edited (supports per-vendor
@@ -149,12 +154,12 @@
       {/if}
     </div>
     <div class="qhead-line">
-      <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs) || "刚刚刷新"}</span>
+      <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs, _lang) || l("刚刚刷新","Just now")}</span>
       {#if quota.error}
         <span class="qerror">{quota.error}</span>
       {/if}
       {#if !quota.cookie_error && formatExpiry(quota.expires_at ?? undefined, nowMs)}
-        <span class="qexpiry {expiryUrgency(quota.expires_at ?? undefined, nowMs)}">{formatExpiry(quota.expires_at ?? undefined, nowMs)}</span>
+        <span class="qexpiry {expiryUrgency(quota.expires_at ?? undefined, nowMs)}">{formatExpiry(quota.expires_at ?? undefined, nowMs, _lang)}</span>
       {/if}
     </div>
   </div>
@@ -164,7 +169,7 @@
     <div class="qcookie-edit">
       <textarea
         bind:value={cookieDraft}
-        placeholder="粘贴新 Cookie…"
+        placeholder={l("粘贴新 Cookie…","Paste new Cookie…")}
         rows="4"
         disabled={cookieSaving}
         aria-label="Cookie"
@@ -188,42 +193,42 @@
       {/if}
       <div class="qcookie-actions">
         <button type="button" class="qcookie-save" onclick={saveCookie} disabled={cookieSaving || !cookieDraft.trim()}>
-          {cookieSaving ? "保存中…" : "保存"}
+          {cookieSaving ? l("保存中…","Saving…") : l("保存","Save")}
         </button>
-        <button type="button" class="qcookie-cancel" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
+        <button type="button" class="qcookie-cancel" onclick={cancelEditCookie} disabled={cookieSaving}>{l("取消","Cancel")}</button>
       </div>
       {#if VENDOR_PANEL[quota.vendor]}
-        <p class="qcookie-hint">{VENDOR_PANEL[quota.vendor].hint}</p>
+        <p class="qcookie-hint">{panelHint(VENDOR_PANEL[quota.vendor], _lang)}</p>
       {/if}
     </div>
   {:else}
     <div class="qcookie-bar">
-      <span class="qcookie-text">⚠ {quota.cookie_error}</span>
+      <span class="qcookie-text">⚠ {translateCookieError(quota.cookie_error, _lang)}</span>
       <div class="qcookie-bar-actions">
         {#if VENDOR_PANEL[quota.vendor]}
-          <button type="button" class="qcookie-open" onclick={() => openPanelUrl(quota.vendor)}>打开控制台</button>
+          <button type="button" class="qcookie-open" onclick={() => openPanelUrl(quota.vendor)}>{l("打开控制台","Open Console")}</button>
         {/if}
-        <button type="button" class="qcookie-btn" onclick={() => startEditCookie(quota.vendor)}>更新 Cookie</button>
+        <button type="button" class="qcookie-btn" onclick={() => startEditCookie(quota.vendor)}>{l("更新 Cookie","Update Cookie")}</button>
       </div>
     </div>
     {#if VENDOR_PANEL[quota.vendor]}
-      <p class="qcookie-hint">{VENDOR_PANEL[quota.vendor].hint}</p>
+      <p class="qcookie-hint">{panelHint(VENDOR_PANEL[quota.vendor], _lang)}</p>
     {/if}
   {/if}
 {/if}
 
 {#if quota.balance}
   <div class="qitem-balance">
-    <span class="qibl-label">余额</span>
+    <span class="qibl-label">{l("余额","Balance")}</span>
     <span class="qibl-amount">{formatBalance(quota.balance.currency ?? "USD", quota.balance.amount)}</span>
   </div>
   {#if quota.balance.today_consumption != null}
     <div class="qconsumption">
-      <span class="qcons-label">今日</span>
+      <span class="qcons-label">{l("今日","Today")}</span>
       <span class="qcons-value">{formatCost(quota.balance.today_consumption ?? 0, currency, cnyRate)}</span>
       {#if quota.balance.month_consumption != null}
         <span class="qcons-sep">·</span>
-        <span class="qcons-label">本月</span>
+        <span class="qcons-label">{l("本月","Month")}</span>
         <span class="qcons-value">{formatCost(quota.balance.month_consumption ?? 0, currency, cnyRate)}</span>
       {/if}
     </div>
@@ -232,7 +237,7 @@
 
 {#each quota.windows as w (w.label)}
   {@const showPct = progressMode === "用量" ? Math.round(w.used_pct) : Math.round(100 - w.used_pct)}
-  {@const showLabel = progressMode === "用量" ? "用量" : "剩余"}
+  {@const showLabel = progressMode === "用量" ? l("用量","Usage") : l("剩余","Remaining")}
   {@const summaryCredits = w.used_value != null && w.total_value != null ? `${fmtCredits(w.used_value)} / ${fmtCredits(w.total_value)}` : null}
   {@const hasSub = w.sub_items && w.sub_items.length > 0}
   {@const subExpanded = expandedWindows.get(w.label) ?? false}
@@ -251,7 +256,7 @@
         {#if hasSub}
           <span class="qiw-chevron" class:open={subExpanded}>▸</span>
         {/if}
-        {windowLabel(w.label)}
+        {windowLabel(w.label, _lang)}
       </span>
       <span class="qiw-bar-col">
         <span class="qiw-bar">
@@ -275,7 +280,7 @@
                 <span class="qiw-fill f-{itemShowPct <= 20 ? 'danger' : itemShowPct <= 50 ? 'low' : 'ok'}" style="width:{Math.min(100, Math.max(0, itemShowPct))}%"></span>
               </span>
               {#if item.expires_at}
-                <span class="qiw-bar-caption">{formatShortExpiry(item.expires_at)}到期</span>
+                <span class="qiw-bar-caption">{formatShortExpiry(item.expires_at)}{l("到期","expires")}</span>
               {/if}
             </span>
             <span class="qsub-tag-spacer"></span>
@@ -284,13 +289,13 @@
         {/each}
       </div>
     {:else if w.resets_at}
-      <div class="qiw-reset">{formatReset(w.resets_at, nowMs)}</div>
+      <div class="qiw-reset">{formatReset(w.resets_at, nowMs, _lang)}</div>
     {/if}
   </div>
 {/each}
 
 {#if quota.windows.length === 0 && !quota.balance && !quota.cookie_error}
-  <div class="qpending">额度读取待实现</div>
+  <div class="qpending">{l("额度读取待实现","Quota fetch pending")}</div>
 {/if}
 </div>
 

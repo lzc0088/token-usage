@@ -23,6 +23,8 @@ use crate::quota::{adapter_for, Quota, QuotaBalance, TRACKED_VENDORS};
 
 /// How long to wait before the first scheduled refresh after startup.
 const INITIAL_DELAY_MS: u64 = 5_000;
+/// Key for persisting the auth-errored (silenced) vendor set in app_config.
+const SILENCED_KEY: &str = "quota_auth_errored";
 
 /// Per-vendor fetch timeout. Caps any single vendor's quota API call so a
 /// hung/slow endpoint cannot stall the scheduler loop (which would otherwise
@@ -87,12 +89,16 @@ pub fn write_cache(conn: &Connection, vendor: &str, q: &Quota, fetched_at: i64) 
 }
 
 /// Fetch all bound vendors' quotas and cache them. Called for manual refresh.
-/// Uses a fresh silenced set so auth errors retry on manual refresh.
+/// Clears the persisted silenced set so all vendors are retried.
 /// Returns false if another refresh was already in progress.
 pub async fn refresh_all(db: &Arc<Mutex<Connection>>) -> bool {
     if !try_begin_refresh() {
         debug!("manual refresh skipped — another refresh already in progress");
         return false;
+    }
+    // Manual refresh: clear the persisted silenced set so all vendors retry.
+    if let Ok(conn) = db.lock() {
+        let _ = config::set_json(&conn, SILENCED_KEY, &Vec::<String>::new());
     }
     let mut silenced = HashSet::new();
     refresh_all_impl(db, &mut silenced).await;
@@ -183,9 +189,19 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
     // Initial delay to let the app settle.
     tokio::time::sleep(Duration::from_millis(INITIAL_DELAY_MS)).await;
 
-    // Track vendors whose last failure was auth-related (401/403). Once silenced,
-    // a vendor is skipped until a manual refresh clears the set.
-    let mut auth_errored: HashSet<String> = HashSet::new();
+    // Load persisted silenced vendors from DB so auth-errored vendors stay
+    // silenced across restarts (avoids futile retries on known-bad API keys).
+    let mut auth_errored: HashSet<String> = {
+        let conn = db.lock().unwrap_or_else(|e| {
+            warn!("db mutex poisoned in quota scheduler startup, recovering: {e}");
+            e.into_inner()
+        });
+        config::get_json::<Vec<String>>(&conn, SILENCED_KEY)
+            .ok()
+            .flatten()
+            .map(|v| v.into_iter().collect())
+            .unwrap_or_default()
+    };
 
     // First refresh immediately.
     if try_begin_refresh() {
@@ -215,6 +231,10 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
         // Notify windows so the "updated" time and quota cards refresh live
         // without the user re-opening the page.
         let _ = app.emit("quota:updated", ());
+        // Persist the updated silenced set so it survives restarts.
+        if let Ok(conn) = db.lock() {
+            let _ = config::set_json(&conn, SILENCED_KEY, &auth_errored.iter().collect::<Vec<_>>());
+        }
     }
 }
 
@@ -224,6 +244,14 @@ fn try_begin_refresh() -> bool {
     REFRESHING
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_ok()
+}
+
+/// Errors that are likely transient and safe to retry (network blips, DNS, TCP
+/// resets). Auth errors (401/403) are NOT transient — retrying without new
+/// credentials would just spam the endpoint.
+fn is_transient_error(e: &crate::quota::VendorError) -> bool {
+    use crate::quota::VendorError;
+    matches!(e, VendorError::Network(_))
 }
 
 /// Internal: refresh all vendors, with auth-error silencing.
@@ -285,23 +313,41 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
         .collect();
 
     // Concurrent fetch phase: one task per vendor, each bounded by the timeout.
+    // Transient failures (network errors, timeouts) are retried with exponential
+    // backoff (1s → 2s → 4s, max 3 retries). Auth errors (401/403) fail fast.
+    const MAX_RETRIES: u32 = 3;
+    const BASE_BACKOFF_MS: u64 = 1000;
     let mut join_set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
     for (id, cred) in work {
         join_set.spawn(async move {
             let Some(vid) = adapter_for(&id) else {
                 return FetchOutcome::NoAdapter(id);
             };
-            match tokio::time::timeout(VENDOR_FETCH_TIMEOUT, crate::quota::fetch(vid, &cred)).await
-            {
-                Ok(Ok(q)) => FetchOutcome::Success(id, q),
-                Ok(Err(e)) => FetchOutcome::Failed(id, e),
-                // Timeout — treat like a transient network error (not auth),
-                // so the vendor is retried next cycle without being silenced.
-                Err(_elapsed) => {
-                    debug!(vendor = %id, "quota fetch timed out, will retry next cycle");
-                    FetchOutcome::Failed(id, super::VendorError::Network("fetch timeout".into()))
+            for attempt in 0..=MAX_RETRIES {
+                let result =
+                    tokio::time::timeout(VENDOR_FETCH_TIMEOUT, crate::quota::fetch(vid, &cred))
+                        .await;
+                match result {
+                    Ok(Ok(q)) => return FetchOutcome::Success(id, q),
+                    Ok(Err(e)) => {
+                        if attempt < MAX_RETRIES && is_transient_error(&e) {
+                            let delay = BASE_BACKOFF_MS * 2u64.pow(attempt);
+                            debug!(vendor = %id, attempt, delay_ms = delay, "retrying after transient error: {e}");
+                            tokio::time::sleep(Duration::from_millis(delay)).await;
+                            continue;
+                        }
+                        return FetchOutcome::Failed(id, e);
+                    }
+                    Err(_elapsed) => {
+                        debug!(vendor = %id, "quota fetch timed out, will retry next cycle");
+                        return FetchOutcome::Failed(
+                            id,
+                            super::VendorError::Network("fetch timeout".into()),
+                        );
+                    }
                 }
             }
+            unreachable!()
         });
     }
 

@@ -67,3 +67,28 @@ export function splitTokensCN(n: number, decimals = 2): { value: string; unit: s
 }
 
 export type TokenStyle = "compact" | "wan" | "plain";
+
+/** Compute a token-rate string from the live throughput counters.
+ *
+ *  - "speed" → output tokens / second of model-busy time = `timedOutputTokens * 1000 / timedDurationMs`.
+ *    Uses output (not total) because cache reads (>90% of total) were never generated.
+ *  - "burn"  → total tokens / minute = `timedTokens * 60000 / timedDurationMs`.
+ *
+ *  Returns "" when there is no duration (no session was model-busy in this
+ *  window) — the numerator and denominator must stay paired, so a zero
+ *  denominator means the rate is undefined rather than zero. */
+export function formatTokenRate(
+  mode: "speed" | "burn",
+  timedOutputTokens: number | undefined,
+  timedTokens: number | undefined,
+  timedDurationMs: number | undefined,
+): string {
+  const dur = timedDurationMs ?? 0;
+  if (dur <= 0) return "";
+  if (mode === "speed") {
+    const perSec = ((timedOutputTokens ?? 0) * 1000) / dur;
+    return `${formatTokens(perSec)} tok/s`;
+  }
+  const perMin = ((timedTokens ?? 0) * 60000) / dur;
+  return `${formatTokens(perMin)} tok/min`;
+}

@@ -470,6 +470,17 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
 
 // ── Web API parse ───────────────────────────────────────────────────────────
 
+/// Convert a 0..1 usage ratio to a 0..100 percentage, clamped.
+///
+/// Kimi's `ratio` / `usedRatio` / `amountUsedRatio` fields are fractions where
+/// 1.0 = fully consumed. Over-quota usage legitimately reports values > 1.0
+/// (e.g. 1.02 = exceeded by 2%); these must be treated as ratios and clamped
+/// to 100%, NOT reinterpreted as already-percent values (which would render a
+/// spent plan as nearly full). Always multiply by 100 then clamp.
+fn ratio_to_pct(ratio: f64) -> f64 {
+    (ratio * 100.0).clamp(0.0, 100.0)
+}
+
 /// Parse the membership stats response into windows (5h, 7d, monthly).
 fn parse_membership(body: &str) -> Vec<QuotaWindow> {
     let resp: MembershipResp = match serde_json::from_str(body) {
@@ -499,7 +510,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
     if let Some(rl) = rl_5h {
         if rl.enabled != Some(false) {
             let ratio = rl.ratio.or(rl.used_ratio).unwrap_or(0.0);
-            let used_pct = if ratio <= 1.0 { ratio * 100.0 } else { ratio }.clamp(0.0, 100.0);
+            let used_pct = ratio_to_pct(ratio);
             windows.push(QuotaWindow {
                 label: "5h".into(),
                 used_pct,
@@ -513,7 +524,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
     if let Some(rl) = rl_7d {
         if rl.enabled != Some(false) {
             let ratio = rl.ratio.or(rl.used_ratio).unwrap_or(0.0);
-            let used_pct = if ratio <= 1.0 { ratio * 100.0 } else { ratio }.clamp(0.0, 100.0);
+            let used_pct = ratio_to_pct(ratio);
             windows.push(QuotaWindow {
                 label: "周".into(),
                 used_pct,
@@ -531,7 +542,7 @@ fn parse_membership(body: &str) -> Vec<QuotaWindow> {
             && (type_.is_empty() || type_ == "SUBSCRIPTION");
         if compatible {
             if let Some(ratio) = sb.amount_used_ratio {
-                let used_pct = if ratio <= 1.0 { ratio * 100.0 } else { ratio }.clamp(0.0, 100.0);
+                let used_pct = ratio_to_pct(ratio);
                 windows.push(QuotaWindow {
                     label: "月".into(),
                     used_pct,
@@ -834,6 +845,35 @@ mod tests {
         assert!((w[1].used_pct - 50.0).abs() < 1e-6);
         assert_eq!(w[2].label, "月");
         assert!((w[2].used_pct - 60.0).abs() < 1e-6);
+    }
+
+    /// Over-quota ratios (>1.0) must clamp to 100%, not be misread as an
+    /// already-percentage value (regression for the heuristic-normalization bug).
+    #[test]
+    fn parse_membership_over_quota_clamps_to_full() {
+        // 5h ratio 1.02 (exceeded by 2%), weekly 1.5 (exceeded by 50%),
+        // monthly 0.0 (none used).
+        let body = r#"{"data":{
+            "ratelimitCode5h":{"ratio":1.02},
+            "ratelimitCode7d":{"ratio":1.5},
+            "subscriptionBalance":{"feature":"FEATURE_OMNI","type":"SUBSCRIPTION","amountUsedRatio":0.0}
+        }}"#;
+        let w = parse_membership(body);
+        assert_eq!(w.len(), 3);
+        let five = w.iter().find(|x| x.label == "5h").unwrap();
+        assert!(
+            (five.used_pct - 100.0).abs() < 1e-6,
+            "over-quota 5h should clamp to 100%, got {}",
+            five.used_pct
+        );
+        let week = w.iter().find(|x| x.label == "周").unwrap();
+        assert!(
+            (week.used_pct - 100.0).abs() < 1e-6,
+            "over-quota weekly should clamp to 100%, got {}",
+            week.used_pct
+        );
+        let month = w.iter().find(|x| x.label == "月").unwrap();
+        assert!((month.used_pct - 0.0).abs() < 1e-6);
     }
 
     #[test]

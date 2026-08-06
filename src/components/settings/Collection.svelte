@@ -4,6 +4,9 @@
   import type { Config } from "../../lib/api";
   import { api, type ClientStatus, type TokscaleStatus } from "../../lib/api";
   import { COLLECTION_UPDATED } from "../../lib/events";
+  import { t as tt } from "../../lib/i18n.svelte";
+  import { moveTo } from "../../lib/util/reorder";
+  import { rowDrag } from "../../lib/actions/rowDrag";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
@@ -57,13 +60,15 @@
     visible = next;
     onUpdate({ collection_visible: [...next] });
   }
-  function move(i: number, dir: -1 | 1): void {
-    const j = i + dir;
-    if (j < 0 || j >= ordered.length) return;
-    const arr = [...ordered];
-    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
-    ordered = arr;
-    onUpdate({ collection_ordered: arr });
+  /** Move client `id` to the new absolute index in the ordered list, then
+   *  persist. Used by the row-drag action. */
+  function moveToIndex(id: string, newIndex: number): void {
+    const myIdx = ordered.indexOf(id);
+    if (myIdx < 0) return;
+    const next = moveTo(ordered, myIdx, newIndex);
+    if (next === ordered) return;
+    ordered = next;
+    onUpdate({ collection_ordered: next });
   }
 
   // tokscale 版本号纯展示
@@ -95,6 +100,24 @@
     });
   });
 
+  // ── 采集频率/模式统一下拉框 ──
+  // 把 refresh_interval + collection_mode 合并为一个展示值。
+  let displayCadence = $derived.by(() => {
+    const mode = config?.collection_mode || "live";
+    const interval = config?.refresh_interval || "manual";
+    if (mode === "smart") return "smart";
+    if (mode === "interval" || interval !== "manual") return interval;
+    return "live";
+  });
+  function onCadenceChange(e: Event): void {
+    const val = (e.target as HTMLSelectElement).value;
+    if (val === "live" || val === "smart") {
+      onUpdate({ refresh_interval: "manual", collection_mode: val as Config["collection_mode"] });
+    } else {
+      onUpdate({ refresh_interval: val as Config["refresh_interval"], collection_mode: "interval" });
+    }
+  }
+
   // 会话保留：从 config 读取，开关写入 config（持久化）。
   let keepDeleted = $derived(config?.session_archive_enabled ?? true);
   // 归档会话计数：来自后端（sessions 表中 tool 不在已安装列表的行数）。
@@ -111,7 +134,7 @@
 
   async function clearArchived(): Promise<void> {
     if (archivedCount === 0) return;
-    if (!window.confirm("要清除所有保留的会话用量吗？此操作无法撤销。")) return;
+    if (!window.confirm(tt("collection.confirmClear"))) return;
     clearing = true;
     try {
       await api.clearArchivedSessions();
@@ -130,82 +153,73 @@
   });
 </script>
 
-<div class="sh"><h3>采集追踪</h3><div class="desc">本机 AI 工具发现、追踪状态与排序</div></div>
+<div class="sh"><h3>{tt("collection.title")}</h3><div class="desc">{tt("collection.desc")}</div></div>
 <div class="sc">
 
   <!-- ══ 基本 ══ -->
-  <div class="section-title">基本</div>
+  <div class="section-title">{tt("collection.basic")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">采集频率<div class="hint">数据采集与更新的时间间隔</div></div>
-      <select class="sel" value={config.refresh_interval || "manual"}
-        onchange={(e) => onUpdate({ refresh_interval: (e.target as HTMLSelectElement).value as Config["refresh_interval"] })}>
-        <option value="manual">实时采集</option>
-        <option value="30s">每 30 秒</option>
-        <option value="60s">每 1 分钟</option>
-        <option value="300s">每 5 分钟</option>
-        <option value="600s">每 10 分钟</option>
+      <div class="lab">{tt("collection.frequency")}<div class="hint">{tt("collection.freqHint")}</div></div>
+      <select class="sel" value={displayCadence}
+        onchange={onCadenceChange}>
+        <option value="live">{tt("collection.liveMode")}</option>
+        <option value="smart">{tt("collection.smartMode")}</option>
+        <option value="30s">{tt("collection.every30s")}</option>
+        <option value="60s">{tt("collection.every1m")}</option>
+        <option value="300s">{tt("collection.every5m")}</option>
       </select>
     </div>
 
     <div class="box-row">
-      <div class="lab">采集模式<div class="hint">实时：文件变动立即触发采集 | 智能：10分钟间隔+活动检测 | 固定：仅按间隔采集</div></div>
-      <select class="sel" value={config.collection_mode || "live"}
-        onchange={(e) => onUpdate({ collection_mode: (e.target as HTMLSelectElement).value as Config["collection_mode"] })}>
-        <option value="live">实时采集</option>
-        <option value="smart">智能采集（10分钟）</option>
-        <option value="interval">固定间隔</option>
-      </select>
-    </div>
-
-    <div class="box-row">
-      <div class="lab">会话保留<div class="hint">来源工具删除或清除会话后，仍保留会话总量与已观测的每日活动</div></div>
-      <button type="button" class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label="会话保留" onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
+      <div class="lab">{tt("collection.sessionRetention")}<div class="hint">{tt("collection.sessionRetentionHint")}</div></div>
+      <button type="button" class="tg" class:on={keepDeleted} role="switch" aria-checked={keepDeleted} aria-label={tt("collection.sessionRetention")} onclick={() => onUpdate({ session_archive_enabled: !keepDeleted })}></button>
     </div>
 
     <div class="box-row">
       <div>
-        <div class="lab">归档会话</div>
-        <div class="hint" style="margin-top:2px">目前保留 <strong>{archivedCount ?? "…"}</strong> 个已归档会话</div>
+        <div class="lab">{tt("collection.archivedSessions")}</div>
+        <div class="hint" style="margin-top:2px">{tt("collection.archivedCountHint").replace("{n}", "")} <strong>{archivedCount ?? "…"}</strong> {tt("collection.archivedCountSuffix")}</div>
       </div>
       <button type="button" class="btn-outline" onclick={clearArchived} disabled={clearing || !archivedCount}>
-        {clearing ? "清除中…" : "清除保留数据"}
+        {clearing ? tt("collection.clearing") : tt("collection.clearArchived")}
       </button>
     </div>
 
     <!-- Tokscale 状态（原独立 section，现汇总到基本） -->
     <div class="box-row tok-row">
-      <div class="lab">Tokscale<div class="hint">token 采集引擎</div></div>
+      <div class="lab">{tt("collection.tokscale")}<div class="hint">{tt("collection.tokscaleEngine")}</div></div>
       {#if tok === null}
         <span class="tok-loading">…</span>
       {:else if tok.installed}
         <div class="tok-inline">
-          <span class="tok-tag s-active">已安装</span>
+          <span class="tok-tag s-active">{tt("collection.installed")}</span>
           <span class="tok-ver">v{tokscaleVersion}</span>
-          <span class="tok-badge">(随此 app 内置)</span>
+          <span class="tok-badge">({tt("collection.bundledWith")})</span>
         </div>
       {:else}
-        <span class="tok-tag s-missing">未安装</span>
+        <span class="tok-tag s-missing">{tt("collection.notInstalledTok")}</span>
       {/if}
     </div>
   </div>
 
   <!-- ══ 工具 ══ -->
-  <div class="section-title">工具
+  <div class="section-title">{tt("collection.tools")}
     <span class="fbar">
-      <button type="button" class="fbtn" class:on={filter === "all"} onclick={() => (filter = "all")}>全部 {totalCount}</button>
-      <button type="button" class="fbtn" class:on={filter === "tracking"} onclick={() => (filter = "tracking")}>追踪中 {trackingCount}</button>
-      <button type="button" class="fbtn" class:on={filter === "waiting"} onclick={() => (filter = "waiting")}>等待数据 {waitingCount}</button>
-      <button type="button" class="fbtn" class:on={filter === "disabled"} onclick={() => (filter = "disabled")}>已停用 {disabledCount}</button>
-      <button type="button" class="fbtn" class:on={filter === "missing"} onclick={() => (filter = "missing")}>未安装 {missingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "all"} onclick={() => (filter = "all")}>{tt("collection.all")} {totalCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "tracking"} onclick={() => (filter = "tracking")}>{tt("collection.trackingActive")} {trackingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "waiting"} onclick={() => (filter = "waiting")}>{tt("collection.waitingFilter")} {waitingCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "disabled"} onclick={() => (filter = "disabled")}>{tt("collection.disabledFilter")} {disabledCount}</button>
+      <button type="button" class="fbtn" class:on={filter === "missing"} onclick={() => (filter = "missing")}>{tt("collection.missingFilter")} {missingCount}</button>
     </span>
   </div>
   <div class="section-box">
     <div class="icon-legend">
-      <span class="legend-item">追踪</span>
-      <span class="legend-item">显示</span>
-      <span class="legend-item">上移</span>
-      <span class="legend-item">下移</span>
+      <span class="legend-text">{tt("account.dragReorder")}</span>
+      <div class="legend-actions">
+        <span class="legend-item">{tt("collection.legendTrack")}</span>
+        <span class="legend-item">{tt("collection.legendShow")}</span>
+      </div>
     </div>
 
     {#if tools === null}
@@ -227,15 +241,18 @@
         {/each}
       </div>
     {:else if tools.length === 0}
-      <p class="empty">未检测到任何工具</p>
+      <p class="empty">{tt("collection.noToolsDetected")}</p>
     {:else if filteredOrdered.length === 0}
-      <p class="empty">该筛选下暂无工具</p>
+      <p class="empty">{tt("collection.noFilterMatch")}</p>
     {:else}
       {#each filteredOrdered as key (key)}
         {@const t = tools.find(c => c.client === key)}
-        {@const i = ordered.indexOf(key)}
         {#if t}
-          <div class="trow">
+          <div
+            class="trow"
+            data-row-id={t.client}
+            use:rowDrag={{ id: t.client, onReorder: (newIndex) => moveToIndex(t.client, newIndex), excludeSelector: ".ibtn" }}
+          >
             <div class="tleft">
               <ToolIcon vendor={t.client} size={22} color="var(--text-dim)" />
               <div class="tinfo">
@@ -243,14 +260,14 @@
                   <span class="t-diag" title={t.diagnostics.map(d => d.message).join("\n")}>ℹ</span>
                 {/if}</span>
                 <div class="trow-meta">
-                  <span class="tstatus" class:s-active={t.status === "active"} class:s-waiting={t.status === "waiting"} class:s-missing={t.status !== "active" && t.status !== "waiting"}>{t.status === "active" ? "追踪中" : t.status === "waiting" ? "等待数据" : "未安装"}</span>
-                  <span class="tmsg">{t.message_count} 条</span>
+                  <span class="tstatus" class:s-active={t.status === "active"} class:s-waiting={t.status === "waiting"} class:s-missing={t.status !== "active" && t.status !== "waiting"}>{t.status === "active" ? tt("collection.trackingActive") : t.status === "waiting" ? tt("collection.waitingData") : tt("collection.notInstalledTok")}</span>
+                  <span class="tmsg">{t.message_count}{tt("collection.msgsUnit")}</span>
                 </div>
               </div>
             </div>
             <span class="tright">
               <!-- 追踪 toggle -->
-              <button type="button" class="ibtn ibtn-toggle" title={tracked.has(t.client) ? '已追踪' : '未追踪'} aria-label={tracked.has(t.client) ? '取消追踪' : '开始追踪'} onclick={() => toggleTracked(t.client)}>
+              <button type="button" class="ibtn ibtn-toggle" title={tracked.has(t.client) ? tt("collection.trackedTitle") : tt("collection.untrackedTitle")} aria-label={tracked.has(t.client) ? tt("collection.untrackLabel") : tt("collection.trackLabel")} onclick={() => toggleTracked(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if tracked.has(t.client)}
                     <rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="9 12 11 14 16 8"/>
@@ -260,24 +277,13 @@
                 </svg>
               </button>
               <!-- 可见 eye -->
-              <button class="ibtn ibtn-vis" class:on={visible.has(t.client)} title={visible.has(t.client) ? '显示中' : '已隐藏'} aria-label={visible.has(t.client) ? '隐藏' : '显示'} onclick={() => toggleVisible(t.client)}>
+              <button class="ibtn ibtn-vis" class:on={visible.has(t.client)} title={visible.has(t.client) ? tt("collection.visibleTitle") : tt("collection.hiddenTitle")} aria-label={visible.has(t.client) ? tt("collection.hideLabel") : tt("collection.showLabel")} onclick={() => toggleVisible(t.client)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   {#if visible.has(t.client)}
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                   {:else}
                     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
                   {/if}
-                </svg>
-              </button>
-              <!-- 排序 -->
-              <button type="button" class="ibtn" title="上移" aria-label="上移" disabled={i === 0} onclick={() => move(i, -1)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-                </svg>
-              </button>
-              <button type="button" class="ibtn" title="下移" aria-label="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
                 </svg>
               </button>
             </span>
@@ -352,11 +358,25 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 0;
+    padding: 8px 4px 8px 6px;
     border-bottom: 1px dashed var(--border);
     gap: 12px;
+    border-radius: 4px;
+    cursor: grab;
+    transition: background 0.12s;
   }
+  .trow:hover { background: var(--surface-tint); }
+  .trow:active { cursor: grabbing; }
   .trow:last-child { border-bottom: none; }
+  .trow:global(.row-drag-source) { opacity: 0.35; }
+  :global(.row-drag-ghost) {
+    pointer-events: none;
+    opacity: 0.75;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    background: var(--surface-tint-strong);
+    border-radius: 5px;
+    will-change: transform;
+  }
 
   .tleft {
     display: flex;
@@ -417,20 +437,30 @@
   .icon-legend {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
+    justify-content: space-between;
     margin-top: 0;
     margin-bottom: 0;
     padding: 0;
+    gap: 4px;
+  }
+  .icon-legend .legend-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px; /* match .tright button gap */
   }
   .icon-legend .legend-item {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
+    width: 28px; /* match .ibtn width → aligns with the button column below */
     height: 28px;
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-faint);
     line-height: 1;
+  }
+  .icon-legend .legend-text {
+    font-size: 10.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
+  import { t } from "../../lib/i18n.svelte";
   import { api, type Breakdown, type Currency, type Quota, type Summary } from "../../lib/api";
   import { QUOTA_UPDATED } from "../../lib/events";
   import { PALETTE } from "../../lib/constants";
@@ -32,6 +33,10 @@
 
   // Derive quota filter/display state from the parent config prop so it stays
   // in sync with App.svelte's live reload (no separate api.getConfig() needed).
+  async function openSettingsTo(partition: string): Promise<void> {
+    try { await invoke("open_settings", { target: partition }); } catch {}
+  }
+
   let overviewQuotaVendors = $derived(config?.overview_quota_vendors ?? null);
   let activeVendors = $derived(config?.quota_active_vendors ?? null);
   let progressMode = $derived((config?.quota_progress_mode as "用量" | "剩余") ?? "剩余");
@@ -39,27 +44,6 @@
   // Generation counter prevents a slow initial fetch from overwriting fresher
   // quota data delivered by a later `quota:updated` event re-fetch.
   let loadGen = 0;
-
-  /** Reload only the quota list (used as the QuotaCard onQuotaChanged callback
-   *  after a cookie save, so the card refreshes without a full re-mount). */
-  async function reloadQuotas(): Promise<void> {
-    try {
-      quotas = await api.getQuotas();
-    } catch {
-      /* keep existing quotas on failure */
-    }
-  }
-
-  /** Open the settings window and navigate to a specific page. The target is
-   *  passed to `open_settings` (Rust bridges it across the separate webview JS
-   *  contexts); the settings window consumes it on focus and navigates. */
-  async function openSettingsTo(partition: string): Promise<void> {
-    try {
-      await invoke("open_settings", { target: partition });
-    } catch {
-      /* settings open failed — user can still navigate manually */
-    }
-  }
 
   $effect(() => {
     const p = periodValue();
@@ -130,21 +114,18 @@
     void api.refreshQuotasIfStale().catch(() => {});
   });
 
+  // Exposed for the preview-config sync $effect below.
+  let layoutSig = $derived(JSON.stringify(overviewQuotaVendors) + "|" + JSON.stringify(activeVendors));
   const visibleQuotas = $derived.by(() => {
+    // Pin the layout signature so this block re-runs when MainView config
+    // changes — see the $effect below for the complementary quota reload.
+    void layoutSig;
     if (quotas.length === 0) return [];
     let filtered = quotas;
-    // Filter by activeVendors (global enable) if configured.
-    // null/undefined = not configured → show all. Otherwise filter by the list
-    // (empty array = user disabled all vendors → show none).
     if (activeVendors != null) {
       const set = new Set(activeVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
     }
-    // Filter + sort by overviewQuotaVendors (preview config).
-    // null/undefined = not configured → show all active vendors.
-    // [] (empty array) = user explicitly selected none → show none.
-    // This is an intersection with activeVendors, so a vendor disabled
-    // globally won't appear in the Overview even if listed here.
     if (overviewQuotaVendors != null) {
       const set = new Set(overviewQuotaVendors);
       filtered = filtered.filter(q => set.has(q.vendor));
@@ -167,7 +148,7 @@
 </script>
 <div class="ov-body">
   {#if !summary && !toolB && !modelB && quotas.length === 0}
-    <p class="muted">加载中…</p>
+    <p class="muted">{t("overview.loading")}</p>
   {/if}
 
   {#each subOrder as sectionKey (sectionKey)}
@@ -176,17 +157,17 @@
         <div class="split2">
           {#if summary}
             {@const cells = [
-              { k: "输入", v: summary.input, cls: "" },
-              { k: "输出", v: summary.output, cls: "amber" },
-              { k: "缓存读取", v: summary.cache_read, cls: "lime" },
-              { k: "缓存写入", v: summary.cache_write, cls: "coral" },
+              { k: t("detail.input"), v: summary.input, cls: "" },
+              { k: t("detail.output"), v: summary.output, cls: "amber" },
+              { k: t("detail.cacheRead"), v: summary.cache_read, cls: "lime" },
+              { k: t("detail.cacheWrite"), v: summary.cache_write, cls: "coral" },
             ]}
             {#each cells as cell}
               {@const s = splitTokens(cell.v)}
               <div class="scell"><div class="k">{cell.k}</div><div class="v {cell.cls}">{s.value}<span class="u">{s.unit}</span></div></div>
             {/each}
           {:else}
-            <p class="empty">暂无数据</p>
+            <p class="empty">{t("overview.noData")}</p>
           {/if}
         </div>
       </section>
@@ -194,65 +175,67 @@
 
     {#if sectionKey === "overview_tools"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>工具</span><button type="button" class="more" onclick={() => setSegment("tools")}>全部</button></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>{t("overview.tools")}</span><button type="button" class="more" onclick={() => setSegment("tools")}>{t("overview.all")}</button></div>
         {#if toolB && toolB.entries.length > 0}
           {#each toolB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
+            {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("tools")}>
-              <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
-              <span class="nm">{toolMeta(e.key).label}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {s.value}<span class="su">{s.unit}</span></span></span>
+              <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
+              <span class="nm">{meta.label}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {s.value}<span class="su">{s.unit}</span></span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[i % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
             </button>
           {/each}
         {:else}
-          <p class="empty">暂无工具数据 — 等待 tokscale 采集</p>
+          <p class="empty">{t("overview.noToolData")}</p>
         {/if}
       </section>
     {/if}
 
     {#if sectionKey === "overview_models"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>模型</span><button type="button" class="more" onclick={() => setSegment("models")}>全部</button></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>{t("overview.models")}</span><button type="button" class="more" onclick={() => setSegment("models")}>{t("overview.all")}</button></div>
         {#if modelB && modelB.entries.length > 0}
           {#each modelB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
             {@const mv = modelVendor(e.key)}
+            {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("models")}>
-              <span class="rk" style="background:{toolMeta(e.key).color};color:var(--badge-text)">{@html toolMeta(e.key).icon}</span>
-              <span class="nm">{toolMeta(e.key).label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {e.messages} 会话</span></span>
+              <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
+              <span class="nm">{meta.label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {e.messages}{t("overview.msgs")}</span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[(i + 2) % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
             </button>
           {/each}
         {:else}
-          <p class="empty">暂无模型数据 — 等待 tokscale 采集</p>
+          <p class="empty">{t("overview.noModelData")}</p>
         {/if}
       </section>
     {/if}
 
     {#if sectionKey === "overview_quotas"}
       <section class="module">
-        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>额度</span><button type="button" class="more" onclick={() => setSegment("limit")}>全部</button></div>
+        <div class="sec-h"><span><span class="title-dot" style="background:var(--violet)"></span>{t("overview.quota")}</span><button type="button" class="more" onclick={() => setSegment("limit")}>{t("overview.all")}</button></div>
         {#if visibleQuotas.length > 0}
           <div class="qcard-list">
             {#each visibleQuotas as q (q.vendor)}
-              <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} onQuotaChanged={reloadQuotas} />
+              <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} />
             {/each}
           </div>
         {:else}
           <div class="q-empty">
             {#if quotas.length === 0}
-              <p>未绑定厂商账号</p>
-              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 绑定 API Key / OAuth 后，额度将显示在此</p>
+              <p>{t("overview.emptyQuotaNoBinding")}</p>
+              <p class="hint">{t("overview.emptyQuotaNoBindingHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>{t("limits.settingsHint")}</button></p>
             {:else if overviewQuotaVendors !== null && overviewQuotaVendors.length === 0}
-              <p>总览额度未配置</p>
-              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("mainview")}>「设置 → 预览界面」</button> 的额度列表中勾选要显示的厂商</p>
+              <p>{t("overview.emptyNoneSelected")}</p>
+              <p class="hint">{t("overview.emptyNoneSelectedHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("mainview")}>{t("mainview.settingsHint")}</button></p>
             {:else}
-              <p>所有厂商已停用</p>
-              <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 中启用的厂商额度将显示在此</p>
+              <p>{t("overview.emptyAllDisabled")}</p>
+              <p class="hint">{t("overview.emptyAllDisabledHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>{t("limits.settingsHint")}</button></p>
             {/if}
           </div>
         {/if}

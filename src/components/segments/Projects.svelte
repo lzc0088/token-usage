@@ -3,6 +3,7 @@
   import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { toolMeta } from "../../lib/meta/tools";
+  import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { periodValue } from "../../stores/period.svelte";
 
@@ -12,6 +13,14 @@
   let expanded = $state<string | null>(null);
   let copyFeedback = $state<string | null>(null);
   let loading = $state(true);
+  // Virtual pagination: the full project list is fetched in one request
+  // (the backend snapshot path already holds it in memory), then sorted
+  // client-side over the COMPLETE set. "Load more" just widens the render
+  // window — no second network call — so the sort is correct (it operates
+  // on the full list, not a token-ordered subset that would miss items).
+  const RENDER_PAGE = 25;
+  const MAX_PROJECTS = 500; // backend clamps limit to [1, 500]
+  let renderCount = $state(RENDER_PAGE);
 
   // Timer cleanup
   const timeouts = new Set<number>();
@@ -41,25 +50,34 @@
     }
   }
 
+  /** Widen the render window — no network call, just shows more of the
+   *  already-fetched + already-sorted full list. */
+  function loadMore(): void {
+    renderCount += RENDER_PAGE;
+  }
+
+  // On period change: fetch the full project set in one request. The `active`
+  // flag discards a stale response if the user switched periods again before
+  // it returned, so the old period's data can never overwrite the new one.
   $effect(() => {
     const p = periodValue();
-    let cancelled = false;
     loading = true;
-    (async () => {
-      try {
-        const data = await api.getProjects(p);
-        if (!cancelled) {
-          projects = data;
-          loading = false;
-          expanded = null;
-        }
-      } catch {
-        if (!cancelled) { projects = null; loading = false; }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    renderCount = RENDER_PAGE;
+    expanded = null;
+    let active = true;
+    api.getProjects(p, 0, MAX_PROJECTS)
+      .then((data) => {
+        if (!active) return;
+        projects = data;
+      })
+      .catch(() => {
+        if (!active) return;
+        projects = null;
+      })
+      .finally(() => {
+        if (active) loading = false;
+      });
+    return () => { active = false; };
   });
 
   const sorted = $derived.by(() => {
@@ -76,6 +94,10 @@
     });
     return arr;
   });
+
+  /** Render window into the full sorted list — virtual pagination. */
+  const visible = $derived(sorted.slice(0, renderCount));
+  const hasMore = $derived(sorted.length > renderCount);
 
   /** Max tokens across all projects — used as progress bar baseline. */
   const maxTokens = $derived(projects ? projects.reduce((max, p) => Math.max(max, p.tokens), 0) : 0);
@@ -100,9 +122,9 @@
 
 <div class="seg-body">
   <div class="bd-header">
-    <span class="bd-title">项目列表<span class="bd-count">{sorted.length}</span></span>
+    <span class="bd-title">{t("projects.title")}<span class="bd-count">{sorted.length}</span></span>
     <div class="bd-sort">
-      {#each [["latest", "最近"], ["token", "TOKEN"], ["cost", "成本"], ["name", "名称"]] as [k, label] (k)}
+      {#each [["latest", t("projects.sortLatest")], ["token", t("projects.sortToken")], ["cost", t("projects.sortCost")], ["name", t("projects.sortName")]] as [k, label] (k)}
         <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
       {/each}
     </div>
@@ -125,11 +147,11 @@
       {/each}
     </div>
   {:else if projects === null}
-    <p class="empty">加载失败，请重试</p>
+    <p class="empty">{t("projects.fail")}</p>
   {:else if projects.length === 0}
-    <p class="empty">暂无项目数据</p>
+    <p class="empty">{t("projects.empty")}</p>
   {:else}
-    {#each sorted as p, i (p.full_path ?? `${p.name}#${i}`)}
+    {#each visible as p, i (p.full_path ?? `${p.name}#${i}`)}
       {@const rowKey = p.full_path ?? `${p.name}#${i}`}
       {@const st = splitTokens(p.tokens)}
       {@const open = expanded === rowKey}
@@ -149,14 +171,14 @@
         </div>
         <div class="p-meta">
           <span class="p-tokens">{st.value}<span class="tku">{st.unit}</span></span>
-          <span class="p-days">{p.messages} 条</span>
+          <span class="p-days">{p.messages}{t("breakdown.msgs")}</span>
         </div>
       </button>
       {#if open}
         <div class="p-detail">
           {#if p.full_path}
             <div class="det-row">
-              <span>项目路径</span>
+              <span>{t("projects.path")}</span>
               <div class="det-val-row">
                 <span class="det-val ellipsis-left" title={p.full_path}>{ellipsisLeft(p.full_path)}</span>
                 <button
@@ -176,7 +198,7 @@
           {/if}
           {#if p.latest_date}
             <div class="det-row">
-              <span>最近活跃</span><span class="det-val">{p.latest_date}</span>
+              <span>{t("projects.lastActive")}</span><span class="det-val">{p.latest_date}</span>
             </div>
           {/if}
           {#if p.models.length > 0}
@@ -216,6 +238,13 @@
         </div>
       {/if}
     {/each}
+    {#if hasMore}
+      <div class="load-more-row">
+        <button type="button" class="load-more-btn" onclick={loadMore}>
+          {t("projects.loadMore")}
+        </button>
+      </div>
+    {/if}
   {/if}
   </div>
 
@@ -494,5 +523,30 @@
   }
   .det-bar i {
     border-radius: 3px;
+  }
+
+  .load-more-row {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+  .load-more-btn {
+    background: var(--glass-3);
+    border: 1px solid var(--border-dim);
+    color: var(--text-dim);
+    padding: 8px 24px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .load-more-btn:hover:not(:disabled) {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .load-more-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 </style>

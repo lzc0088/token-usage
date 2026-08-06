@@ -13,13 +13,13 @@ import {
 
 describe("windowLabel", () => {
   it("returns Chinese label for known windows", () => {
-    expect(windowLabel("5h")).toBe("5小时");
-    expect(windowLabel("周")).toBe("7天");
-    expect(windowLabel("月")).toBe("每月");
-    expect(windowLabel("MCP 月")).toBe("MCP 每月");
+    expect(windowLabel("5h","zh")).toBe("5小时");
+    expect(windowLabel("周","zh")).toBe("7天");
+    expect(windowLabel("月","zh")).toBe("每月");
+    expect(windowLabel("MCP 月","zh")).toBe("MCP 每月");
   });
   it("falls back to raw value for unknown", () => {
-    expect(windowLabel("unknown")).toBe("unknown");
+    expect(windowLabel("unknown","zh")).toBe("unknown");
   });
 });
 

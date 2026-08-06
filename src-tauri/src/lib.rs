@@ -17,7 +17,7 @@ pub mod utils;
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
 use state::AppState;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
 use tauri::menu::ContextMenu;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -27,7 +27,7 @@ use utils::time::now_ms;
 /// Timestamp (ms since epoch) of the last menu event. Used to suppress the
 /// `Focused(false)` blur event that macOS fires when a popup menu closes —
 /// without this guard the popover would hide right after a menu selection.
-static MENU_CLOSE_MS: AtomicU64 = AtomicU64::new(0);
+static MENU_CLOSE_MS: AtomicI64 = AtomicI64::new(0);
 
 /// Last-known tray icon rect (physical pixels). Updated on every tray event
 /// that carries a rect, so `show_main_under_tray` can position the popover
@@ -35,7 +35,7 @@ static MENU_CLOSE_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_TRAY_RECT: Mutex<Option<(PhysicalPosition<f64>, PhysicalSize<f64>)>> = Mutex::new(None);
 
 fn mark_menu_close() {
-    MENU_CLOSE_MS.store(now_ms() as u64, Ordering::SeqCst);
+    MENU_CLOSE_MS.store(now_ms(), Ordering::SeqCst);
 }
 
 fn menu_just_closed() -> bool {
@@ -43,8 +43,8 @@ fn menu_just_closed() -> bool {
     if last == 0 {
         return false;
     }
-    let now = now_ms() as u64;
-    now.saturating_sub(last) < 500
+    let now = now_ms();
+    (now - last).abs() < 500
 }
 
 /// Build a 44×44 RGBA template icon: rounded-rect border enclosing a bold
@@ -155,13 +155,10 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
 pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let state = app.state::<AppState>();
-        let is_fixed = if let Ok(conn) = state.db.lock() {
-            config::load(&conn)
-                .map(|c| c.window_display_mode == "fixed")
-                .unwrap_or(false)
-        } else {
-            false
-        };
+        let conn = state.db_read();
+        let is_fixed = config::load(&conn)
+            .map(|c| c.window_display_mode == "fixed")
+            .unwrap_or(false);
         crate::ui::window::apply_drag_mode(app, is_fixed);
 
         // Position the window: top flush with menu bar bottom, centred on tray icon.
@@ -188,18 +185,20 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
-    // Load current config for checkmark state.
-    let (tray_sel, win_sel, theme_sel) = app
+    // Load current config for checkmark state AND language.
+    let (tray_sel, win_sel, theme_sel, is_en) = app
         .state::<AppState>()
         .load_config()
-        .map(|c| (c.tray_display, c.window_display_mode, c.theme))
-        .unwrap_or_else(|_| ("icon_only".into(), "normal".into(), "system".into()));
+        .map(|c| (c.tray_display, c.window_display_mode, c.theme, c.language == "en"))
+        .unwrap_or_else(|_| ("icon_only".into(), "normal".into(), "system".into(), false));
+
+    // Bilingual labels: (zh, en). All call-sites pass &'static str literals.
+    let label = |zh: &'static str, en: &'static str| -> &'static str { if is_en { en } else { zh } };
 
     // Helper: menu item with id.
     let menu_item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
 
     // ── 系统菜单 submenu ──
-    // Strip prefix ("tray_") before comparing with config value.
     let tray = |id: &str, sel: &str, label| {
         let val = id.strip_prefix("tray_").unwrap_or(id);
         let check = if val == sel { "✓ " } else { "    " };
@@ -208,16 +207,16 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     let td = &tray_sel;
     let tray_sub = Submenu::with_items(
         app,
-        "系统菜单",
+        label("系统菜单", "Tray Display"),
         true,
         &[
-            &tray("tray_today_tokens", td, "今日 Tokens")?,
-            &tray("tray_today_cost", td, "今日成本")?,
-            &tray("tray_today_both", td, "今日 Tokens + 成本")?,
-            &tray("tray_total_tokens", td, "累计 Tokens")?,
-            &tray("tray_total_cost", td, "累计成本")?,
-            &tray("tray_total_both", td, "累计 Tokens + 成本")?,
-            &tray("tray_icon_only", td, "仅显示图标")?,
+            &tray("tray_today_tokens", td, label("今日 Tokens", "Today Tokens"))?,
+            &tray("tray_today_cost", td, label("今日成本", "Today Cost"))?,
+            &tray("tray_today_both", td, label("今日 Tokens + 成本", "Today Tokens + Cost"))?,
+            &tray("tray_total_tokens", td, label("累计 Tokens", "Total Tokens"))?,
+            &tray("tray_total_cost", td, label("累计成本", "Total Cost"))?,
+            &tray("tray_total_both", td, label("累计 Tokens + 成本", "Total Tokens + Cost"))?,
+            &tray("tray_icon_only", td, label("仅显示图标", "Icon Only"))?,
         ],
     )?;
 
@@ -230,11 +229,11 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     let wd = &win_sel;
     let win_sub = Submenu::with_items(
         app,
-        "窗口呈现",
+        label("窗口呈现", "Window Mode"),
         true,
         &[
-            &win("window_normal", wd, "普通窗口")?,
-            &win("window_fixed", wd, "固定位置")?,
+            &win("window_normal", wd, label("普通窗口", "Normal"))?,
+            &win("window_fixed", wd, label("固定位置", "Fixed"))?,
         ],
     )?;
 
@@ -247,12 +246,12 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     let ts = &theme_sel;
     let theme_sub = Submenu::with_items(
         app,
-        "切换主题",
+        label("切换主题", "Theme"),
         true,
         &[
-            &th("theme_dark", ts, "深色")?,
-            &th("theme_light", ts, "浅色")?,
-            &th("theme_system", ts, "跟随系统")?,
+            &th("theme_dark", ts, label("深色", "Dark"))?,
+            &th("theme_light", ts, label("浅色", "Light"))?,
+            &th("theme_system", ts, label("跟随系统", "System"))?,
         ],
     )?;
 
@@ -260,13 +259,13 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     Menu::with_items(
         app,
         &[
-            &menu_item("refresh", "立即刷新")?,
+            &menu_item("refresh", label("立即刷新", "Refresh"))?,
             &sep()?,
             &tray_sub,
             &win_sub,
             &theme_sub,
             &sep()?,
-            &menu_item("settings", "设置")?,
+            &menu_item("settings", label("设置", "Settings"))?,
             &sep()?,
             &MenuItem::with_id(
                 app,
@@ -275,7 +274,7 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
                 false,
                 None::<&str>,
             )?,
-            &menu_item("quit", "退出 Token Usage")?,
+            &menu_item("quit", label("退出 Token Usage", "Quit Token Usage"))?,
         ],
     )
 }
@@ -530,6 +529,8 @@ pub fn run() {
             commands::window_cmd::consume_settings_target,
             commands::window_cmd::close_settings,
             commands::window_cmd::open_external,
+            commands::window_cmd::set_window_draggable,
+            commands::window_cmd::set_drag_suspended,
             commands::window_cmd::frontend_log,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
@@ -591,40 +592,42 @@ pub fn run() {
             // 窗口呈现 / 切换主题: just save; frontend reloads on next focus.
             {
                 let db = app.state::<AppState>().db.clone();
-                let guard = db.lock();
-                if let Ok(ref c) = guard {
-                    let needs_tray_refresh = match id {
-                        "tray_today_tokens" | "tray_today_cost" | "tray_today_both"
-                        | "tray_total_tokens" | "tray_total_cost" | "tray_total_both"
-                        | "tray_icon_only" => id
-                            .strip_prefix("tray_")
-                            .map(|mode| {
-                                let _ = config::with_config(c, |cfg| {
-                                    cfg.tray_display = mode.to_string();
-                                });
-                            })
-                            .is_some(),
-                        "window_normal" | "window_fixed" => {
-                            let _ = id.strip_prefix("window_").map(|mode| {
-                                let _ = config::with_config(c, |cfg| {
-                                    cfg.window_display_mode = mode.to_string();
-                                });
+                let guard = db.lock().unwrap_or_else(|e| {
+                    tracing::warn!("db mutex poisoned in menu handler, recovering: {e}");
+                    e.into_inner()
+                });
+                let c = &*guard;
+                let needs_tray_refresh = match id {
+                    "tray_today_tokens" | "tray_today_cost" | "tray_today_both"
+                    | "tray_total_tokens" | "tray_total_cost" | "tray_total_both"
+                    | "tray_icon_only" => id
+                        .strip_prefix("tray_")
+                        .map(|mode| {
+                            let _ = config::with_config(c, |cfg| {
+                                cfg.tray_display = mode.to_string();
                             });
-                            false
-                        }
-                        "theme_dark" | "theme_light" | "theme_system" => {
-                            let _ = id.strip_prefix("theme_").map(|theme| {
-                                let _ = config::with_config(c, |cfg| {
-                                    cfg.theme = theme.to_string();
-                                });
+                        })
+                        .is_some(),
+                    "window_normal" | "window_fixed" => {
+                        let _ = id.strip_prefix("window_").map(|mode| {
+                            let _ = config::with_config(c, |cfg| {
+                                cfg.window_display_mode = mode.to_string();
                             });
-                            false
-                        }
-                        _ => false,
-                    };
-                    if needs_tray_refresh {
-                        crate::ui::tray::refresh_from_db(app, c);
+                        });
+                        false
                     }
+                    "theme_dark" | "theme_light" | "theme_system" => {
+                        let _ = id.strip_prefix("theme_").map(|theme| {
+                            let _ = config::with_config(c, |cfg| {
+                                cfg.theme = theme.to_string();
+                            });
+                        });
+                        false
+                    }
+                    _ => false,
+                };
+                if needs_tray_refresh {
+                    crate::ui::tray::refresh_from_db(app, c);
                 }
             }
         })

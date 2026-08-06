@@ -24,10 +24,6 @@ pub async fn test_credential(vendor: String, credential: String) -> Result<Strin
     #[cfg(debug_assertions)]
     {
         tracing::debug!(vendor = %vendor, len = credential.len(), "test_credential called");
-        tracing::debug!(
-            "credential (first 100 chars): {}",
-            &credential[..credential.len().min(100)]
-        );
     }
 
     let vid = adapter_for(&vendor).ok_or_else(|| format!("no adapter for vendor: {vendor}"))?;
@@ -65,11 +61,14 @@ pub async fn test_credential(vendor: String, credential: String) -> Result<Strin
 /// Read cached quotas from `quota_cache` table, filtered by config's
 /// `quota_active_vendors`. Fast — no network calls.
 ///
-/// A vendor only appears in `quota_cache` if its credential was validated and
-/// the quota was fetched successfully, so presence here implies "connected".
+/// Every vendor that has a row in `quota_cache` is returned — that row only
+/// exists when the vendor was configured and fetched at least once, so there
+/// is no need to post-filter by data content. The frontend applies
+/// `quota_active_vendors` for visibility, so disabled vendors are hidden on
+/// that side.
 #[tauri::command]
 pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
-    let conn = state.db_guard();
+    let conn = state.db_read();
     let cfg = config::load(&conn).unwrap_or_default();
     let active_set = cfg.quota_active_vendors;
 
@@ -88,9 +87,14 @@ pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
     let mut out = Vec::new();
     for row in rows {
         let (_vendor, data) = row.map_err(|e| e.to_string())?;
-        // Include all cached vendors. `quota_active_vendors` is used for
-        // display ordering only — filtering would hide newly-added vendors
-        // (e.g. Claude, Codex) from existing configs that predate them.
+        // Include every cached vendor — `quota_cache` only has rows for
+        // vendors that were actually configured and fetched at least once.
+        // The frontend filters down to enabled vendors via
+        // `quota_active_vendors`, so unconfigured/disconnected vendors are
+        // naturally absent. Filtering here by `has_quota_data` hides
+        // legitimate cases: error entries (cookie expired), zero-usage
+        // accounts, and all-clear balance — the user still needs to see
+        // those in the layout tree and limits page.
         if let Ok(q) = serde_json::from_str::<Quota>(&data) {
             out.push(q);
         }
@@ -147,11 +151,10 @@ pub async fn refresh_quotas_if_stale(
     {
         return Ok(false);
     }
-    let _guard = StaleRefreshGuard;
 
     // Decide staleness from the freshest cache row + the configured interval.
     let (stale, db) = {
-        let conn = state.db_guard();
+        let conn = state.db_read();
         let cfg = config::load(&conn).unwrap_or_default();
         let interval = scheduler::parse_interval_secs(&cfg.quota_refresh_interval);
         // Use MIN rather than MAX: a single stale vendor should trigger a
@@ -178,6 +181,7 @@ pub async fn refresh_quotas_if_stale(
     if !stale {
         return Ok(false);
     }
+    let _guard = StaleRefreshGuard;
     scheduler::refresh_all(&db).await;
     let _ = app.emit("quota:updated", ());
     Ok(true)
@@ -192,19 +196,14 @@ pub async fn refresh_quota(
     app: AppHandle,
 ) -> Result<(), String> {
     let cred = {
-        let conn = state.db_guard();
+        let conn = state.db_read();
         credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
     };
-    let (_cfg, now, today, month_start) = {
-        let conn = state.db_guard();
-        let cfg = config::load(&conn).unwrap_or_default();
-        let now = chrono::Utc::now();
-        let today = now.format("%Y-%m-%d").to_string();
-        let month_start = {
-            let (y, m, _d) = (now.year(), now.month(), now.day());
-            format!("{y:04}-{m:02}-01")
-        };
-        (cfg, now, today, month_start)
+    let now = chrono::Utc::now();
+    let today = now.format("%Y-%m-%d").to_string();
+    let month_start = {
+        let (y, m, _d) = (now.year(), now.month(), now.day());
+        format!("{y:04}-{m:02}-01")
     };
     let now_rfc = now.to_rfc3339();
     let now_ms = std::time::SystemTime::now()
@@ -279,8 +278,9 @@ mod tests {
         conn
     }
 
-    /// SAFETY: `State<'r, T>` is `pub struct State<'r, T>(&'r T)`. Transmuting
-    /// a reference is safe because the wrapper holds no extra state.
+    // SAFETY: `State<'r, T>` is a transparent wrapper `pub struct State<'r, T>(&'r T)`.
+    // The inner field is private (cannot use `State(state)` from outside tauri crate),
+    // so transmute is the only sound way to construct it from a reference.
     fn state_of(state: &AppState) -> State<'_, AppState> {
         unsafe { std::mem::transmute(state) }
     }
@@ -326,7 +326,7 @@ mod tests {
     fn get_quotas_deserializes_cached_quotas() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
         }
@@ -338,7 +338,7 @@ mod tests {
     fn get_quotas_skips_malformed_json_rows() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             conn.execute(
                 "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, ?)",
@@ -355,7 +355,7 @@ mod tests {
     fn get_quotas_orders_by_vendor_order_config() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "glm", &mock_quota("glm"), 3000);
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "kimi", &mock_quota("kimi"), 2000);
@@ -376,7 +376,7 @@ mod tests {
     fn get_quotas_fallback_ordering_to_active_vendors() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "kimi", &mock_quota("kimi"), 2000);
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "glm", &mock_quota("glm"), 3000);
@@ -398,7 +398,7 @@ mod tests {
     fn get_quotas_active_vendors_is_not_a_filter() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
             insert_cache(&conn, "kimi", &mock_quota("kimi"), 3000);
@@ -416,7 +416,7 @@ mod tests {
     fn get_quotas_vendor_order_takes_precedence_over_active_vendors() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
             insert_cache(&conn, "kimi", &mock_quota("kimi"), 3000);
@@ -438,7 +438,7 @@ mod tests {
     fn get_quotas_empty_vendor_order_treated_as_absent() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_cache(&conn, "deepseek", &mock_quota("deepseek"), 1000);
             insert_cache(&conn, "glm", &mock_quota("glm"), 2000);
             let cfg = Config {

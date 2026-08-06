@@ -11,7 +11,7 @@ use crate::config;
 use crate::state::AppState;
 use crate::storage::sessions;
 
-use super::db;
+use super::{db, db_write};
 
 /// The installed-clients list cached at startup, or an empty vec if the
 /// collector hasn't run / failed to persist it. An empty list makes every
@@ -35,7 +35,7 @@ pub fn get_archived_session_count(state: State<AppState>) -> Result<i64, String>
 /// settings page can refresh the count live.
 #[tauri::command]
 pub fn clear_archived_sessions(app: AppHandle, state: State<AppState>) -> Result<usize, String> {
-    let conn = db(&state);
+    let conn = db_write(&state);
     let installed = installed_clients(&conn);
     let deleted = sessions::prune_uninstalled(&conn, &installed).map_err(|e| e.to_string())?;
     let _ = app.emit("collection:updated", ());
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn archived_count_all_archived_when_installed_list_empty() {
+    fn archived_count_zero_when_installed_list_empty() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
             let conn = state.db_guard();
@@ -149,8 +149,9 @@ mod tests {
             insert_session(&conn, "codex", "s2", "gpt-5");
             insert_session(&conn, "cursor", "s3", "gpt-5");
         }
+        // No installed_clients in KV → installed_clients() returns [] → 0 archived.
         let count = get_archived_session_count(state_of(&state)).unwrap();
-        assert_eq!(count, 3);
+        assert_eq!(count, 0);
     }
 
     // ── prune_uninstalled integration ─────────────────────────────────────

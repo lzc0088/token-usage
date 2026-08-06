@@ -112,9 +112,6 @@
 .ibtn.on { color: var(--amber); }
 .ibtn.on:hover { background: var(--amber-hover); }
 
-.ibtn-toggle { margin-right: 2px; }
-.ibtn-vis { margin-right: 1px; }
-
 /* ── move buttons (↑↓) ── */
 .ibtn-move {
   display: inline-flex;
@@ -148,6 +145,8 @@
   cursor: pointer;
   font-family: inherit;
   height: 32px;
+  min-width: 64px;
+  text-align: center;
 }
 .btn-primary:hover { opacity: 0.9; }
 .btn-primary:disabled { opacity: 0.5; cursor: default; }

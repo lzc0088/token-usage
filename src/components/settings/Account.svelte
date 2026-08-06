@@ -4,8 +4,11 @@
   import { api, type Config } from "../../lib/api";
   import { QUOTA_UPDATED } from "../../lib/events";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
-  import { VENDOR_PANEL } from "../../lib/meta/panels";
-  import { VENDORS, fieldsFor, CAT_ORDER, GROUPS, type VendorDef } from "../../lib/meta/vendors";
+  import { VENDOR_PANEL,panelHint,panelLabel } from "../../lib/meta/panels";
+  import { VENDORS, fieldsFor, CAT_ORDER, GROUPS, type VendorDef, type FieldDef, tv,vl } from "../../lib/meta/vendors";
+  import { t,getLang } from "../../lib/i18n.svelte";
+  import { moveTo } from "../../lib/util/reorder";
+  import { rowDrag } from "../../lib/actions/rowDrag";
   import DeviceFlow, { type OAuthState } from "./DeviceFlow.svelte";
 
   function resolvePanelUrl(id: string): string {
@@ -25,6 +28,8 @@
   let inputs = $state<Record<string, Record<string, string>>>({});
   let config = $state<Config | null>(null);
   let saveError = $state<Record<string, string>>({});
+  // Per-field validation errors: fieldErrors[vendor][fieldKey] = "error message"
+  let fieldErrors = $state<Record<string, Record<string, string>>>({});
   let saving = $state<Record<string, boolean>>({});
   let ordered = $state<string[]>([]);
   let active = $state<Set<string>>(new Set());
@@ -68,6 +73,24 @@
     return cat;
   }
 
+  // Language — synced from config.language via $effect so it tracks
+  // config changes (initial load, language switch) without depending on
+  // module-level currentLang timing or $derived null-config short-circuit.
+  let lang = $state(getLang());
+  $effect(() => {
+    const next = config?.language ?? getLang();
+    if (next !== lang) lang = next;
+  });
+
+  /** Field label with i18n: uses enLabel when language is English. */
+  function fl(f: { label: string; enLabel?: string }): string {
+    return lang === "en" && f.enLabel ? f.enLabel : f.label;
+  }
+  /** Field placeholder with i18n: uses enPlaceholder when language is English. */
+  function fp(f: { placeholder: string; enPlaceholder?: string }): string {
+    return lang === "en" && f.enPlaceholder ? f.enPlaceholder : f.placeholder;
+  }
+
   /** Auth-type-aware right-side status badge(s) for an account row.
    *  subscription (OAuth): 未登录 / 已登录
    *  api-key / cookie:     未设定 / 已连接 (+ Cookie 无效 when stale) */
@@ -79,14 +102,14 @@
   ): Array<{ label: string; kind: BadgeKind }> {
     const isOAuth = v.authType === "detect" || v.authType === "login" || v.id === "claude";
     if (!isBound) {
-      return [{ label: isOAuth ? "未登录" : "未设定", kind: "dim" }];
+      return [{ label: isOAuth ? t("account.unbound") : t("account.unset"), kind: "dim" }];
     }
-    const connected = isOAuth ? "已登录" : "已连接";
+    const connected = isOAuth ? t("account.connected") : t("account.connectedKey");
     if (cookieErr) {
       // Bound but cookie stale — keep the connection hint greyed + flag the error.
       return [
         { label: connected, kind: "dim" },
-        { label: "Cookie 无效", kind: "warn" },
+        { label: t("account.cookieInvalid"), kind: "warn" },
       ];
     }
     return [{ label: connected, kind: "ok" }];
@@ -97,10 +120,10 @@
    * mixed (key+cookie like Volcengine, or key+ids like GLM Team) → 清除凭证. */
   function clearButtonLabel(v: VendorDef): string {
     const hasCookie = fieldsFor(v).some((f) => f.key === "cookie");
-    if (v.cat === "subscription") return "清除登录";
-    if (v.cat === "cookie") return hasCookie ? "清除 Cookie" : "清除凭证";
+    if (v.cat === "subscription") return t("account.clearLogin");
+    if (v.cat === "cookie") return hasCookie ? t("account.clearCookie") : t("account.clearCred");
     // cat === "api-key"
-    return hasCookie ? "清除凭证" : "清除 API Key";
+    return hasCookie ? t("account.clearCred") : t("account.clearApiKey");
   }
 
   interface ClearAction { label: string; fields?: string[]; all?: boolean; }
@@ -120,10 +143,10 @@
     const acts: ClearAction[] = [];
     if (filled.includes("key")) {
       const fields = def.some((f) => f.key === "secret") ? ["key", "secret"] : ["key"];
-      acts.push({ label: "清除 API Key", fields });
+      acts.push({ label: t("account.clearApiKey"), fields });
     }
     if (filled.includes("cookie")) {
-      acts.push({ label: "清除 Cookie", fields: ["cookie"] });
+      acts.push({ label: t("account.clearCookie"), fields: ["cookie"] });
     }
     if (acts.length === 0) acts.push({ label: clearButtonLabel(v), all: true });
     return acts;
@@ -194,12 +217,14 @@
       cookieSaving = false;
     }
   }
-  function move(i: number, dir: -1 | 1): void {
-    const j = i + dir;
-    if (j < 0 || j >= ordered.length) return;
-    const arr = [...ordered];
-    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
-    ordered = arr;
+  /** Move the vendor `id` to the new absolute index in the ordered list, then
+   *  persist. Used by the row-drag action (see `use:rowDrag`). */
+  function moveToIndex(id: string, newIndex: number): void {
+    const myIdx = ordered.indexOf(id);
+    if (myIdx < 0) return;
+    const next = moveTo(ordered, myIdx, newIndex);
+    if (next === ordered) return;
+    ordered = next;
     saveOrder();
   }
 
@@ -253,24 +278,65 @@
   }
   function setField(id: string, fieldKey: string, val: string): void {
     inputs = { ...inputs, [id]: { ...(inputs[id] ?? {}), [fieldKey]: val } };
+    // Clear field-level error on user input.
+    if (fieldErrors[id]?.[fieldKey]) {
+      const next = { ...(fieldErrors[id] ?? {}), [fieldKey]: "" };
+      fieldErrors = { ...fieldErrors, [id]: next };
+    }
+  }
+
+  /** Validate all fields for a vendor before save. Returns true if all pass. */
+  function validateFields(vendor: string): boolean {
+    const v = VENDORS.find(x => x.id === vendor);
+    const fields = v ? fieldsFor(v) : [];
+    const errors: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.type === "select") continue; // selects always have a value
+      if ((f as FieldDef).optional) continue; // optional add-ons (e.g. Volcengine console cookie)
+      const val = (inputs[vendor]?.[f.key] ?? "").trim();
+      if (!val) {
+        errors[f.key] = t("account.fieldRequired");
+        continue;
+      }
+      // API key format: should look like a key (alphanumeric + common separators), min 8 chars.
+      if (f.type === "password" && (f.key === "key" || f.key === "secret")) {
+        if (val.length < 8) {
+          errors[f.key] = t("account.fieldTooShort");
+        }
+      }
+      // Cookie: minimum length check.
+      if (f.type === "textarea" && f.key === "cookie") {
+        if (val.length < 10) {
+          errors[f.key] = t("account.fieldTooShort");
+        }
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      fieldErrors = { ...fieldErrors, [vendor]: errors };
+      return false;
+    }
+    // Clear errors for this vendor.
+    if (fieldErrors[vendor]) {
+      const next = { ...fieldErrors };
+      delete next[vendor];
+      fieldErrors = next;
+    }
+    return true;
   }
 
   async function save(vendor: string): Promise<void> {
-    const fields = fieldsFor(VENDORS.find(x => x.id === vendor)!);
-    const values = fields.map(f => getField(vendor, f.key)).filter(Boolean);
-    if (values.length === 0) return;
     if (saving[vendor]) return;
+    if (!validateFields(vendor)) return;
+
+    const fields = fieldsFor(VENDORS.find(x => x.id === vendor)!);
     saving = { ...saving, [vendor]: true };
     saveError = { ...saveError, [vendor]: "" };
-    // 序列化为 JSON 字符串存入 keyring（后端按厂商解析）
     const payload = JSON.stringify(
       Object.fromEntries(fields.map(f => [f.key, getField(vendor, f.key)]))
     );
     try {
       await api.setCredential(vendor, payload);
       bound = { ...bound, [vendor]: true };
-      // Reload authoritative field list from the backend (handles multi-field
-      // vendors), rather than inferring from the just-typed inputs.
       try {
         credFields = { ...credFields, [vendor]: await api.getCredentialFields(vendor) };
       } catch {
@@ -278,9 +344,12 @@
       }
       inputs = { ...inputs, [vendor]: {} };
       saveError = { ...saveError, [vendor]: "" };
-      // set_credential already fetched the quota internally and wrote it to
-      // the cache (before emitting quota:updated), so the cache is fresh.
-      // No need for a redundant refreshQuota — just reload errors.
+      // Auto-refresh quota after save so the user sees updated data immediately.
+      try {
+        await api.refreshQuota(vendor);
+      } catch {
+        /* quota refresh failed — credential is saved, scheduler will retry */
+      }
       await loadQuotaErrors();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -322,36 +391,9 @@
     };
   });
 
-  // Per-vendor refresh state: "loading" | "ok" | "fail" + message.
-  let refreshState = $state<Record<string, { status: "loading" | "ok" | "fail"; msg?: string }>>({});
+  // Per-vendor refresh state tracking removed — save now auto-refreshes
+  // quota after successful credential update (see save() below).
 
-  // Track pending timeouts so they can be cleared on unmount to prevent
-  // state updates on a destroyed component.
-  let timeouts = $state<Set<number>>(new Set());
-  $effect(() => {
-    return () => {
-      for (const id of timeouts) clearTimeout(id);
-    };
-  });
-
-  async function refreshQuota(vendor: string): Promise<void> {
-    refreshState = { ...refreshState, [vendor]: { status: "loading" } };
-    try {
-      await api.refreshQuota(vendor);
-      refreshState = { ...refreshState, [vendor]: { status: "ok", msg: "刷新成功" } };
-      void loadQuotaErrors();
-      const id = window.setTimeout(() => {
-        timeouts.delete(id);
-        const next = { ...refreshState };
-        delete next[vendor];
-        refreshState = next;
-      }, 3000);
-      timeouts.add(id);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      refreshState = { ...refreshState, [vendor]: { status: "fail", msg } };
-    }
-  }
 
   // ── OAuth state (lives here so event listeners match the settings window lifetime) ──
 
@@ -437,13 +479,13 @@
   }
 </script>
 
-<div class="sh"><h3>账号额度</h3><div class="desc">厂商账号绑定与额度查询 · 点击展开配置</div></div>
+<div class="sh"><h3>{t("account.title2")}</h3><div class="desc">{t("account.desc")}</div></div>
 <div class="sc">
 
   <!-- ══ 账号 ══ -->
   <div class="section-title">
-    账号
-    <span class="title-stat">{Object.values(bound).filter(Boolean).length} / {VENDORS.length} 已连接</span>
+    {t("account.accountsSection")}
+    <span class="title-stat">{Object.values(bound).filter(Boolean).length} / {VENDORS.length} {t("account.connectedCount")}</span>
   </div>
 
   {#each GROUPS as g}
@@ -459,8 +501,8 @@
             <span class="ainfo">
               <span class="aname">{v.label}</span>
               <span class="atags">
-                {#each v.tags as t (t.text)}
-                  <span class="itag c-{t.color}">{t.text}</span>
+                {#each v.tags as tag (tag.text)}
+                  <span class="itag c-{tag.color}">{tv(tag.text, lang)}</span>
                 {/each}
               </span>
             </span>
@@ -477,44 +519,44 @@
             <div class="panel {rowIdx === items.length - 1 ? 'panel-last' : ''}" role="region" aria-labelledby="accordion-btn-{v.id}" id="panel-{v.id}">
               {#if bound[v.id]}
                 {#if cookieErrorOf[v.id]}
-                  <p class="panel-warn">⚠ {cookieErrorOf[v.id]}，请重新填写并保存</p>
+                  <p class="panel-warn">⚠ {cookieErrorOf[v.id]}{t("account.cookieErrorRetry")}</p>
                   {#if VENDOR_PANEL[v.id]}
-                    <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
-                    <p class="panel-note">{VENDOR_PANEL[v.id].hint}</p>
+                    <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>{t("account.openInBrowser")} {panelLabel(VENDOR_PANEL[v.id], lang)} {t("account.pageLabel")}</button>
+                    <p class="panel-note">{panelHint(VENDOR_PANEL[v.id], lang)}</p>
                   {/if}
                 {:else if v.id === "stepfun"}
-                  <p class="panel-note" style="margin:0 0 8px">💡 Cookie 有效期较短，过期后需重新从浏览器获取。如遇额度刷新失败，请更新 Cookie。</p>
+                  <p class="panel-note" style="margin:0 0 8px">{t("account.cookieNote")}</p>
                 {/if}
                 <p class="panel-hint">
                   {#if v.authType === "detect" || v.authType === "login"}
-                    账号已绑定，可清除凭证后重新绑定，或刷新额度数据。
+                    {t("account.boundHintSub")}
                   {:else}
-                    账号已绑定，可清除后重新填写，或刷新额度数据。
+                    {t("account.boundHintCookie")}
                   {/if}
                 </p>
                 {#if isMixedVendor(v)}
                   <div class="cookie-mgr">
                     {#if editingCookieVendor === v.id}
-                      <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder="粘贴新 Cookie…" rows="4" disabled={cookieSaving}></textarea>
+                      <textarea class="finp finp-textarea" bind:value={cookieDraft} placeholder={t("account.pasteCookie")} rows="4" disabled={cookieSaving}></textarea>
                       <div class="cookie-mgr-actions">
                         <button type="button" class="btn-primary" onclick={() => saveCookie(v.id)} disabled={cookieSaving || !cookieDraft.trim()}>
-                          {cookieSaving ? "检查中…" : "保存 Cookie"}
+                          {cookieSaving ? t("account.checking") : t("account.saveCookieBtn")}
                         </button>
-                        <button type="button" class="btn-outline" onclick={cancelEditCookie} disabled={cookieSaving}>取消</button>
+                        <button type="button" class="btn-outline" onclick={cancelEditCookie} disabled={cookieSaving}>{t("account.cancel")}</button>
                       </div>
                     {:else}
                       <div class="cookie-mgr-row">
                         <span class="cookie-mgr-status">
                           {#if cookieErrorOf[v.id] && (credFields[v.id] ?? []).includes("cookie")}
-                            <span class="cs-err">⚠ Cookie 已失效</span>
+                            <span class="cs-err">⚠ {t("account.cookieExpired")}</span>
                           {:else if (credFields[v.id] ?? []).includes("cookie")}
-                            <span class="cs-ok">✓ Cookie 已绑定（显示到期日期）</span>
+                            <span class="cs-ok">✓ {t("account.cookieBound")}</span>
                           {:else}
-                            <span class="cs-none">Cookie 未绑定（可选，用于显示到期日期）</span>
+                            <span class="cs-none">{t("account.cookieNotBound")}</span>
                           {/if}
                         </span>
                         <button type="button" class="btn-outline" onclick={() => startEditCookie(v.id)}>
-                          {(credFields[v.id] ?? []).includes("cookie") ? "更新 Cookie" : "添加 Cookie"}
+                          {(credFields[v.id] ?? []).includes("cookie") ? t("account.updateCookieBtn") : t("account.addCookieBtn")}
                         </button>
                       </div>
                     {/if}
@@ -524,34 +566,28 @@
                   {#each clearActions(v) as act (act.label)}
                     <button type="button" class="btn-outline" onclick={() => doClear(v.id, act)}>{act.label}</button>
                   {/each}
-                  <button
-                    class="btn-primary"
-                    disabled={refreshState[v.id]?.status === "loading"}
-                    onclick={() => refreshQuota(v.id)}
-                  >{refreshState[v.id]?.status === "loading" ? "刷新中…" : "刷新"}</button>
-                  {#if refreshState[v.id]?.status === "ok"}
-                    <span class="refresh-msg ok">{refreshState[v.id].msg}</span>
-                  {:else if refreshState[v.id]?.status === "fail"}
-                    <span class="refresh-msg fail">刷新失败：{refreshState[v.id].msg}</span>
-                  {/if}
                 </div>
               {:else if v.authType === "detect" || v.authType === "login"}
                 <p class="panel-hint">
                   {#if v.authType === "detect"}
-                    自动检测本机已安装的 CLI 凭证，无需手动填写。如未检测到，可打开对应客户端登录后重新检测。
+                    {t("account.detectHint")}
                   {:else}
-                    通过浏览器 OAuth 授权完成登录，授权后凭证自动保存到本机。
+                    {t("account.oauthHint")}
                   {/if}
                 </p>
                 {#if v.id === "claude" && VENDOR_PANEL.claude}
-                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL.claude.pageLabel} 页面</button>
-                  <p class="panel-note">{VENDOR_PANEL.claude.hint}</p>
+                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>{t("account.openInBrowser")} {panelLabel(VENDOR_PANEL.claude, lang)} {t("account.pageLabel")}</button>
+                  <p class="panel-note">{panelHint(VENDOR_PANEL.claude, lang)}</p>
                   <div class="fields">
                     {#each fieldsFor(v) as f (f.key)}
+                      {@const hasErr = !!fieldErrors[v.id]?.[f.key]}
                       <label class="field">
-                        <span class="flabel">{f.label}</span>
+                        <span class="flabel">{fl(f)}</span>
                         {#if f.type === "textarea"}
-                          <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                          <textarea class="finp finp-textarea" class:field-invalid={hasErr} placeholder={fp(f)} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                        {/if}
+                        {#if hasErr}
+                          <p class="field-err">{fieldErrors[v.id][f.key]}</p>
                         {/if}
                       </label>
                     {/each}
@@ -560,15 +596,15 @@
                     <p class="save-err">{saveError[v.id]}</p>
                   {/if}
                   <div class="panel-actions">
-                    <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                    <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>{t("account.cancel")}</button>
                     <button type="button" class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
-                      {saving[v.id] ? "检查中…" : "保存"}
+                      {saving[v.id] ? t("account.checking") : t("account.save")}
                     </button>
                   </div>
                 {:else if (v.id === "copilot")}
                   {#if copilotLoginState.phase === "idle"}
                     <div class="panel-actions">
-                      <button type="button" class="btn-primary" onclick={() => { api.feLog("copilot 登录按钮点击"); startCopilotLogin(); }}>{v.loginLabel ?? "登录"}</button>
+                      <button type="button" class="btn-primary" onclick={() => { api.feLog("copilot 登录按钮点击"); startCopilotLogin(); }}>{vl(v, lang) || t("account.login")}</button>
                     </div>
                   {:else}
                     <DeviceFlow vendor="copilot" state={copilotLoginState} onRetry={() => startCopilotLogin()} />
@@ -576,7 +612,7 @@
                 {:else if (v.id === "codex")}
                   {#if codexLoginState.phase === "idle"}
                     <div class="panel-actions">
-                      <button type="button" class="btn-primary" onclick={() => { api.feLog("codex 登录按钮点击"); startCodexLogin(); }}>{v.loginLabel ?? "登录"}</button>
+                      <button type="button" class="btn-primary" onclick={() => { api.feLog("codex 登录按钮点击"); startCodexLogin(); }}>{vl(v, lang) || t("account.login")}</button>
                     </div>
                   {:else}
                     <DeviceFlow vendor="codex" state={codexLoginState} onRetry={() => startCodexLogin()} />
@@ -584,49 +620,53 @@
                 {:else}
                   <div class="panel-actions">
                     {#if v.authType === "detect"}
-                      <button type="button" class="btn-outline" onclick={() => startLogin(v.id)}>立即检测</button>
+                      <button type="button" class="btn-outline" onclick={() => startLogin(v.id)}>{t("account.detect")}</button>
                     {/if}
-                    <button type="button" class="btn-primary" onclick={() => startLogin(v.id)}>{v.loginLabel ?? "登录"}</button>
+                    <button type="button" class="btn-primary" onclick={() => startLogin(v.id)}>{vl(v, lang) || t("account.login")}</button>
                   </div>
                 {/if}
               {:else}
                 {#if VENDOR_PANEL[v.id]}
-                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>在浏览器打开 {VENDOR_PANEL[v.id].pageLabel} 页面</button>
+                  <button type="button" class="btn-open" onclick={() => openKeyUrl(v.id)}>{t("account.openInBrowser")} {panelLabel(VENDOR_PANEL[v.id], lang)} {t("account.pageLabel")}</button>
                   {#if VENDOR_PANEL[v.id].extraUrl && VENDOR_PANEL[v.id].extraLabel}
-                    <button type="button" class="btn-open" onclick={() => api.openExternal(VENDOR_PANEL[v.id].extraUrl!).catch(() => {})}>在浏览器打开 {VENDOR_PANEL[v.id].extraLabel} 页面</button>
+                    <button type="button" class="btn-open" onclick={() => api.openExternal(VENDOR_PANEL[v.id].extraUrl!).catch(() => {})}>{t("account.openInBrowser")} {panelLabel(VENDOR_PANEL[v.id], lang)} {t("account.pageLabel")}</button>
                   {/if}
-                  <p class="panel-note">{VENDOR_PANEL[v.id].hint}</p>
+                  <p class="panel-note">{panelHint(VENDOR_PANEL[v.id], lang)}</p>
                 {:else}
                   <p class="panel-note">
                     {#if v.authType === "cookie"}
-                      从浏览器控制台复制对应 Cookie，粘贴到下方。Cookie 仅保存在本机，不上传任何服务器。
+                      {t("account.cookieCopyHint")}
                     {:else}
-                      在对应厂商控制台获取 API Key，填入下方。Key 仅保存在本机，不上传任何服务器。
+                      {t("account.apiKeyHint")}
                     {/if}
                   </p>
                 {/if}
                 <div class="fields">
                   {#each fs as f (f.key)}
+                    {@const hasErr = !!fieldErrors[v.id]?.[f.key]}
                     <label class="field">
-                      <span class="flabel">{f.label}</span>
+                      <span class="flabel">{fl(f)}</span>
                       {#if f.type === "select"}
-                        <select class="fsel" value={getField(v.id, f.key)} onchange={(e) => setField(v.id, f.key, (e.target as HTMLSelectElement).value)}>
+                        <select class="fsel" class:field-invalid={hasErr} value={getField(v.id, f.key)} onchange={(e) => setField(v.id, f.key, (e.target as HTMLSelectElement).value)}>
                           {#each f.options ?? [] as opt (opt)}
                             <option value={opt}>{opt}</option>
                           {/each}
                         </select>
                       {:else if f.type === "textarea"}
-                        <textarea class="finp finp-textarea" placeholder={f.placeholder} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
+                        <textarea class="finp finp-textarea" class:field-invalid={hasErr} placeholder={fp(f)} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
                       {:else}
-                        <input class="finp" type={f.type ?? "text"} placeholder={f.placeholder} value={getField(v.id, f.key)} oninput={(e) => setField(v.id, f.key, (e.target as HTMLInputElement).value)} />
+                        <input class="finp" class:field-invalid={hasErr} type={f.type ?? "text"} placeholder={fp(f)} value={getField(v.id, f.key)} oninput={(e) => setField(v.id, f.key, (e.target as HTMLInputElement).value)} />
+                      {/if}
+                      {#if hasErr}
+                        <p class="field-err">{fieldErrors[v.id][f.key]}</p>
                       {/if}
                     </label>
                   {/each}
                 </div>
                 <div class="panel-actions">
-                  <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>取消</button>
+                  <button type="button" class="btn-outline" onclick={() => toggle(v.id)} disabled={saving[v.id]}>{t("account.cancel")}</button>
                   <button type="button" class="btn-primary" onclick={() => save(v.id)} disabled={saving[v.id]}>
-                    {saving[v.id] ? "检查中…" : "保存"}
+                    {saving[v.id] ? t("account.checking") : t("account.save")}
                   </button>
                 </div>
                 {#if saveError[v.id]}
@@ -642,64 +682,69 @@
 
   <!-- ══ 额度 ══ -->
   <div class="section-title">
-    额度
-    <span class="title-stat">{active.size} / {VENDORS.length} 已启用</span>
+    {t("account.quotasSection")}
+    <span class="title-stat">{active.size} / {VENDORS.length} {t("account.enabledCount")}</span>
   </div>
 
   <div class="section-box" style="margin-top:8px">
-    <div class="group-head">全局设置</div>
+    <div class="group-head">{t("account.globalSettings")}</div>
     <div class="box-row">
-      <div class="lab">刷新频率<div class="hint">额度数据刷新间隔</div></div>
+      <div class="lab">{t("account.refreshFreq")}<div class="hint">{t("account.refreshFreqHint")}</div></div>
       <select class="sel" value={config?.quota_refresh_interval ?? "5m"}
         onchange={(e) => updateConfig({ quota_refresh_interval: (e.target as HTMLSelectElement).value as Config["quota_refresh_interval"] })}>
-        <option value="1m">1 分钟</option>
-        <option value="3m">3 分钟</option>
-        <option value="5m">5 分钟</option>
-        <option value="10m">10 分钟</option>
-        <option value="15m">15 分钟</option>
+        <option value="1m">{t("account.1m")}</option>
+        <option value="3m">{t("account.3m")}</option>
+        <option value="5m">{t("account.5m")}</option>
+        <option value="10m">{t("account.10m")}</option>
+        <option value="15m">{t("account.15m")}</option>
       </select>
     </div>
     <div class="box-row">
-      <div class="lab">进度显示<div class="hint">进度条与百分比显示方式</div></div>
+      <div class="lab">{t("account.progressMode")}<div class="hint">{t("account.progressModeHint")}</div></div>
       <select class="sel" value={config?.quota_progress_mode ?? "剩余"}
         onchange={(e) => updateConfig({ quota_progress_mode: (e.target as HTMLSelectElement).value as Config["quota_progress_mode"] })}>
-        <option value="用量">用量</option>
-        <option value="剩余">剩余</option>
+        <option value="用量">{t("account.usage")}</option>
+        <option value="剩余">{t("account.remaining")}</option>
       </select>
     </div>
   </div>
 
   <div class="section-box" style="margin-top:12px">
-    <div class="group-head">厂商管理</div>
+    <div class="group-head">{t("account.vendorMgmt")}</div>
     <div class="icon-legend">
-      <span class="legend-item">启用</span>
-      <span class="legend-item">上移</span>
-      <span class="legend-item">下移</span>
+      <span class="legend-text">{t("account.dragReorder")}</span>
+      <div class="legend-actions">
+        <span class="legend-item">{t("account.enable")}</span>
+      </div>
     </div>
-    {#each ordered as id, i (id)}
+    {#each ordered as id (id)}
       {@const v = VENDORS.find(x => x.id === id)}
       {#if v}
-        <div class="trow">
+        <div
+          class="trow"
+          data-row-id={id}
+          use:rowDrag={{ id, onReorder: (newIndex) => moveToIndex(id, newIndex), excludeSelector: ".ibtn-toggle" }}
+        >
           <ToolIcon vendor={id} size={22} />
           <span class="tleft">
             <span class="tname">{v.label}</span>
             <span class="ttags">
               {#if active.has(id)}
                 <span class="ttag" class:tt-active={bound[v.id]} class:tt-unconfig={!bound[v.id]}>
-                  {bound[v.id] ? "已检出" : "未配置"}
+                  {bound[v.id] ? t("account.detected") : t("account.notConfigured")}
                 </span>
               {:else}
-                <span class="ttag tt-inactive">已停用</span>
+                <span class="ttag tt-inactive">{t("account.disabledTag")}</span>
               {/if}
               {#each v.billing as b (b)}
-                <span class="ttag tt-billing">{b}</span>
+                <span class="ttag tt-billing">{tv(b, lang)}</span>
               {/each}
               <span class="ttag tt-auth-{v.cat}">{authTypeLabel(v.cat)}</span>
             </span>
           </span>
           <span class="tright">
-            <!-- 启用 toggle：选中→验证绑定状态，未选中→已停用（状态持久化） -->
-            <button class="ibtn ibtn-toggle" class:on={active.has(id)} title={active.has(id) ? '已启用' : '已停用'} aria-label={active.has(id) ? '停用' : '启用'}
+            <!-- 启用 toggle：选中→验证绑定状态，未选中→{t("account.disabledTag")}（状态持久化） -->
+            <button class="ibtn ibtn-toggle" class:on={active.has(id)} title={active.has(id) ? t("account.enabled") : t("account.disabledTag")} aria-label={active.has(id) ? t("account.disable") : t("account.enable")}
               onclick={() => {
                 const next = new Set(active);
                 if (active.has(id)) next.delete(id); else next.add(id);
@@ -716,18 +761,6 @@
                 {:else}
                   <rect x="3" y="3" width="18" height="18" rx="4"/>
                 {/if}
-              </svg>
-            </button>
-            <!-- 上移 -->
-            <button type="button" class="ibtn" title="上移" aria-label="上移" disabled={i === 0} onclick={() => move(i, -1)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-              </svg>
-            </button>
-            <!-- 下移 -->
-            <button type="button" class="ibtn" title="下移" aria-label="下移" disabled={i === ordered.length - 1} onclick={() => move(i, 1)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
               </svg>
             </button>
           </span>
@@ -932,7 +965,7 @@
   }
   .fsel:focus { outline: none; border-color: var(--amber); }
 
-  .panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
 
   .btn-primary {
@@ -946,6 +979,8 @@
     font-weight: 600;
     cursor: pointer;
     transition: opacity 0.15s;
+    min-width: 64px;
+    text-align: center;
   }
   .btn-primary:hover { opacity: 0.88; }
   .btn-primary:disabled {
@@ -990,9 +1025,8 @@
 
   .panel-note { font-size: 11px; color: var(--text-faint); margin: 0 0 10px; line-height: 1.6; }
   .save-err { font-size: 11px; color: var(--coral); margin: 6px 0 0; line-height: 1.5; }
-  .refresh-msg { font-size: 11px; line-height: 1.5; align-self: center; }
-  .refresh-msg.ok { color: var(--lime); }
-  .refresh-msg.fail { color: var(--coral); word-break: break-word; }
+  .field-err { font-size: 10.5px; color: var(--coral); margin: 3px 0 0; line-height: 1.4; }
+  .finp.field-invalid { border-color: var(--coral-border); }
 
   /* ── account group header ── */
   .group-head {
@@ -1031,11 +1065,28 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 0;
+    padding: 8px 4px 8px 6px;
     border-bottom: 1px dashed var(--border);
     gap: 12px;
+    border-radius: 4px;
+    cursor: grab;
+    transition: background 0.12s;
   }
+  .trow:hover { background: var(--surface-tint); }
+  .trow:active { cursor: grabbing; }
   .trow:last-child { border-bottom: none; }
+  .trow.row-drag-source { opacity: 0.35; }
+  /* The ghost is a clone of the row, fixed-positioned, with its own transform
+     offset (set by the rowDrag action). It is a child of <body>, not the
+     .trow, so its styles must be standalone (not :global-scoped to .trow). */
+  :global(.row-drag-ghost) {
+    pointer-events: none;
+    opacity: 0.75;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    background: var(--surface-tint-strong);
+    border-radius: 5px;
+    will-change: transform;
+  }
 
   .tleft {
     display: flex;
@@ -1075,20 +1126,30 @@
   .icon-legend {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
+    justify-content: space-between;
     margin-top: 0;
     margin-bottom: 0;
     padding: 0;
+    gap: 4px;
+  }
+  .icon-legend .legend-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px; /* match .tright button gap */
   }
   .icon-legend .legend-item {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
+    width: 28px; /* match .ibtn width → aligns with the button column below */
     height: 28px;
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-faint);
     line-height: 1;
+  }
+  .icon-legend .legend-text {
+    font-size: 10.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
 </style>

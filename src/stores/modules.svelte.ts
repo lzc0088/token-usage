@@ -34,9 +34,11 @@ async function loadConfig(retries = 3): Promise<void> {
       const cfg = await api.getConfig();
       if (cfg?.layout_overview_sub) {
         const s = new Set(cfg.layout_overview_sub);
+        const next: Record<ModuleKey, boolean> = { ...visible };
         for (const k of MODULE_ORDER) {
-          visible[k] = s.has(k);
+          next[k] = s.has(k);
         }
+        visible = next;
       }
       loaded = true;
       return; // success — stop retrying
@@ -58,13 +60,17 @@ export async function toggleModule(k: ModuleKey): Promise<void> {
   // Wait for initial config load before toggling, otherwise toggling on the
   // default state then having loadConfig overwrite visible would undo the toggle.
   if (!loaded) return;
-  visible[k] = !visible[k];
+  const next = { ...visible };
+  next[k] = !next[k];
+  visible = next;
   // Persist to config so settings page stays in sync.
-  const keys = MODULE_ORDER.filter(kk => visible[kk]);
+  const keys = MODULE_ORDER.filter(kk => next[kk]);
   try {
     const cfg = await api.getConfig();
     await api.setConfig({ ...cfg, layout_overview_sub: keys });
-  } catch {}
+  } catch (e) {
+    api.feLog(`toggleModule failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function moduleVisibility(): Record<ModuleKey, boolean> {

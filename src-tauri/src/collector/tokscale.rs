@@ -12,6 +12,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -31,6 +32,8 @@ pub enum TokscaleError {
     Parse(#[from] serde_json::Error),
     #[error("tokscale exited with status {code}: {stderr}")]
     NonZeroExit { code: i32, stderr: String },
+    #[error("tokscale timed out after {0}s")]
+    Timeout(u64),
     #[error("tokscale io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("tokscale download failed: {0}")]
@@ -112,7 +115,7 @@ pub fn app_bin_dir() -> Option<PathBuf> {
 /// tokscale version used for install fallback. Automatically bumped by
 /// `scripts/fetch-tokscale.mjs --latest` at build time (reads npm registry
 /// for the latest published @tokscale/cli-{triple} and writes back here).
-pub const TOKSCALE_VERSION: &str = "4.7.0";
+pub const TOKSCALE_VERSION: &str = "4.10.0";
 
 /// tokscale platform package suffix for the current compile target, matching
 /// `@tokscale/cli-<suffix>` optionalDependencies.
@@ -188,10 +191,15 @@ pub fn resolve_bin(custom: Option<&Path>, data_dir: &Path) -> Result<PathBuf, To
         .ok_or(TokscaleError::NotFound)
 }
 
-/// Resolve the bundled tokscale binary (Tauri resource), if present.
+/// Resolve the bundled tokscale binary, if present.
 ///
-/// - dev: points at `{src-tauri}/bin/tokscale` (when `fetch-tokscale` ran first)
-/// - prod: points at `$RESOURCE/bin/tokscale` inside the installed bundle
+/// - **dev (debug)**: `{src-tauri}/bin/tokscale` — the source-of-truth binary
+///   that `fetch-tokscale.mjs` keeps fresh on every `pretauri` run. We use the
+///   compile-time `CARGO_MANIFEST_DIR` rather than `BaseDirectory::Resource`
+///   because the latter points at `target/debug/`, where a STALE copy from an
+///   earlier build can linger (Tauri doesn't re-copy resources when only the
+///   binary changed and `bundle.resources` may be undeclared).
+/// - **prod (release)**: `$RESOURCE/bin/tokscale` inside the installed bundle.
 ///
 /// Best-effort: returns `None` on any resolution error so callers fall back to
 /// the legacy install path. On unix, ensures the exec bit is set (bundled files
@@ -202,6 +210,18 @@ pub fn bundled_bin_path(app: &AppHandle) -> Option<PathBuf> {
     } else {
         "bin/tokscale"
     };
+
+    // Dev: prefer the fresh source binary over a possibly-stale target copy.
+    #[cfg(debug_assertions)]
+    {
+        let dev_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+        if dev_path.is_file() {
+            let _ = ensure_executable(&dev_path);
+            return Some(dev_path);
+        }
+    }
+
+    // Prod (or dev without a source checkout): use the bundled resource.
     let path = app.path().resolve(rel, BaseDirectory::Resource).ok()?;
     if !path.is_file() {
         return None;
@@ -233,21 +253,25 @@ pub fn ensure_executable(_path: &Path) -> std::io::Result<()> {
 /// Spawn the resolved tokscale binary, return parsed JSON (tolerant).
 /// stdout is parsed; on non-zero exit the stderr is surfaced.
 ///
-/// `TOKSCALE_PRICING_CACHE_ONLY=1` is forced so tokscale never fetches the
-/// LiteLLM pricing table over the network. That fetch (from
-/// `raw.githubusercontent.com`) routinely times out for ~50s on CN networks and
-/// dominates every invocation — with the cache it drops to ~1–2s. The cache
-/// lives at `{config_dir}/cache/pricing-*.json` and is warmed by
-/// [`ensure_pricing_cache`]; token counts are unaffected, only cost estimates
-/// degrade (to $0) if the cache is empty.
+/// A 90s timeout prevents a hung tokscale process from blocking the collector
+/// forever (e.g. when the LiteLLM pricing fetch stalls on CN networks without
+/// a warm cache). `TOKSCALE_PRICING_CACHE_ONLY=1` is forced so tokscale never
+/// fetches the pricing table over the network; the timeout is a safety net.
+pub const TOKSCALE_TIMEOUT_SECS: u64 = 90;
+
 pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleError> {
-    let output = tokio::process::Command::new(bin)
-        .args(args)
-        .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await?;
+    let output = tokio::time::timeout(
+        Duration::from_secs(TOKSCALE_TIMEOUT_SECS),
+        tokio::process::Command::new(bin)
+            .args(args)
+            .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .map_err(|_| TokscaleError::Timeout(TOKSCALE_TIMEOUT_SECS))?
+    .map_err(TokscaleError::Io)?;
     if !output.status.success() {
         return Err(TokscaleError::NonZeroExit {
             code: output.status.code().unwrap_or(-1),
@@ -707,5 +731,24 @@ mod tests {
             Err(TokscaleError::NotFound)
         ));
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    // ── timeout ──────────────────────────────────────────────────────────
+    #[test]
+    fn timeout_error_variant_message() {
+        let err = TokscaleError::Timeout(90);
+        assert!(format!("{err}").contains("90"));
+    }
+
+    #[test]
+    fn timeout_is_distinct_from_other_errors() {
+        assert!(matches!(
+            TokscaleError::Timeout(90),
+            TokscaleError::Timeout(_)
+        ));
+        assert!(!matches!(
+            TokscaleError::Timeout(90),
+            TokscaleError::NonZeroExit { .. }
+        ));
     }
 }

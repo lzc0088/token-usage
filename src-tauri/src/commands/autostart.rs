@@ -38,9 +38,11 @@ pub fn set_auto_start(
     // 2. Persist the choice so the UI is correct on next launch.
     {
         let conn = db(&state);
-        let _ = config::with_config(&conn, |cfg| {
+        if let Err(e) = config::with_config(&conn, |cfg| {
             cfg.auto_start = enabled;
-        });
+        }) {
+            tracing::error!(error = %e, "auto_start config save failed");
+        }
     }
 
     // 3. Report the real system state (may differ from intent on failure).
@@ -60,7 +62,7 @@ pub fn get_auto_start(app: AppHandle) -> Result<bool, String> {
 pub fn sync_auto_start_on_boot(app: &AppHandle) {
     let want = {
         let state = app.state::<AppState>();
-        let conn = state.db_guard();
+        let conn = state.db_read();
         config::load(&conn).map(|c| c.auto_start).unwrap_or(false)
     };
 

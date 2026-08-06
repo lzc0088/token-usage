@@ -6,7 +6,7 @@ use tracing::warn;
 use crate::auth::credentials;
 use crate::commands::db;
 use crate::config::Config;
-use crate::quota::VendorId;
+use crate::quota::adapter_for;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -18,6 +18,8 @@ pub fn get_config(state: State<AppState>) -> Result<Config, String> {
 pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Result<(), String> {
     let conn = db(&state);
     crate::config::save(&conn, &config).map_err(|e| e.to_string())?;
+    // Update the cached config so the scheduler picks up changes without a DB read.
+    state.update_config_cache(config.clone());
     // Apply window-behaviour settings live (dock, drag, hotkey, tray).
     crate::ui::window::apply_window_config(&app, &conn);
     // Notify all windows (e.g. the main popover) so layout/currency changes
@@ -37,7 +39,8 @@ pub fn get_credential_status(vendor: String, state: State<AppState>) -> Result<b
 }
 
 /// Store a vendor credential (encrypted in the local DB).
-/// Validates the credential by making a test API call before saving.
+/// Saves first, then validates by making a test API call — rolls back the
+/// credential if validation fails so the user's input is never silently lost.
 #[tauri::command]
 pub async fn set_credential(
     vendor: String,
@@ -52,32 +55,21 @@ pub async fn set_credential(
     }
 
     // Validate credential for vendors with a quota adapter.
-    let vid = match vendor.as_str() {
-        "deepseek" => Some(VendorId::Deepseek),
-        "glm" => Some(VendorId::Glm),
-        "minimax" => Some(VendorId::Minimax),
-        "kimi" => Some(VendorId::Kimi),
-        "volcengine" => Some(VendorId::Volcengine),
-        "mimo" => Some(VendorId::Mimo),
-        "stepfun" => Some(VendorId::Stepfun),
-        "iflytek" => Some(VendorId::Iflytek),
-        "zai_team" => Some(VendorId::GlmTeam),
-        "qoder" => Some(VendorId::Qoder),
-        "cursor" => Some(VendorId::Cursor),
-        "copilot" => Some(VendorId::Copilot),
-        "ollama" => Some(VendorId::Ollama),
-        "opencode" => Some(VendorId::Opencode),
-        "claude" => Some(VendorId::Claude),
-        "codex" => Some(VendorId::Codex),
-        _ => None,
-    };
+    let vid = adapter_for(&vendor);
+
+    // Save the credential BEFORE validation so it isn't silently dropped on
+    // network failure. Roll back on validation error.
+    {
+        let conn = db(&state);
+        credentials::set(&conn, &vendor, secret).map_err(|e| e.to_string())?;
+    } // conn guard dropped here — MutexGuard is not Send, must not cross await
 
     // For vendors with quota adapters, fetch and cache the quota on save.
     if let Some(vid) = vid {
         match crate::quota::fetch(vid, secret).await {
             Ok(mut q) => {
                 q.refreshed_at = Some(chrono::Utc::now().to_rfc3339());
-                let conn = state.db_guard();
+                let conn = state.db_write();
                 crate::quota::scheduler::write_cache(
                     &conn,
                     &vendor,
@@ -87,14 +79,20 @@ pub async fn set_credential(
             }
             Err(e) => {
                 let msg = e.to_string();
-                warn!(vendor = %vendor, error = %msg, "set_credential quota fetch failed");
+                warn!(vendor = %vendor, error = %msg, "set_credential quota fetch failed, rolling back");
+                // Roll back the credential we just saved.
+                let rollback = || {
+                    let conn = db(&state);
+                    if let Err(e) = credentials::delete(&conn, &vendor) {
+                        tracing::error!(vendor = %vendor, error = %e, "credential rollback failed");
+                    }
+                };
+                rollback();
                 return Err(crate::quota::format_validate_error(&msg));
             }
         }
     }
 
-    let conn = db(&state);
-    credentials::set(&conn, &vendor, secret).map_err(|e| e.to_string())?;
     // The fetch above already cached fresh quota data, so this emit correctly
     // notifies windows that the quota cache has been refreshed.
     let _ = app.emit("quota:updated", ());
@@ -112,10 +110,12 @@ pub fn delete_credential(
     let conn = db(&state);
     credentials::delete(&conn, &vendor).map_err(|e| e.to_string())?;
     // Remove cached quota so the limits page no longer shows this vendor.
-    let _ = conn.execute(
+    if let Err(e) = conn.execute(
         "DELETE FROM quota_cache WHERE vendor = ?",
         rusqlite::params![vendor],
-    );
+    ) {
+        tracing::error!(vendor = %vendor, error = %e, "quota_cache delete failed");
+    }
     // Notify windows to drop this vendor from the quota lists immediately.
     let _ = app.emit("quota:updated", ());
     Ok(())
@@ -264,10 +264,12 @@ pub fn clear_credential_fields(
         .is_some_and(|s| !s.is_empty());
 
     // Drop cached quota so the next refresh re-fetches with updated creds.
-    let _ = conn.execute(
+    if let Err(e) = conn.execute(
         "DELETE FROM quota_cache WHERE vendor = ?",
         rusqlite::params![vendor],
-    );
+    ) {
+        tracing::error!(vendor = %vendor, error = %e, "quota_cache delete failed");
+    }
 
     if !has_key && !has_cookie {
         credentials::delete(&conn, &vendor).map_err(|e| e.to_string())?;
@@ -285,6 +287,7 @@ pub fn clear_credential_fields(
 mod tests {
     use super::*;
     use crate::auth::credentials;
+    use crate::quota::VendorId;
     use crate::storage::schema;
     use rusqlite::Connection;
     use std::sync::{Arc, Mutex};
@@ -295,8 +298,9 @@ mod tests {
         conn
     }
 
-    // SAFETY: `State<'_, T>` is `pub struct State<'r, T>(&'r T)`. Transmuting
-    // a reference is safe because the wrapper holds no extra state.
+    // SAFETY: `State<'_, T>` is a transparent wrapper `pub struct State<'r, T>(&'r T)`.
+    // The inner field is private (cannot use `State(state)` from outside tauri crate),
+    // so transmute is the only sound way to construct it from a reference.
     fn state_of(state: &AppState) -> State<'_, AppState> {
         unsafe { std::mem::transmute(state) }
     }

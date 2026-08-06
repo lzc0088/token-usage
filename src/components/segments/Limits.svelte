@@ -4,6 +4,7 @@
   // Countdown timers for reset times still tick locally.
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
+  import { t } from "../../lib/i18n.svelte";
   import { api, type Currency, type Quota } from "../../lib/api";
   import { QUOTA_UPDATED } from "../../lib/events";
   import QuotaCard from "../common/QuotaCard.svelte";
@@ -87,21 +88,21 @@
 
 <div class="seg-body">
   {#if visibleQuotas === null}
-    <p class="loading">加载中…</p>
+    <p class="loading">{t("projects.loading")}</p>
   {:else if visibleQuotas.length === 0}
     <div class="empty">
       {#if quotas && quotas.length > 0}
-        <p>所有厂商已停用</p>
-        <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 中启用的厂商额度将显示在此</p>
+        <p>{t("limits.allDisabled")}</p>
+        <p class="hint">{t("limits.allDisabledHint1")}<button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「{t("limits.settingsHint")}」</button>{t("limits.allDisabledHint2")}</p>
       {:else}
-        <p>未绑定厂商账号</p>
-        <p class="hint">在 <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「设置 → 账号额度」</button> 绑定 API Key / OAuth 后，额度将显示在此</p>
+        <p>{t("limits.noBinding")}</p>
+        <p class="hint">{t("limits.noBindingHint1")}<button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「{t("limits.settingsHint")}」</button>{t("limits.noBindingHint2")}</p>
       {/if}
     </div>
   {:else}
     {@const progressMode = config?.quota_progress_mode ?? "剩余"}
     {#each visibleQuotas as q (q.vendor)}
-      <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} onQuotaChanged={refresh} />
+      <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate}  onQuotaChanged={refresh} />
     {/each}
   {/if}
 </div>

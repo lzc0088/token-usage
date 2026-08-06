@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 /// One model or tool row within a project's detail breakdown.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectDetailRow {
     pub key: String,
     pub tokens: i64,
@@ -22,7 +22,7 @@ pub struct DecodedWorkspace {
 }
 
 /// A fully-resolved project, ready to serialize to the frontend.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectAgg {
     pub name: String,
     pub full_path: Option<String>,

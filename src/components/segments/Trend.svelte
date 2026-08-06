@@ -2,6 +2,7 @@
   // 趋势 segment (T4.4). Line chart with an average line and per-node hover.
   // DAY = last 7 days, MONTH = current month, TOTAL = all history by month.
   import { api, type Trends } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
   import { formatTokens, splitTokens } from "../../lib/format";
   import { periodValue } from "../../stores/period.svelte";
 
@@ -67,9 +68,9 @@
   const avgY = $derived(py(avgTokens));
 
   const rangeLabel = $derived.by(() => {
-    if (period === "day") return "近7天";
-    if (period === "month") return "当月";
-    return "每月统计";
+    if (period === "day") return t("trends.last7days");
+    if (period === "month") return t("trends.thisMonth");
+    return t("trends.monthlyStats");
   });
 
   function fmtDate(date: string): string {
@@ -100,9 +101,9 @@
 
 <div class="seg-body">
   {#if data === null}
-    <p class="loading">加载中…</p>
+    <p class="loading">{t("projects.loading")}</p>
   {:else if points.length === 0}
-    <p class="empty">暂无趋势数据</p>
+    <p class="empty">{t("trends.noData")}</p>
   {:else}
     <!-- period title (first row, larger font) -->
     <div class="range-label">{rangeLabel}</div>
@@ -110,15 +111,15 @@
     <!-- summary stats (font sizes mirror Overview split2 cells) -->
     <div class="stats">
       <div class="stat">
-        <div class="k">总量</div>
+        <div class="k">{t("trends.total")}</div>
         <div class="v">{totalStr.value}<span class="u">{totalStr.unit}</span></div>
       </div>
       <div class="stat">
-        <div class="k">日均</div>
+        <div class="k">{t("trends.dailyAvg")}</div>
         <div class="v">{avgStr.value}<span class="u">{avgStr.unit}</span></div>
       </div>
       <div class="stat">
-        <div class="k">峰值</div>
+        <div class="k">{t("trends.peak")}</div>
         <div class="v">{peakStr ? `${peakStr.value}` : "—"}<span class="u">{peakStr?.unit ?? ""}</span></div>
       </div>
     </div>
@@ -130,9 +131,9 @@
           {@const pt = points[hoverIdx]}
           <div class="tip" style="left:{tipLeft.toFixed(1)}%">
             <div class="tip-date">{fmtDate(pt.date)}</div>
-            <div class="tip-row"><span>用量</span><span>{formatTokens(pt.tokens)}</span></div>
-            <div class="tip-row"><span>费用</span><span>${pt.cost_usd.toFixed(2)}</span></div>
-            <div class="tip-row"><span>消息</span><span>{pt.messages}</span></div>
+            <div class="tip-row"><span>{t("trends.usageLabel")}</span><span>{formatTokens(pt.tokens)}</span></div>
+            <div class="tip-row"><span>{t("trends.costLabel")}</span><span>${pt.cost_usd.toFixed(2)}</span></div>
+            <div class="tip-row"><span>{t("trends.messagesLabel")}</span><span>{pt.messages}</span></div>
           </div>
         {/if}
         <!-- average value label, positioned at the avg line's height -->
