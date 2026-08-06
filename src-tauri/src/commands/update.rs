@@ -504,18 +504,29 @@ mod tests {
 
     #[test]
     fn pick_asset_prefers_matching_arch() {
-        // macOS arm64 build should win over x86_64 on an Apple Silicon host.
+        // Use platform-valid extensions so assets aren't filtered by ext check.
+        // Architecture keywords differ per OS/arch — wrong-arch assets must be
+        // disqualified and the right-arch asset must win.
+        let (ext, arm_name, x64_name, arm_url, x64_url): (&str, &str, &str, &str, &str) =
+            match (std::env::consts::OS, std::env::consts::ARCH) {
+                ("macos", "aarch64") => (".dmg", "arm64", "x64", "arm64.dmg", "x64.dmg"),
+                ("macos", "x86_64") => (".dmg", "x64", "arm64", "x64.dmg", "arm64.dmg"),
+                ("windows", "x86_64") => (".exe", "x64", "aarch64", "x64.exe", "aarch64.exe"),
+                ("windows", "aarch64") => (".exe", "aarch64", "x64", "aarch64.exe", "x64.exe"),
+                ("linux", "x86_64") => (".AppImage", "x64", "aarch64", "x64.AppImage", "aarch64.AppImage"),
+                ("linux", "aarch64") => (".AppImage", "aarch64", "x64", "aarch64.AppImage", "x64.AppImage"),
+                _ => (".bin", "a", "b", "a.bin", "b.bin"),
+            };
+
         let body = serde_json::json!({
             "assets": [
-                { "name": "Token Usage_1.0.0_x64.dmg", "browser_download_url": "https://example.com/x64.dmg" },
-                { "name": "Token Usage_1.0.0_aarch64.dmg", "browser_download_url": "https://example.com/arm64.dmg" }
+                { "name": format!("Token Usage_1.0.0_{}{}", arm_name, ext), "browser_download_url": format!("https://example.com/{}", arm_url) },
+                { "name": format!("Token Usage_1.0.0_{}{}", x64_name, ext), "browser_download_url": format!("https://example.com/{}", x64_url) },
             ]
         });
-        // Note: this test asserts the filtering logic by constructing the
-        // expected asset list; the actual pick depends on the test host's
-        // OS/arch, so we only verify a valid URL is returned.
+
         let url = pick_matching_asset(&body);
-        assert!(url.is_some());
+        assert!(url.is_some(), "expected Some(url), got None for os={} arch={}", std::env::consts::OS, std::env::consts::ARCH);
         assert!(url.unwrap().starts_with("https://example.com/"));
     }
 
