@@ -59,9 +59,7 @@
       "bin/tokscale*"
     ],
     "macOS": {
-      "signingIdentity": "Developer ID Application: Ze Chuan Liu (2F74TS79TL)",
-      "entitlements": "entitlements.plist",
-      "exceptionDomain": ""
+      "signingIdentity": "Developer ID Application: Ze Chuan Liu (2F74TS79TL)"
     }
   }
 }
