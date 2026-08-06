@@ -36,15 +36,36 @@ API="https://gitee.com/api/v5/repos/${OWNER}/${REPO}"
 log() { printf '\033[1;34m[gitee]\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33m[gitee]\033[0m %s\n' "$*" >&2; }
 
-# curl wrapper that respects DRY_RUN. Args: a descriptive label, then curl args.
-curl_gitee() {
+# curl for fast JSON API calls (create/get release, list assets). Silent,
+# short timeouts, auto-retry on transient errors. Respects DRY_RUN.
+# Args: a descriptive label, then curl args.
+curl_api() {
   local label="$1"; shift
   if [ -n "$DRY_RUN" ]; then
     log "DRY-RUN $label — would call:"
     printf '      curl %s\n' "$*"
     return 0
   fi
-  curl --fail --silent --show-error --retry "$MAX_RETRIES" --retry-delay 2 "$@"
+  curl --fail --silent --show-error \
+    --connect-timeout 30 --max-time 60 \
+    --retry "$MAX_RETRIES" --retry-delay 2 "$@"
+}
+
+# curl for file uploads (slow, cross-border to Gitee). Shows a progress bar so
+# a slow upload isn't mistaken for a hang, with a generous transfer cap so a
+# stalled TCP connection eventually fails instead of hanging forever.
+# Args: a descriptive label, then curl args.
+curl_upload() {
+  local label="$1"; shift
+  if [ -n "$DRY_RUN" ]; then
+    log "DRY-RUN $label — would call:"
+    printf '      curl %s\n' "$*"
+    return 0
+  fi
+  # --progress-bar writes transfer speed to stderr (visible in Actions logs).
+  curl --fail --show-error --progress-bar \
+    --connect-timeout 30 --max-time 1800 \
+    --retry "$MAX_RETRIES" --retry-delay 2 --retry-all-errors "$@"
 }
 
 # ── 1. collect installers ──────────────────────────────────────────────────
@@ -83,7 +104,7 @@ resolve_release_id() {
   local create_resp payload
   payload=$(jq -nc --arg token "$TOKEN" --arg t "$TAG" --arg c "$TARGET_COMMITISH" \
     '{access_token:$token, tag_name:$t, name:$t, body:("Token Usage "+$t), target_commitish:$c}')
-  if create_resp=$(curl_gitee "create release" \
+  if create_resp=$(curl_api "create release" \
         -X POST "$API/releases" \
         -H "Content-Type: application/json" \
         -d "$payload" 2>&1); then
@@ -97,7 +118,7 @@ resolve_release_id() {
   fi
   warn "create failed or no id in response, trying GET by tag"
   local existing
-  existing=$(curl_gitee "get release by tag" \
+  existing=$(curl_api "get release by tag" \
               "$API/releases/tags/$TAG?access_token=$TOKEN")
   local id
   id=$(echo "$existing" | jq -r '.id // empty' 2>/dev/null || true)
@@ -117,7 +138,7 @@ log "release page: https://gitee.com/${OWNER}/${REPO}/releases/${TAG}"
 # ── 3. list already-uploaded assets (so we can skip on re-run) ─────────────
 
 ALREADY_UPLOADED="$(
-  curl_gitee "list assets" "$API/releases/$RELEASE_ID?access_token=$TOKEN" \
+  curl_api "list assets" "$API/releases/$RELEASE_ID?access_token=$TOKEN" \
     | jq -r '.assets[].name // empty' 2>/dev/null || true
 )"
 
@@ -137,12 +158,14 @@ for f in "${FILES[@]}"; do
     continue
   fi
 
-  log "upload  $name"
+  log "upload  $name ($(du -h "$f" | cut -f1))"
   resp=""
   ok=0
   for attempt in $(seq 1 "$MAX_RETRIES"); do
     # NOTE: -F builds multipart/form-data; Gitee expects field `file`.
-    if resp=$(curl_gitee "upload $name (try $attempt)" \
+    # Upload is the slow step (cross-border GitHub runner → Gitee); progress
+    # bar + max-time keep it observable and bounded.
+    if resp=$(curl_upload "upload $name (try $attempt)" \
           -X POST "$API/releases/$RELEASE_ID/attach_files" \
           -F "access_token=$TOKEN" \
           -F "file=@$f" 2>&1); then
