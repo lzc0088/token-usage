@@ -189,11 +189,24 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     let (tray_sel, win_sel, theme_sel, is_en) = app
         .state::<AppState>()
         .load_config()
-        .map(|c| (c.tray_display, c.window_display_mode, c.theme, c.language == "en"))
+        .map(|c| {
+            (
+                c.tray_display,
+                c.window_display_mode,
+                c.theme,
+                c.language == "en",
+            )
+        })
         .unwrap_or_else(|_| ("icon_only".into(), "normal".into(), "system".into(), false));
 
     // Bilingual labels: (zh, en). All call-sites pass &'static str literals.
-    let label = |zh: &'static str, en: &'static str| -> &'static str { if is_en { en } else { zh } };
+    let label = |zh: &'static str, en: &'static str| -> &'static str {
+        if is_en {
+            en
+        } else {
+            zh
+        }
+    };
 
     // Helper: menu item with id.
     let menu_item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
@@ -210,12 +223,28 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
         label("系统菜单", "Tray Display"),
         true,
         &[
-            &tray("tray_today_tokens", td, label("今日 Tokens", "Today Tokens"))?,
+            &tray(
+                "tray_today_tokens",
+                td,
+                label("今日 Tokens", "Today Tokens"),
+            )?,
             &tray("tray_today_cost", td, label("今日成本", "Today Cost"))?,
-            &tray("tray_today_both", td, label("今日 Tokens + 成本", "Today Tokens + Cost"))?,
-            &tray("tray_total_tokens", td, label("累计 Tokens", "Total Tokens"))?,
+            &tray(
+                "tray_today_both",
+                td,
+                label("今日 Tokens + 成本", "Today Tokens + Cost"),
+            )?,
+            &tray(
+                "tray_total_tokens",
+                td,
+                label("累计 Tokens", "Total Tokens"),
+            )?,
             &tray("tray_total_cost", td, label("累计成本", "Total Cost"))?,
-            &tray("tray_total_both", td, label("累计 Tokens + 成本", "Total Tokens + Cost"))?,
+            &tray(
+                "tray_total_both",
+                td,
+                label("累计 Tokens + 成本", "Total Tokens + Cost"),
+            )?,
             &tray("tray_icon_only", td, label("仅显示图标", "Icon Only"))?,
         ],
     )?;

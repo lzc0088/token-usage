@@ -233,7 +233,11 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
         let _ = app.emit("quota:updated", ());
         // Persist the updated silenced set so it survives restarts.
         if let Ok(conn) = db.lock() {
-            let _ = config::set_json(&conn, SILENCED_KEY, &auth_errored.iter().collect::<Vec<_>>());
+            let _ = config::set_json(
+                &conn,
+                SILENCED_KEY,
+                &auth_errored.iter().collect::<Vec<_>>(),
+            );
         }
     }
 }

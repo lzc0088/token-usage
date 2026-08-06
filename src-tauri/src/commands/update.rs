@@ -83,11 +83,7 @@ fn load_cached(conn: &rusqlite::Connection) -> (Option<i64>, Option<UpdateInfo>)
 }
 
 /// Persist the attempt timestamp (always) and the successful result (on Ok).
-fn persist(
-    conn: &rusqlite::Connection,
-    last_check_ms: i64,
-    success: Option<&UpdateInfo>,
-) {
+fn persist(conn: &rusqlite::Connection, last_check_ms: i64, success: Option<&UpdateInfo>) {
     let _ = crate::config::set_json(conn, KV_LAST_CHECK_MS, &last_check_ms);
     if let Some(info) = success {
         let _ = crate::config::set_json(conn, KV_LAST_KNOWN, info);
@@ -183,10 +179,7 @@ pub fn check_update(
                 } else {
                     BG_COOLDOWN_MS
                 };
-                tracing::debug!(
-                    "update check skipped: within {}ms cooldown",
-                    cooldown
-                );
+                tracing::debug!("update check skipped: within {}ms cooldown", cooldown);
                 return Ok(known);
             }
         }
@@ -254,7 +247,10 @@ pub fn check_update(
             };
             return Ok(handle_failure(
                 kind,
-                format!("API 返回 403：{}", body.chars().take(200).collect::<String>()),
+                format!(
+                    "API 返回 403：{}",
+                    body.chars().take(200).collect::<String>()
+                ),
                 last_known_for_failure,
             ));
         }
@@ -619,7 +615,10 @@ mod tests {
         assert!(known.has_update);
         assert_eq!(known.version, "v0.2.0");
         assert_eq!(known.error_kind, "");
-        assert_eq!(known.download_url.as_deref(), Some("https://example.com/asset.dmg"));
+        assert_eq!(
+            known.download_url.as_deref(),
+            Some("https://example.com/asset.dmg")
+        );
     }
 
     #[test]
@@ -631,8 +630,12 @@ mod tests {
         let good = UpdateInfo {
             has_update: true,
             version: "v0.2.0".into(),
-            name: "".into(), changelog: "".into(), url: "".into(),
-            published_at: None, error: String::new(), error_kind: String::new(),
+            name: "".into(),
+            changelog: "".into(),
+            url: "".into(),
+            published_at: None,
+            error: String::new(),
+            error_kind: String::new(),
             download_url: None,
         };
         persist(&conn, 1_000, Some(&good));

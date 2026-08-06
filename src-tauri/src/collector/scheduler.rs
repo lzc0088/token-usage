@@ -552,7 +552,14 @@ mod tests {
             // Just drop the tick sender and pass a new closed channel.
             let (tick_tx, tick_rx2) = mpsc::channel::<()>(1);
             drop(tick_tx);
-            run(mock, cfg, tick_rx2, mpsc::channel::<CollectionEvent>(1).0, None).await;
+            run(
+                mock,
+                cfg,
+                tick_rx2,
+                mpsc::channel::<CollectionEvent>(1).0,
+                None,
+            )
+            .await;
         });
 
         let _ = tokio::time::timeout(Duration::from_millis(500), handle).await;

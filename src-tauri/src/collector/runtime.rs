@@ -193,7 +193,8 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     if let Ok(mut conn) = db.lock() {
                         if let Err(e) = storage::daily_usage::ingest_graph(&mut conn, &v) {
                             tracing::warn!(error = %e, "ingest_graph failed");
-                            let _ = app.emit("collection:error", format!("graph ingest failed: {e}"));
+                            let _ =
+                                app.emit("collection:error", format!("graph ingest failed: {e}"));
                         }
                     }
                 }
@@ -203,7 +204,8 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     if let Ok(mut conn) = db.lock() {
                         if let Err(e) = storage::sessions::ingest_sessions(&mut conn, &v) {
                             tracing::warn!(error = %e, "ingest_sessions failed");
-                            let _ = app.emit("collection:error", format!("sessions ingest failed: {e}"));
+                            let _ = app
+                                .emit("collection:error", format!("sessions ingest failed: {e}"));
                         }
                     }
 
@@ -222,7 +224,10 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                                     backfill_claude_project_paths(&mut conn, &installed2)
                                 {
                                     tracing::warn!(error = %e, "project_path backfill failed");
-                                    let _ = app2.emit("collection:error", format!("project backfill failed: {e}"));
+                                    let _ = app2.emit(
+                                        "collection:error",
+                                        format!("project backfill failed: {e}"),
+                                    );
                                 }
                             }
                         }
@@ -238,7 +243,8 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                                     storage::sessions::prune_uninstalled(&conn, &installed2)
                                 {
                                     tracing::warn!(error = %e, "prune_uninstalled failed");
-                                    let _ = app2.emit("collection:error", format!("prune failed: {e}"));
+                                    let _ =
+                                        app2.emit("collection:error", format!("prune failed: {e}"));
                                 }
                             }
                         }
@@ -307,7 +313,8 @@ fn backfill_claude_project_paths(
         let mut stmt = conn
             .prepare("SELECT DISTINCT session_id FROM sessions WHERE tool = 'claude' AND (project_path IS NULL OR project_path = '')")
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
             .map_err(|e| e.to_string())?;
         let collected: Vec<String> = rows.filter_map(Result::ok).collect();
         collected
@@ -341,13 +348,17 @@ fn backfill_claude_project_paths(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut updated = 0;
     {
-        let mut upd = tx.prepare(
-            "UPDATE sessions SET project_path = ?1
+        let mut upd = tx
+            .prepare(
+                "UPDATE sessions SET project_path = ?1
              WHERE tool = 'claude' AND session_id = ?2
                AND (project_path IS NULL OR project_path = '')",
-        ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         for (sid, path) in &updates {
-            let rows = upd.execute(rusqlite::params![path, sid]).map_err(|e| e.to_string())?;
+            let rows = upd
+                .execute(rusqlite::params![path, sid])
+                .map_err(|e| e.to_string())?;
             updated += rows;
         }
         // `upd` dropped here (before tx.commit), releasing the borrow on `tx`.
