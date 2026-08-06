@@ -109,22 +109,6 @@ jobs:
           TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
         run: node scripts/fetch-tokscale.mjs
 
-      # macOS only: pre-sign the tokscale sidecar with hardened runtime before
-      # Tauri bundles it as a resource. Apple notarization requires EVERY
-      # executable under .app/Contents/Resources to be signed + hardened +
-      # timestamped (tauri#11992). Tauri's shallow bundle signing skips these.
-      - name: Pre-sign tokscale sidecar (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          BIN="src-tauri/bin/tokscale"
-          if [ -f "$BIN" ]; then
-            codesign --force --sign "Developer ID Application: Ze Chuan Liu (2F74TS79TL)" \
-              --options runtime --timestamp --options runtime \
-              "$BIN"
-            echo "✓ signed $BIN with hardened runtime + secure timestamp"
-            codesign --verify --verbose "$BIN"
-          fi
-
       - name: Read release notes
         id: notes
         shell: bash
@@ -147,12 +131,14 @@ jobs:
           JUHE_API_KEY: ${{ secrets.JUHE_API_KEY }}
           # Vite injects this at frontend build time — settings page default repo.
           VITE_UPDATE_REPO: github.com/lzc0088/token-usage
-          # macOS signing + notarization (only read on the macos-latest job).
-          # Tauri reads these to sign the .app and submit it to Apple for
-          # notarization + stapling. See tauri.conf.json → bundle.macOS.
+          # macOS signing + notarization. Tauri's bundle step signs the main
+          # .app; the tokscale sidecar is pre-signed via beforeBundleCommand
+          # (see tauri.conf.json) so it survives the bundle packaging.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Read by scripts/sign-sidecar.sh (runs as beforeBundleCommand).
+          APPLE_SIGN_IDENTITY: "Developer ID Application: Ze Chuan Liu (2F74TS79TL)"
         with:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
