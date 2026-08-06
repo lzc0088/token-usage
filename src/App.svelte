@@ -32,7 +32,7 @@
   let appVersion = $state("1.0.0");
   let updateInfo = $state<{ hasUpdate: boolean; url: string; version: string } | null>(null);
   // Transient update-check failure with no cached result to fall back on
-  // (e.g. first-run network blip, or Gitee rate-limit). The Rust backend
+  // (e.g. first-run network blip, or GitHub rate-limit). The Rust backend
   // returns the last-known-good update when cache exists; we only surface an
   // error here when there's truly nothing to show.
   let updateError = $state<{ kind: string; msg: string } | null>(null);
@@ -41,7 +41,7 @@
     try {
       const ver = await api.getAppVersion();
       appVersion = ver;
-      const repo = "gitee.com/lzc0088/token-usage"; // matches .env VITE_UPDATE_REPO
+      const repo = "github.com/lzc0088/token-usage";
       const info = await api.checkUpdate(repo, ver);
       if (info.has_update) {
         updateInfo = { hasUpdate: true, url: info.url, version: info.version };

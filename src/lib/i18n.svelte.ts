@@ -221,7 +221,6 @@ const DICT: Record<string, Record<string, string>> = {
   "general.usdLabel": { zh: "USD（美元）", en: "USD" },
   "general.bothLabel": { zh: "同时显示", en: "Both" },
   "general.aboutText": { zh: "Token Usage 是一款跨平台菜单栏应用，用于实时统计本机各 AI 编码助手（Claude Code、Codex / ZCode / WorkBuddy …）的 token 用量与费用。数据 100% 本地存储，不上传云端。", en: "Token Usage is a cross-platform menu bar app for real-time token & cost tracking across AI coding assistants (Claude Code, Codex, ZCode, WorkBuddy…). 100% local data, no cloud upload." },
-  "general.repoLabel": { zh: "Gitee", en: "Gitee" },
   "general.reportIssue": { zh: "报告问题", en: "Report Issue" },
 
   // ── Settings / Window ──

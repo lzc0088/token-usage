@@ -1,4 +1,4 @@
-//! Update check: query GitHub / Gitee Releases API for the latest version.
+//! Update check: query GitHub Releases API for the latest version.
 //!
 //! Uses `ureq` (blocking) inside an async Tauri command — `ureq` is sync but
 //! Tauri runs commands on a blocking thread pool, so this is fine.
@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::state::AppState;
-use crate::GITEE_TOKEN;
 
 /// Response from the update check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +37,7 @@ pub struct UpdateInfo {
 
 // ── persistent cooldown (app_config KV) ─────────────────────────────────────
 //
-// update checks are rate-limited by Gitee/GitHub (~60/hour unauthenticated).
+// update checks are rate-limited by GitHub (~60/hour unauthenticated).
 // We persist the last check timestamp + last-known-good result so:
 //   - within the cooldown we short-circuit to the cached result (no network);
 //   - on a transient failure we surface the last-known result instead of
@@ -90,69 +89,45 @@ fn persist(conn: &rusqlite::Connection, last_check_ms: i64, success: Option<&Upd
     }
 }
 
-/// Platform for the releases API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Platform {
-    Github,
-    Gitee,
-}
-
-impl Platform {
-    fn api_url(self, owner: &str, repo: &str) -> String {
-        match self {
-            Platform::Github => {
-                format!(
-                    "https://api.github.com/repos/{}/{}/releases/latest",
-                    owner, repo
-                )
-            }
-            Platform::Gitee => {
-                format!(
-                    "https://gitee.com/api/v5/repos/{}/{}/releases/latest",
-                    owner, repo
-                )
-            }
-        }
-    }
-
-    fn release_url(self, owner: &str, repo: &str, tag: &str) -> String {
-        match self {
-            Platform::Github => {
-                format!("https://github.com/{}/{}/releases/tag/{}", owner, repo, tag)
-            }
-            Platform::Gitee => {
-                format!("https://gitee.com/{}/{}/releases/{}", owner, repo, tag)
-            }
-        }
-    }
-}
-
-/// Parse a full repo string into (owner, repo_name, platform).
-/// Supports:
-///   "owner/repo"            → GitHub
-///   "gitee.com/owner/repo"  → Gitee
-fn parse_repo(raw: &str) -> (String, String, Platform) {
-    if raw.contains("gitee.com") {
-        let parts: Vec<&str> = raw.split("/").filter(|s| !s.is_empty()).collect();
-        let owner = parts
+/// Parse a repo string into (owner, repo_name). Accepts:
+///   "owner/repo", "github.com/owner/repo", "<host>/owner/repo".
+/// Always resolves to owner + repo_name for the GitHub Releases API.
+fn parse_repo(raw: &str) -> (String, String) {
+    let parts: Vec<&str> = raw.split('/').filter(|s| !s.is_empty()).collect();
+    // Strip the host if present (github.com/... → owner/repo)
+    let (owner, repo_name): (&str, String) = if parts.len() >= 3 && parts[0].contains('.') {
+        let o = parts
             .get(parts.len().saturating_sub(2))
             .copied()
             .unwrap_or("");
-        let repo_name = parts.last().copied().unwrap_or("");
-        (owner.to_string(), repo_name.to_string(), Platform::Gitee)
+        let r = parts.last().copied().unwrap_or("");
+        (o, r.to_string())
     } else {
-        let parts: Vec<&str> = raw.split("/").filter(|s| !s.is_empty()).collect();
-        let owner = parts.first().copied().unwrap_or("");
-        let repo_name = parts.get(1..).unwrap_or(&[]).join("/");
-        (owner.to_string(), repo_name, Platform::Github)
-    }
+        let o = parts.first().copied().unwrap_or("");
+        let r = parts.get(1..).unwrap_or(&[]).join("/");
+        (o, r)
+    };
+    (owner.to_string(), repo_name)
+}
+
+/// Build the GitHub Releases API URL for the latest release.
+fn api_url(owner: &str, repo: &str) -> String {
+    format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        owner, repo
+    )
+}
+
+/// Build the GitHub release web page URL for a given tag.
+fn release_url(owner: &str, repo: &str, tag: &str) -> String {
+    format!("https://github.com/{}/{}/releases/tag/{}", owner, repo, tag)
 }
 
 /// Query the releases API and compare with the current version.
 ///
 /// Cooldown: within `BG_COOLDOWN_MS` (24h, no update) or `OUTDATED_COOLDOWN_MS`
 /// (1h, has update) of the last check, short-circuit to the cached result
-/// without hitting the network — Gitee/GitHub rate-limit unauthenticated
+/// without hitting the network — GitHub rate-limits unauthenticated
 /// requests to ~60/hour.
 ///
 /// On a transient failure (network / rate-limit / API error), the last-known
@@ -165,7 +140,7 @@ pub fn check_update(
     repo: String,
     current_version: String,
 ) -> Result<UpdateInfo, String> {
-    let (owner, repo_name, platform) = parse_repo(&repo);
+    let (owner, repo_name) = parse_repo(&repo);
 
     // ── 1. Cooldown short-circuit (cached path, no network) ────────────────
     {
@@ -186,13 +161,7 @@ pub fn check_update(
     } // conn guard dropped before the network call
 
     // ── 2. Network call ─────────────────────────────────────────────────────
-    let mut url = platform.api_url(&owner, &repo_name);
-    if platform == Platform::Gitee {
-        let token = GITEE_TOKEN;
-        if !token.is_empty() {
-            url = format!("{}?access_token={}", url, token);
-        }
-    }
+    let url = api_url(&owner, &repo_name);
 
     let resp_result = ureq::get(&url)
         .timeout(std::time::Duration::from_secs(15))
@@ -236,8 +205,7 @@ pub fn check_update(
             ));
         }
         Err(ureq::Error::Status(403, r)) => {
-            // Gitee returns 403 for rate-limit exhaustion; distinguish from a
-            // genuine permission error by sniffing the body.
+            // GitHub returns 403 for rate-limit exhaustion; sniff the body.
             let body = r.into_string().unwrap_or_default();
             let lower = body.to_lowercase();
             let kind = if lower.contains("rate") || lower.contains("limit") {
@@ -274,7 +242,7 @@ pub fn check_update(
         return Ok(handle_failure(
             "api_error",
             format!(
-                "API 返回错误 {} ({}): 请确认仓库地址正确，且 Gitee 仓库已开启 Release 功能",
+                "API 返回错误 {} ({}): 请确认仓库地址正确且已开启 Release 功能",
                 resp.status(),
                 url
             ),
@@ -318,7 +286,7 @@ pub fn check_update(
         .get("html_url")
         .and_then(|v| v.as_str())
         .map(|u| u.to_string())
-        .unwrap_or_else(|| platform.release_url(&owner, &repo_name, &latest_tag));
+        .unwrap_or_else(|| release_url(&owner, &repo_name, &latest_tag));
 
     let published_at = body
         .get("published_at")
@@ -433,8 +401,7 @@ fn pick_matching_asset(body: &serde_json::Value) -> Option<String> {
 }
 
 /// Extract the download URL from a single asset object.
-/// Gitee and GitHub both use `browser_download_url`; fall back to
-/// `download_url` for compatibility with other API variants.
+/// Uses `browser_download_url` (GitHub, Gitee); falls back to `download_url`.
 fn asset_url(asset: &serde_json::Value) -> Option<String> {
     asset
         .get("browser_download_url")
@@ -582,26 +549,23 @@ mod tests {
 
     #[test]
     fn parse_repo_github_format() {
-        let (o, r, p) = parse_repo("zechuan/token-usage");
+        let (o, r) = parse_repo("zechuan/token-usage");
         assert_eq!(o, "zechuan");
         assert_eq!(r, "token-usage");
-        assert_eq!(p, Platform::Github);
     }
 
     #[test]
-    fn parse_repo_gitee_format() {
-        let (o, r, p) = parse_repo("gitee.com/lzc0088/token-usage");
+    fn parse_repo_full_url_format() {
+        let (o, r) = parse_repo("github.com/lzc0088/token-usage");
         assert_eq!(o, "lzc0088");
         assert_eq!(r, "token-usage");
-        assert_eq!(p, Platform::Gitee);
     }
 
     #[test]
-    fn parse_repo_gitee_trailing_slash() {
-        let (o, r, p) = parse_repo("gitee.com/lzc0088/token-usage/");
+    fn parse_repo_owner_repo_format() {
+        let (o, r) = parse_repo("lzc0088/token-usage");
         assert_eq!(o, "lzc0088");
         assert_eq!(r, "token-usage");
-        assert_eq!(p, Platform::Gitee);
     }
 
     #[test]

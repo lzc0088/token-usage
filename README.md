@@ -19,7 +19,7 @@
 | **设置** | 基本/预览界面/窗口外观/采集追踪/账号额度 5 分区独立窗口 |
 | **托盘** | 菜单栏图标 + 自定义显示（今日/累计 Tokens/成本）+ 右键菜单 |
 | **采集** | 三种模式（实时/智能/定时间隔），会话保留/归档会话管理 |
-| **更新** | 自动检查 Gitee Release 新版本，一键浏览器下载安装包 |
+| **更新** | 自动检查 GitHub Release 新版本，一键浏览器下载安装包 |
 
 ## 技术栈
 
@@ -98,13 +98,13 @@ src-tauri/                  # Rust 后端
 
 ## CI / 发布
 
-打 tag 自动构建三平台安装包并发布到 Gitee Release：
+打 tag 自动构建三平台安装包并发布到 GitHub Release：
 
 ```
 git tag v1.0.1 && git push origin v1.0.1
 ```
 
-GitHub Actions 后台构建（mac aarch64 / Windows x64 / Linux x64）→ 回传 Gitee Release。App 内「检查更新」自动检出。详见 `CLAUDE.md`。
+GitHub Actions 三平台构建（mac aarch64 / Windows x64 / Linux x64）→ 直接上传 GitHub Release。App 内「检查更新」自动检出。详见 `CLAUDE.md`。
 
 ## 开发原则
 

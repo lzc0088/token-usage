@@ -13,14 +13,13 @@
   let appVersion = $state("1.0.0");
   $effect(() => { api.getAppVersion().then(v => { appVersion = v; }).catch(() => {}); });
 
-  // Derived repo info for the About links.
-  const REPO_IS_GITEE = UPDATE_REPO.includes("gitee.com");
-  const REPO_LABEL = REPO_IS_GITEE ? "Gitee" : "GitHub";
-  const REPO_BASE_URL = REPO_IS_GITEE ? "https://gitee.com" : "https://github.com";
+  // Repo info for the About links.
   const REPO_PATH = $derived.by(() => {
+    // Extract "owner/repo" from e.g. "github.com/owner/repo"
     const parts = UPDATE_REPO.split("/").filter(Boolean);
-    if (parts.includes("gitee.com")) {
-      return `${parts[parts.length - 2] ?? ""}/${parts[parts.length - 1] ?? ""}`;
+    // Skip the host part (e.g. "github.com")
+    if (parts.length >= 3 && parts[0].includes(".")) {
+      return parts.slice(1, 3).join("/");
     }
     return parts.slice(0, 2).join("/");
   });
@@ -342,8 +341,8 @@
     </p>
     <div class="about-links">
       {#if UPDATE_REPO}
-        <a class="alink" href="{REPO_BASE_URL}/{REPO_PATH}" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`${REPO_BASE_URL}/${REPO_PATH}`); }}>{REPO_LABEL}</a>
-        <a class="alink" href="{REPO_BASE_URL}/{REPO_PATH}/issues/new" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`${REPO_BASE_URL}/${REPO_PATH}/issues/new`); }}>{t('general.reportIssue')}</a>
+        <a class="alink" href="https://github.com/{REPO_PATH}" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`https://github.com/${REPO_PATH}`); }}>GitHub</a>
+        <a class="alink" href="https://github.com/{REPO_PATH}/issues/new" target="_blank" rel="noopener" onclick={(e) => { e.preventDefault(); openExternal(`https://github.com/${REPO_PATH}/issues/new`); }}>{t('general.reportIssue')}</a>
       {/if}
     </div>
   </div>
