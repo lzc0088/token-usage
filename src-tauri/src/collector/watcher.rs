@@ -313,17 +313,21 @@ mod tests {
         // Give notify a moment to register the watch.
         tokio::time::sleep(Duration::from_millis(250)).await;
 
-        // Burst: 5 writes in < debounce window.
+        // Burst: 5 writes. Small delays between writes ensure the OS delivers
+        // each event individually (prevents OS-level batching that can split the
+        // burst across multiple debounce cycles on constrained CI runners).
         for i in 0..5 {
             std::fs::write(dir.join(format!("f{i}.txt")), b"x").unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         // First tick lands after ~200ms quiet.
         let t1 = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
         assert!(t1.unwrap().is_some(), "expected a tick after the burst");
 
-        // And no second tick shortly after (debounce coalesced the burst).
-        let t2 = tokio::time::timeout(Duration::from_millis(400), rx.recv()).await;
+        // Wait a generous period to confirm no second tick fires (debounce
+        // coalesced the entire burst into one tick).
+        let t2 = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
         assert!(
             t2.is_err() || t2.unwrap().is_none(),
             "expected no extra tick"
