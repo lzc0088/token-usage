@@ -329,10 +329,10 @@ mod tests {
     #[tokio::test]
     async fn set_credential_stores_unmapped_vendor() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "testvendor", "sk-secret").unwrap();
-        assert!(credentials::exists(&state.db_guard(), "testvendor").unwrap());
+        credentials::set(&state.db_read(), "testvendor", "sk-secret").unwrap();
+        assert!(credentials::exists(&state.db_read(), "testvendor").unwrap());
         assert_eq!(
-            credentials::get(&state.db_guard(), "testvendor").unwrap(),
+            credentials::get(&state.db_read(), "testvendor").unwrap(),
             "sk-secret"
         );
     }
@@ -348,19 +348,19 @@ mod tests {
     #[test]
     fn delete_removes_credential_and_quota_cache() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "delvendor", "sk-del").unwrap();
-        let _ = state.db_guard().execute(
+        credentials::set(&state.db_read(), "delvendor", "sk-del").unwrap();
+        let _ = state.db_read().execute(
             "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, 1)",
             rusqlite::params!["delvendor", r#"{"status":"ok","windows":[]}"#],
         );
         // The command deletes credential + quota cache.
-        credentials::delete(&state.db_guard(), "delvendor").unwrap();
+        credentials::delete(&state.db_read(), "delvendor").unwrap();
         let _ = state
-            .db_guard()
+            .db_read()
             .execute("DELETE FROM quota_cache WHERE vendor = ?", [&"delvendor"]);
-        assert!(credentials::get(&state.db_guard(), "delvendor").is_err());
+        assert!(credentials::get(&state.db_read(), "delvendor").is_err());
         let cached: Option<i64> = state
-            .db_guard()
+            .db_read()
             .query_row(
                 "SELECT fetched_at FROM quota_cache WHERE vendor = ?",
                 [&"delvendor"],
@@ -375,15 +375,15 @@ mod tests {
     #[test]
     fn update_cookie_adds_cookie_to_json() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "cv", r#"{"key":"sk-key"}"#).unwrap();
+        credentials::set(&state.db_read(), "cv", r#"{"key":"sk-key"}"#).unwrap();
         // Simulate update_cookie: get → add cookie → save.
-        let raw = credentials::get(&state.db_guard(), "cv").unwrap();
+        let raw = credentials::get(&state.db_read(), "cv").unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         v.as_object_mut().unwrap().insert(
             "cookie".into(),
             serde_json::Value::String("cookie_val".into()),
         );
-        credentials::set(&state.db_guard(), "cv", &v.to_string()).unwrap();
+        credentials::set(&state.db_read(), "cv", &v.to_string()).unwrap();
         let fields = get_credential_fields("cv".into(), state_of(&state)).unwrap();
         assert!(fields.contains(&"cookie".to_string()));
         assert!(fields.contains(&"key".to_string()));
@@ -399,8 +399,8 @@ mod tests {
     fn update_cookie_creates_credential_when_none_exists() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         // When no prior credential, update_cookie creates {"cookie": "..."}.
-        credentials::set(&state.db_guard(), "newvendor", r#"{"cookie":"cookie123"}"#).unwrap();
-        let raw = credentials::get(&state.db_guard(), "newvendor").unwrap();
+        credentials::set(&state.db_read(), "newvendor", r#"{"cookie":"cookie123"}"#).unwrap();
+        let raw = credentials::get(&state.db_read(), "newvendor").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(v.get("cookie").and_then(|s| s.as_str()), Some("cookie123"));
     }
@@ -408,8 +408,8 @@ mod tests {
     #[test]
     fn update_cookie_merges_extra_fields() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "mixed", r#"{"key":"k"}"#).unwrap();
-        let raw = credentials::get(&state.db_guard(), "mixed").unwrap();
+        credentials::set(&state.db_read(), "mixed", r#"{"key":"k"}"#).unwrap();
+        let raw = credentials::get(&state.db_read(), "mixed").unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         v.as_object_mut()
             .unwrap()
@@ -417,8 +417,8 @@ mod tests {
         v.as_object_mut()
             .unwrap()
             .insert("region".into(), serde_json::Value::String("cn".into()));
-        credentials::set(&state.db_guard(), "mixed", &v.to_string()).unwrap();
-        let raw = credentials::get(&state.db_guard(), "mixed").unwrap();
+        credentials::set(&state.db_read(), "mixed", &v.to_string()).unwrap();
+        let raw = credentials::get(&state.db_read(), "mixed").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(v.get("key").and_then(|s| s.as_str()), Some("k"));
         assert_eq!(v.get("cookie").and_then(|s| s.as_str()), Some("cv"));
@@ -428,15 +428,15 @@ mod tests {
     #[test]
     fn update_cookie_removes_empty_extra_field() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "evict", r#"{"key":"k","region":"us"}"#).unwrap();
-        let raw = credentials::get(&state.db_guard(), "evict").unwrap();
+        credentials::set(&state.db_read(), "evict", r#"{"key":"k","region":"us"}"#).unwrap();
+        let raw = credentials::get(&state.db_read(), "evict").unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         v.as_object_mut()
             .unwrap()
             .insert("cookie".into(), serde_json::Value::String("cv".into()));
         v.as_object_mut().unwrap().remove("region"); // empty → removed
-        credentials::set(&state.db_guard(), "evict", &v.to_string()).unwrap();
-        let raw = credentials::get(&state.db_guard(), "evict").unwrap();
+        credentials::set(&state.db_read(), "evict", &v.to_string()).unwrap();
+        let raw = credentials::get(&state.db_read(), "evict").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert!(v.get("region").is_none());
         assert_eq!(v.get("cookie").and_then(|s| s.as_str()), Some("cv"));
@@ -456,7 +456,7 @@ mod tests {
     fn fields_lists_nonempty_json_keys() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         credentials::set(
-            &state.db_guard(),
+            &state.db_read(),
             "mf",
             r#"{"key":"k","secret":"s","cookie":"c"}"#,
         )
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn fields_omits_empty_json_values() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "p", r#"{"key":"k","secret":""}"#).unwrap();
+        credentials::set(&state.db_read(), "p", r#"{"key":"k","secret":""}"#).unwrap();
         let fields = get_credential_fields("p".into(), state_of(&state)).unwrap();
         assert_eq!(
             fields,
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn fields_legacy_plaintext_returns_key() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "legacy", "plain-secret").unwrap();
+        credentials::set(&state.db_read(), "legacy", "plain-secret").unwrap();
         let fields = get_credential_fields("legacy".into(), state_of(&state)).unwrap();
         assert_eq!(fields, vec!["key".to_string()]);
     }
@@ -494,7 +494,7 @@ mod tests {
     fn field_values_excludes_secrets() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         credentials::set(
-            &state.db_guard(),
+            &state.db_read(),
             "fv",
             r#"{"key":"k","cookie":"c","region":"cn"}"#,
         )
@@ -519,19 +519,19 @@ mod tests {
     fn clear_fields_removes_specified_keys() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         credentials::set(
-            &state.db_guard(),
+            &state.db_read(),
             "cf",
             r#"{"key":"k","cookie":"c","region":"cn"}"#,
         )
         .unwrap();
         // Simulate: remove "cookie" → key and region remain.
-        let raw = credentials::get(&state.db_guard(), "cf").unwrap();
+        let raw = credentials::get(&state.db_read(), "cf").unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         if let Some(obj) = v.as_object_mut() {
             obj.remove("cookie");
         }
-        credentials::set(&state.db_guard(), "cf", &v.to_string()).unwrap();
-        let raw = credentials::get(&state.db_guard(), "cf").unwrap();
+        credentials::set(&state.db_read(), "cf", &v.to_string()).unwrap();
+        let raw = credentials::get(&state.db_read(), "cf").unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert!(v.get("cookie").is_none());
         assert!(v.get("key").is_some());
@@ -541,9 +541,9 @@ mod tests {
     #[test]
     fn clear_fields_deletes_credential_when_empty() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "fd", r#"{"key":"k","cookie":"c"}"#).unwrap();
+        credentials::set(&state.db_read(), "fd", r#"{"key":"k","cookie":"c"}"#).unwrap();
         // Simulate: remove both key and cookie → credential deleted.
-        let raw = credentials::get(&state.db_guard(), "fd").unwrap();
+        let raw = credentials::get(&state.db_read(), "fd").unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         if let Some(obj) = v.as_object_mut() {
             obj.remove("key");
@@ -557,24 +557,24 @@ mod tests {
                 .and_then(|x| x.as_str())
                 .is_some_and(|s| !s.is_empty());
         assert!(!has, "both fields removed");
-        credentials::delete(&state.db_guard(), "fd").unwrap();
-        assert!(credentials::get(&state.db_guard(), "fd").is_err());
+        credentials::delete(&state.db_read(), "fd").unwrap();
+        assert!(credentials::get(&state.db_read(), "fd").is_err());
     }
 
     #[test]
     fn clear_fields_removes_quota_cache() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
-        credentials::set(&state.db_guard(), "cc", r#"{"key":"k"}"#).unwrap();
-        let _ = state.db_guard().execute(
+        credentials::set(&state.db_read(), "cc", r#"{"key":"k"}"#).unwrap();
+        let _ = state.db_read().execute(
             "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, 1)",
             rusqlite::params!["cc", r#"{"status":"ok","windows":[]}"#],
         );
         // Simulate: clear "key" → quota cache also cleared.
         let _ = state
-            .db_guard()
+            .db_read()
             .execute("DELETE FROM quota_cache WHERE vendor = ?", [&"cc"]);
         let cached: Option<i64> = state
-            .db_guard()
+            .db_read()
             .query_row(
                 "SELECT fetched_at FROM quota_cache WHERE vendor = ?",
                 [&"cc"],

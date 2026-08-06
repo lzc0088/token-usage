@@ -593,8 +593,8 @@ mod tests {
 
     #[test]
     fn persist_then_load_roundtrips_last_known_and_timestamp() {
-        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::schema::migrate(&mut conn).unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap();
 
         let info = UpdateInfo {
             has_update: true,
@@ -623,8 +623,8 @@ mod tests {
 
     #[test]
     fn persist_records_attempt_without_overwriting_last_known_on_failure() {
-        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::storage::schema::migrate(&mut conn).unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap();
 
         // Seed a successful last-known.
         let good = UpdateInfo {

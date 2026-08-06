@@ -112,7 +112,7 @@ mod tests {
     fn archived_count_zero_when_all_tools_installed() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             config::set_json(
                 &conn,
                 "installed_clients",
@@ -130,7 +130,7 @@ mod tests {
     fn archived_count_counts_uninstalled_tool_sessions() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             config::set_json(&conn, "installed_clients", &vec!["claude".to_string()]).unwrap();
             insert_session(&conn, "claude", "s1", "gpt-5");
             insert_session(&conn, "codex", "s2", "gpt-5");
@@ -144,7 +144,7 @@ mod tests {
     fn archived_count_zero_when_installed_list_empty() {
         let state = AppState::with_db(Arc::new(Mutex::new(mem())));
         {
-            let conn = state.db_guard();
+            let conn = state.db_read();
             insert_session(&conn, "claude", "s1", "gpt-5");
             insert_session(&conn, "codex", "s2", "gpt-5");
             insert_session(&conn, "cursor", "s3", "gpt-5");

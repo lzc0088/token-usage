@@ -877,6 +877,8 @@ mod tests {
         }
 
         thread_local! {
+                #[allow(clippy::missing_const_for_thread_local)]
+
             static USAGE_CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         }
 

@@ -202,6 +202,7 @@ pub fn set_session_project_path(
 
 /// Query project-like aggregates from sessions that have project_path set.
 /// Returns (project_path, name, tokens, cost_usd, messages) sorted by tokens DESC.
+#[allow(clippy::type_complexity)]
 pub fn query_project_aggregates(
     conn: &Connection,
     min_messages: i64,

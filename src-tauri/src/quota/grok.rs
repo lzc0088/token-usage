@@ -92,6 +92,8 @@ impl Http for UreqHttp {
 mod tests {
     use super::*;
 
+    #[allow(dead_code)]
+
     struct FakeHttp(String);
     impl Http for FakeHttp {
         fn get(&self, _url: &str, _bearer: &str) -> Result<String, VendorError> {

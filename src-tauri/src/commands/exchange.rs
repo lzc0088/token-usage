@@ -449,9 +449,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn set_manual_rate_rejects_zero_and_negative() {
-        assert!(0.0_f64 <= 0.0);
-        assert!(-5.0_f64 <= 0.0);
+        assert!(0.0_f64 >= 0.0);
+        assert!(-5.0_f64 < 0.0);
     }
 
     #[test]
@@ -475,11 +476,10 @@ mod tests {
     #[test]
     fn api_key_returns_none_when_juhe_key_is_empty() {
         let key = api_key();
-        if key.is_none() {
-            // Expected when JUHE_API_KEY is not set (CI / fresh checkout).
-        } else {
-            assert!(!key.unwrap().is_empty());
+        if let Some(k) = &key {
+            assert!(!k.is_empty());
         }
+        // else: Expected when JUHE_API_KEY is not set (CI / fresh checkout).
     }
 
     // ── serde roundtrip ──────────────────────────────────────────────────

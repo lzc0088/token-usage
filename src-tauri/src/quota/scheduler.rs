@@ -425,6 +425,7 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
 }
 
 /// Outcome of one vendor's concurrent fetch — collected then written to the DB.
+#[allow(clippy::large_enum_variant)]
 enum FetchOutcome {
     Success(String, Quota),
     Failed(String, super::VendorError),

@@ -277,6 +277,7 @@ pub enum LoginStatus {
 /// POST a form-urlencoded body and return the JSON response string.
 /// Uses the macOS system proxy (from System Settings → Proxies), ignoring any
 /// stale HTTPS_PROXY env vars that may point to a dead proxy.
+#[allow(clippy::result_large_err)]
 fn post_form(url: &str, body: &str) -> Result<String, VendorError> {
     let resp = without_proxy_env(|| {
         // After clearing env-var proxies, proxy_agent_builder() will only pick

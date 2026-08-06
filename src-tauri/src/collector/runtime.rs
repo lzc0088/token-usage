@@ -294,6 +294,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
 ///
 /// Optimized: collects all updates into a Vec first, then applies them in a
 /// single transaction with a prepared statement (was N individual transactions).
+#[allow(clippy::items_after_test_module, dead_code)]
 fn backfill_claude_project_paths(
     conn: &mut Connection,
     installed_clients: &[String],

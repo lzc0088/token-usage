@@ -535,7 +535,7 @@ mod tests {
         // The run loop should exit cleanly via the tick_rx.recv() = None path
         // (no ticks sent) and not panic or hang.
         let (mock, _today_c, _graph_c) = Mock::new();
-        let (_tick_tx, tick_rx) = mpsc::channel::<()>(8);
+        let (_tick_tx, _tick_rx) = mpsc::channel::<()>(8);
         let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
 
         let cfg = SchedulerConfig {

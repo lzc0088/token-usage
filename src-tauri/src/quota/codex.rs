@@ -387,6 +387,7 @@ mod tests {
 // to extract the OAuth URL, emit events so the frontend can open the browser.
 
 /// Regex to find OpenAI auth URLs in codex login output.
+#[allow(clippy::incompatible_msrv)]
 static AUTH_URL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"https://auth\.openai\.com/oauth/authorize[^\s]*").expect("valid regex")
 });

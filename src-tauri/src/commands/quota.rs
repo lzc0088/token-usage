@@ -266,7 +266,7 @@ mod tests {
     use crate::auth::credentials;
     use crate::config::{self, Config};
     use crate::quota::scheduler;
-    use crate::quota::{adapter_for, Quota, QuotaBalance, QuotaStatus, QuotaWindow};
+    use crate::quota::{adapter_for, Quota, QuotaBalance, QuotaStatus};
     use crate::state::AppState;
     use crate::storage::schema;
     use rusqlite::Connection;
