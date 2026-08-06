@@ -16,7 +16,7 @@
 // With --latest: always re-fetches and writes the resolved version back to
 // tokscale.rs so the Rust runtime install fallback stays in sync.
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -157,9 +157,12 @@ async function download(url, dest) {
   });
 }
 
-// Use the system tar (mac/linux + Win10+) to extract the tarball.
-function extractBinary(tgzPath, binName) {
-  const tmp = join(tmpdir(), `tokscale-extract-${process.pid}`);
+// Use the system tar (mac/linux + Win10+) to extract the tarball. The temp dir
+// is created under `workDir` (same volume as the final destination) so the
+// subsequent move doesn't hit EXDEV on cross-volume Windows runners
+// (C: temp → D: workspace).
+function extractBinary(tgzPath, binName, workDir) {
+  const tmp = join(workDir, `.tokscale-extract-${process.pid}`);
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   const r = spawnSync("tar", ["-xzf", tgzPath, "-C", tmp], { stdio: "inherit" });
@@ -171,6 +174,21 @@ function extractBinary(tgzPath, binName) {
   const fallback = join(tmp, "package", "bin", "tokscale");
   if (existsSync(fallback)) return fallback;
   throw new Error(`package/bin/${binName} missing in tarball`);
+}
+
+// Move a file, falling back to copy+unlink when rename fails with EXDEV
+// (cross-device). On same-volume moves rename is atomic and instant.
+function moveSync(src, dest) {
+  try {
+    renameSync(src, dest);
+  } catch (e) {
+    if (e.code === "EXDEV") {
+      copyFileSync(src, dest);
+      rmSync(src, { force: true });
+    } else {
+      throw e;
+    }
+  }
 }
 
 async function main() {
@@ -215,12 +233,12 @@ async function main() {
     process.exit(1);
   }
 
-  const extracted = extractBinary(tgz, binName);
+  const extracted = extractBinary(tgz, binName, OUT_DIR);
   if (!win) spawnSync("chmod", ["+x", extracted], { stdio: "inherit" });
-  renameSync(extracted, outPath);
+  moveSync(extracted, outPath);
   rmSync(tgz, { force: true });
-  // cleanup the temp extract dir (rename moved the file out)
-  rmSync(join(tmpdir(), `tokscale-extract-${process.pid}`), { recursive: true, force: true });
+  // cleanup the temp extract dir under OUT_DIR (move copied the file out)
+  rmSync(join(OUT_DIR, `.tokscale-extract-${process.pid}`), { recursive: true, force: true });
   console.log(`[fetch-tokscale] installed: ${outPath} (v${version})`);
 
   // ── sync Rust constant ───────────────────────────────────────────────────
