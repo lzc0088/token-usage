@@ -63,8 +63,11 @@ curl_upload() {
     return 0
   fi
   # --progress-bar writes transfer speed to stderr (visible in Actions logs).
+  # --speed-time/--speed-limit: abort if avg speed < 1KB/s for 60s (a stalled
+  # cross-border TCP link), so we retry fast instead of hanging 30 minutes.
   curl --fail --show-error --progress-bar \
     --connect-timeout 30 --max-time 1800 \
+    --speed-time 60 --speed-limit 1000 \
     --retry "$MAX_RETRIES" --retry-delay 2 --retry-all-errors "$@"
 }
 
@@ -163,12 +166,15 @@ for f in "${FILES[@]}"; do
   ok=0
   for attempt in $(seq 1 "$MAX_RETRIES"); do
     # NOTE: -F builds multipart/form-data; Gitee expects field `file`.
-    # Upload is the slow step (cross-border GitHub runner → Gitee); progress
-    # bar + max-time keep it observable and bounded.
+    # Upload is the slow step (cross-border GitHub runner → Gitee). IMPORTANT:
+    # no `2>&1` here — curl's progress bar and errors go to stderr, which must
+    # reach the Actions log directly (capturing stderr into $resp would hide
+    # the progress bar, making a slow upload look like a hang). Only the JSON
+    # response body (stdout) is captured into $resp.
     if resp=$(curl_upload "upload $name (try $attempt)" \
           -X POST "$API/releases/$RELEASE_ID/attach_files" \
           -F "access_token=$TOKEN" \
-          -F "file=@$f" 2>&1); then
+          -F "file=@$f"); then
       ok=1
       break
     fi
