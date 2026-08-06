@@ -1,6 +1,7 @@
 name: Release
 
 # Tag-triggered three-platform bundle → Gitee Release. See docs/plan.md §12.
+# (re-index: force GitHub Actions to register this workflow)
 # V1 produces unsigned mac .dmg / Win .msi+.exe / Linux AppImage+.deb
 # (mac is NOT signed/notarized by design — see design.md §8).
 #

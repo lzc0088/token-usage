@@ -3,6 +3,7 @@ name: Sync from Gitee
 # 把 Gitee 主仓库的变更（分支 + tag）定时镜像到本 GitHub 仓库，让日常
 # push 只需发到 Gitee；tag 到达 GitHub 后会自动触发 release.yml 构建三平台
 # 安装包并回传到 Gitee Release。
+# (re-index: GitHub Actions 有时不会立即识别新加入的 schedule/dispatch workflow)
 #
 # 为什么用 PAT 而非默认 GITHUB_TOKEN：用 GITHUB_TOKEN push 的 tag **不会**
 # 触发其他 workflow（GitHub 的防循环机制），release.yml 永远不会跑。必须用
