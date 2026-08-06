@@ -513,8 +513,20 @@ mod tests {
                 ("macos", "x86_64") => (".dmg", "x64", "arm64", "x64.dmg", "arm64.dmg"),
                 ("windows", "x86_64") => (".exe", "x64", "aarch64", "x64.exe", "aarch64.exe"),
                 ("windows", "aarch64") => (".exe", "aarch64", "x64", "aarch64.exe", "x64.exe"),
-                ("linux", "x86_64") => (".AppImage", "x64", "aarch64", "x64.AppImage", "aarch64.AppImage"),
-                ("linux", "aarch64") => (".AppImage", "aarch64", "x64", "aarch64.AppImage", "x64.AppImage"),
+                ("linux", "x86_64") => (
+                    ".AppImage",
+                    "x64",
+                    "aarch64",
+                    "x64.AppImage",
+                    "aarch64.AppImage",
+                ),
+                ("linux", "aarch64") => (
+                    ".AppImage",
+                    "aarch64",
+                    "x64",
+                    "aarch64.AppImage",
+                    "x64.AppImage",
+                ),
                 _ => (".bin", "a", "b", "a.bin", "b.bin"),
             };
 
@@ -526,7 +538,12 @@ mod tests {
         });
 
         let url = pick_matching_asset(&body);
-        assert!(url.is_some(), "expected Some(url), got None for os={} arch={}", std::env::consts::OS, std::env::consts::ARCH);
+        assert!(
+            url.is_some(),
+            "expected Some(url), got None for os={} arch={}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
         assert!(url.unwrap().starts_with("https://example.com/"));
     }
 
