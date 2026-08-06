@@ -74,6 +74,7 @@ jobs:
 
       - name: Read release notes
         id: notes
+        shell: bash
         run: |
           if [ -f scripts/RELEASE_NOTES.md ]; then
             {
