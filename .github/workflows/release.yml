@@ -1,8 +1,16 @@
 name: Release
 
-# Tag-triggered three-platform bundle + upload. See docs/plan.md §12.
-# V1 produces unsigned mac .dmg / Win .msi / Linux AppImage+.deb+.rpm
+# Tag-triggered three-platform bundle → Gitee Release. See docs/plan.md §12.
+# V1 produces unsigned mac .dmg / Win .msi+.exe / Linux AppImage+.deb
 # (mac is NOT signed/notarized by design — see design.md §8).
+#
+# Flow: the `bundle` job builds per-platform WITHOUT creating a GitHub Release
+# (installers are uploaded as workflow artifacts), then `publish-gitee` downloads
+# them all and uploads to the matching Gitee Release. The app's in-app update
+# checker reads https://gitee.com/api/v5/repos/lzc0088/token-usage/releases/latest.
+#
+# One-time setup (see plan): create a GitHub mirror repo, add it as a `github`
+# remote, and set repo secrets GITEE_ACCESS_TOKEN + JUHE_API_KEY.
 
 on:
   push:
@@ -63,12 +71,35 @@ jobs:
           TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
         run: node scripts/fetch-tokscale.mjs
 
-      - uses: tauri-apps/tauri-action@v0
+      # Build only — no GitHub Release is created (tagName omitted). Installers
+      # are uploaded as workflow artifacts; `publish-gitee` ships them to Gitee.
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # build.rs injects these into the binary so the shipped app can do
+          # update checks (higher Gitee rate limit) and fetch exchange rates.
+          GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          JUHE_API_KEY: ${{ secrets.JUHE_API_KEY }}
+          # Vite injects this at frontend build time — settings page default repo.
+          VITE_UPDATE_REPO: gitee.com/lzc0088/token-usage
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Token Usage ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
+
+  publish-gitee:
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish installers to Gitee Release
+        env:
+          GITEE_ACCESS_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/publish-gitee.sh
