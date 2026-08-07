@@ -14,6 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tauri::path::BaseDirectory;
@@ -260,14 +263,16 @@ pub fn ensure_executable(_path: &Path) -> std::io::Result<()> {
 pub const TOKSCALE_TIMEOUT_SECS: u64 = 90;
 
 pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleError> {
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.args(args)
+        .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd flash
     let output = tokio::time::timeout(
         Duration::from_secs(TOKSCALE_TIMEOUT_SECS),
-        tokio::process::Command::new(bin)
-            .args(args)
-            .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output(),
+        cmd.output(),
     )
     .await
     .map_err(|_| TokscaleError::Timeout(TOKSCALE_TIMEOUT_SECS))?
@@ -336,11 +341,13 @@ pub fn ensure_pricing_cache(bin: &Path) {
     tokio::task::spawn_blocking(move || {
         // Any cost-bearing report fetches+caches pricing as a side effect;
         // --today keeps the scan small. Result ignored.
-        let _ = std::process::Command::new(&bin)
-            .args(["--json", "--no-spinner", "--today"])
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.args(["--json", "--no-spinner", "--today"])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd flash
+        let _ = cmd.status();
     });
 }
 

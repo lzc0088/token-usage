@@ -149,8 +149,10 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
 /// Position the main popover under the menu bar tray icon, then show + focus.
 ///
 /// Custom positioning is used instead of `Position::TrayBottomCenter` because
-/// the plugin sets `y = tray_y` (top of the tray icon), but we need the window
-/// top to be **flush with the menu bar bottom** (`y = tray_y + tray_height`).
+/// the plugin sets `y = tray_y` (top of the tray icon), but we need the popover
+/// to appear NEXT to the tray:
+///   macOS: menu bar at screen top → window below the tray icon
+///   Windows/Linux: taskbar at screen bottom → window above the tray icon
 /// Horizontal centring on the tray icon is unchanged.
 pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -161,12 +163,17 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
             .unwrap_or(false);
         crate::ui::window::apply_drag_mode(app, is_fixed);
 
-        // Position the window: top flush with menu bar bottom, centred on tray icon.
+        // Position the window next to the tray icon.
         if let Ok(guard) = LAST_TRAY_RECT.lock() {
             if let Some((tray_pos, tray_size)) = *guard {
                 if let Ok(win_size) = w.outer_size() {
                     let x = tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
-                    let y = tray_pos.y + tray_size.height; // bottom of menu bar
+                    // macOS: menu bar at top → window below the tray.
+                    // Windows/Linux: taskbar at bottom → window above the tray.
+                    #[cfg(target_os = "macos")]
+                    let y = tray_pos.y + tray_size.height;
+                    #[cfg(not(target_os = "macos"))]
+                    let y = tray_pos.y - win_size.height as f64;
                     let _ = w.set_position(PhysicalPosition::new(x as i32, y as i32));
                 }
             }
@@ -320,6 +327,19 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A second launch → focus the existing instance's windows instead of
+            // spawning a duplicate (which would leave a ghost tray icon on Windows).
+            tracing::info!("second instance launched — focusing existing windows");
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            if let Some(s) = app.get_webview_window("settings") {
+                let _ = s.show();
+                let _ = s.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
