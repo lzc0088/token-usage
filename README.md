@@ -3,7 +3,6 @@
 </p>
 
 <div align="center">
-    <img src=".github/assets/app.png" alt="Token Usage logo" width="120">
     <h1>Token Usage</h1>
 </div>
 
@@ -20,10 +19,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-A855F7?style=flat-square" alt="许可证：MIT" /></a>
 </p>
 
-<div align="center">
-    <img src=".github/assets/demo.gif" alt="Token Usage 演示">
-</div>
-
 ## Token Usage 是什么？
 
 一款基于 **Tauri 2** 的跨平台菜单栏 / 托盘应用，实时统计本机各 AI 编程助手的 **Token 用量与费用**：
@@ -32,7 +27,7 @@
 - 同步展示 **17 家厂商额度**（Claude / Codex / Cursor / OpenRouter / GLM / Kimi / Volcengine / Ollama / Minimax / …）
 - **数据 100% 本地存储**，不依赖任何云服务、不上传 prompt / response
 
-> 状态：**v1.0.2** · 全功能已交付，三平台安装包 CI 自动发布，应用内一键更新。
+> 状态：**v1.0.3** · 全功能已交付，三平台安装包 CI 自动发布，应用内一键更新。
 
 ## 支持的工具
 
@@ -60,30 +55,6 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 | **Qwen CLI** | `~/.qwen/projects/` | ✅ | — | — |
 | **Trae** | （由 tokscale 适配） | ✅ | — | — |
 | **Hermes / Zed / Cline / Kiro / CodeBuddy / WorkBuddy / Proma / Pi** 等 | （详见 tokscale 支持列表） | ✅ | — | — |
-
-完整支持表与各工具的额度获取方式，见 [docs/supported-tools.md](docs/supported-tools.md)。
-
-## 界面展示
-
-<table>
-<tr>
-<td width="290" align="center"><img src=".github/assets/home-view.png" width="250" alt="总览视图"><br><sub>总览——今日 I/O/缓存分项 + Top 3 工具/模型/额度，实时速率</sub></td>
-<td width="290" align="center"><img src=".github/assets/tools-view.png" width="250" alt="工具视图"><br><sub>工具/模型——按维度拆解用量占比，支持展开缓存命中明细</sub></td>
-<td width="290" align="center"><img src=".github/assets/quotas-view.png" width="250" alt="额度视图"><br><sub>额度——17 家厂商余额/消耗窗口/到期时间，三类凭证</sub></td>
-</tr>
-<tr>
-<td width="290" align="center"><img src=".github/assets/sessions-view.png" width="250" alt="会话视图"><br><sub>会话——按工具+项目排列，点击展开单会话模型明细 + 对话轮次</sub></td>
-<td width="290" align="center"><img src=".github/assets/trends-view.png" width="250" alt="趋势视图"><br><sub>趋势——近 7 天/当月折线图 + 日均/峰值统计</sub></td>
-<td width="290" align="center"><img src=".github/assets/projects-view.png" width="250" alt="项目视图"><br><sub>项目——按工作区/仓库自动分组，session JSONL cwd 回溯</sub></td>
-</tr>
-</table>
-
-<table>
-<tr>
-<td width="435" align="center"><img src=".github/assets/settings-general.png" width="400" alt="设置 常规"><br><sub>设置——基本/预览界面/窗口外观/采集追踪/账号额度 5 分区独立窗口</sub></td>
-<td width="435" align="center"><img src=".github/assets/tray-popover.png" width="400" alt="菜单栏 popover"><br><sub>菜单栏——图标 + 自定义显示（今日/累计 Tokens/成本）+ 右键菜单</sub></td>
-</tr>
-</table>
 
 ## 为什么用 Token Usage？
 
@@ -130,15 +101,7 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 - **Windows 10 / 11** — NSIS `.exe` 安装包
 - **Linux x64** — `.AppImage`
 
-打包版会自动检查 GitHub Releases。设置 → 常规 中有更新时，可点击 **立即更新** 在应用内完成下载与安装。
-
-### 首次启动
-
-应用启动后默认进入「菜单栏 / 托盘常驻」模式，**不需要任何账号或注册**——打开即用。额度查询需要在「设置 → 账号额度」中按厂商填入对应凭证（API Key / Cookie / OAuth）。
-
-## CI / 发布
-
-打 tag 即可触发三平台构建并发布到 GitHub Release：
+打包版会自动检查 GitHub Releases。设置 → 常规 中有更新时，可点击 **立即更新** 在应用内完成下载与安装。打 tag 即可触发三平台构建并发布到 GitHub Release：
 
 ```bash
 git tag v1.0.3 && git push origin v1.0.3
@@ -147,6 +110,10 @@ git tag v1.0.3 && git push origin v1.0.3
 GitHub Actions 在三平台 runner（mac aarch64 / Windows x64 / Linux x64）上构建，产物直接上传到 GitHub Release，应用内「检查更新」自动检出。
 
 > **中国大陆网络**：首启 tokscale 下载、GitHub Release CDN 可能较慢。应用会自动读取系统代理（macOS `scutil` / Windows 注册表 / Linux `HTTPS_PROXY`），也可在 `TOKSCALE_REGISTRY=https://registry.npmmirror.com npm run tauri dev` 启动时指定 npm 镜像。
+
+### 首次启动
+
+应用启动后默认进入「菜单栏 / 托盘常驻」模式，**不需要任何账号或注册**——打开即用。额度查询需要在「设置 → 账号额度」中按厂商填入对应凭证（API Key / Cookie / OAuth）。
 
 ## 从源码构建
 
@@ -157,8 +124,6 @@ npm run tauri dev    # 开发（vite :1420 + Rust 后端 + popover 窗口）
 npm run tauri build  # 三平台安装包
 npm run check        # svelte-check 类型检查
 ```
-
-中国大陆网络镜像配置见 [docs/development.md](docs/development.md)。
 
 ### 常用命令
 
@@ -240,24 +205,11 @@ Token Usage 在本机处理使用日志，**不向任何远程服务发送 promp
 - 收集遥测、统计、崩溃报告
 - 调用任何云端的用量聚合服务
 
-## 开发原则
-
-- **TDD**：先写测试再实现，覆盖率 ≥ 80%
-- **小文件**：200–400 行典型，800 上限
-- **不可变**：新对象替代原地修改
-- **凭证不入库**：`.env` 仅本地，CI 用 GitHub Secrets
-
-详见 [CLAUDE.md](CLAUDE.md)。
-
 ## 致谢
 
 - [tokscale](https://github.com/junhoyeo/tokscale) — 日志解析与 token 计算
 - [tauri](https://github.com/tauri-apps/tauri) — 跨平台原生窗口与 IPC
 - [CodexBar](https://github.com/steipete/CodexBar) — 厂商额度研究参考
-
-## 参与贡献
-
-Issue 与 PR 欢迎。开发规范、架构说明与命令参考见 [CLAUDE.md](CLAUDE.md)。
 
 ## 许可证
 

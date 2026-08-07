@@ -3,7 +3,6 @@
 </p>
 
 <div align="center">
-    <img src=".github/assets/app.png" alt="Token Usage logo" width="120">
     <h1>Token Usage</h1>
 </div>
 
@@ -20,10 +19,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-A855F7?style=flat-square" alt="License: MIT" /></a>
 </p>
 
-<div align="center">
-    <img src=".github/assets/demo.gif" alt="Token Usage demo">
-</div>
-
 ## What is Token Usage?
 
 A **Tauri 2**-based, cross-platform menu bar / tray app that tracks **token usage and cost** for every AI coding assistant on your machine, in real time:
@@ -32,7 +27,7 @@ A **Tauri 2**-based, cross-platform menu bar / tray app that tracks **token usag
 - Side-by-side **vendor quota for 17 providers** (Claude / Codex / Cursor / OpenRouter / GLM / Kimi / Volcengine / Ollama / Minimax / …)
 - **100% local data** — no cloud, no prompt/response upload, no account required
 
-> Status: **v1.0.2** · All features shipped, three-platform installers via CI, in-app auto-update.
+> Status: **v1.0.3** · All features shipped, three-platform installers via CI, in-app auto-update.
 
 ## Supported Tools
 
@@ -60,30 +55,6 @@ Token Usage provides **token usage, vendor quota, and session detail** for each 
 | **Qwen CLI** | `~/.qwen/projects/` | ✅ | — | — |
 | **Trae** | (via tokscale adapter) | ✅ | — | — |
 | **Hermes / Zed / Cline / Kiro / CodeBuddy / WorkBuddy / Proma / Pi**, etc. | (see tokscale's supported list) | ✅ | — | — |
-
-Full support table and per-vendor credential guides: [docs/supported-tools.md](docs/supported-tools.md).
-
-## Showcase
-
-<table>
-<tr>
-<td width="290" align="center"><img src=".github/assets/home-view.png" width="250" alt="Home View"><br><sub>Home — today's I/O/cache split, Top 3 tools/models/quotas, real-time rate</sub></td>
-<td width="290" align="center"><img src=".github/assets/tools-view.png" width="250" alt="Tools View"><br><sub>Tools / Models — usage breakdown by dimension, expandable cache-hit detail</sub></td>
-<td width="290" align="center"><img src=".github/assets/quotas-view.png" width="250" alt="Quotas View"><br><sub>Quotas — 17 providers' balance / consumption windows / expiry, three credential types</sub></td>
-</tr>
-<tr>
-<td width="290" align="center"><img src=".github/assets/sessions-view.png" width="250" alt="Sessions View"><br><sub>Sessions — by tool × project; click to open a single session's per-model detail + rounds</sub></td>
-<td width="290" align="center"><img src=".github/assets/trends-view.png" width="250" alt="Trends View"><br><sub>Trends — last 7 days / month line chart, daily average + peak</sub></td>
-<td width="290" align="center"><img src=".github/assets/projects-view.png" width="250" alt="Projects View"><br><sub>Projects — auto-grouped by workspace/repo, derived from session JSONL cwd</sub></td>
-</tr>
-</table>
-
-<table>
-<tr>
-<td width="435" align="center"><img src=".github/assets/settings-general.png" width="400" alt="Settings — General"><br><sub>Settings — 5 separate windows: General / Preview / Window / Collection / Quotas</sub></td>
-<td width="435" align="center"><img src=".github/assets/tray-popover.png" width="400" alt="Tray popover"><br><sub>Menu bar / Tray — icon + custom readout (today/total tokens or cost) + context menu</sub></td>
-</tr>
-</table>
 
 ## Why Token Usage?
 
@@ -130,15 +101,7 @@ Download from [GitHub Releases](https://github.com/lzc0088/token-usage/releases)
 - **Windows 10 / 11** — NSIS `.exe` installer
 - **Linux x64** — `.AppImage`
 
-Packaged builds auto-check GitHub Releases. When an update is available, open **Settings → General** and click **Install now** to download and install in-app.
-
-### First run
-
-The app launches into a **menu bar / tray** mode by default. **No account or signup needed** — open and use. To check vendor quotas, fill in the corresponding credential in **Settings → Quotas** (API Key / Cookie / OAuth).
-
-## CI / Release
-
-Push a tag to trigger three-platform builds and a GitHub Release:
+Packaged builds auto-check GitHub Releases. When an update is available, open **Settings → General** and click **Install now** to download and install in-app. Push a tag to trigger three-platform builds and a GitHub Release:
 
 ```bash
 git tag v1.0.3 && git push origin v1.0.3
@@ -147,6 +110,10 @@ git tag v1.0.3 && git push origin v1.0.3
 GitHub Actions builds on three runners (mac aarch64 / Windows x64 / Linux x64) and uploads installers directly to the GitHub Release. In-app **Check for updates** picks it up automatically.
 
 > **In China mainland:** first-launch tokscale download and the GitHub Release CDN may be slow. The app reads the system proxy automatically (macOS `scutil` / Windows registry / Linux `HTTPS_PROXY`). You can also start with `TOKSCALE_REGISTRY=https://registry.npmmirror.com npm run tauri dev` to point npm at a mirror.
+
+### First run
+
+The app launches into a **menu bar / tray** mode by default. **No account or signup needed** — open and use. To check vendor quotas, fill in the corresponding credential in **Settings → Quotas** (API Key / Cookie / OAuth).
 
 ## Build from source
 
@@ -157,8 +124,6 @@ npm run tauri dev    # dev (vite :1420 + Rust backend + popover window)
 npm run tauri build  # three-platform installers
 npm run check        # svelte-check type check
 ```
-
-China mainland mirror configuration: [docs/development.md](docs/development.md).
 
 ### Common commands
 
@@ -240,24 +205,11 @@ The app does not:
 - Collect telemetry, analytics, or crash reports
 - Call any cloud-side usage aggregation service
 
-## Development principles
-
-- **TDD** — write tests first, then implementation; coverage ≥ 80%
-- **Small files** — 200–400 lines typical, 800 max
-- **Immutability** — new objects, never in-place mutation
-- **Credentials stay out of git** — `.env` is local only, CI uses GitHub Secrets
-
-See [CLAUDE.md](CLAUDE.md).
-
 ## Acknowledgments
 
 - [tokscale](https://github.com/junhoyeo/tokscale) — log parsing and token accounting
 - [tauri](https://github.com/tauri-apps/tauri) — cross-platform native windows and IPC
 - [CodexBar](https://github.com/steipete/CodexBar) — vendor quota research
-
-## Contributing
-
-Issues and PRs are welcome. Project conventions, architecture notes, and command reference: [CLAUDE.md](CLAUDE.md).
 
 ## License
 
