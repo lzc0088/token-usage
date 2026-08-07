@@ -526,8 +526,16 @@ pub async fn install_update(
         })?;
 
     let _ = on_event.send(DownloadEvent::Installed);
-    // app.restart() diverges (returns `!`) — the process is replaced.
-    app.restart()
+    // Don't auto-restart — let the user pick the moment via `restart_app`.
+    Ok(())
+}
+
+/// Restart the app to finish applying an installed update. Called from the
+/// frontend "Restart now" button (`install_update` deliberately does NOT
+/// auto-restart, so the user stays in control instead of the app vanishing).
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.restart();
 }
 
 /// Simple semver comparison: strips "v" prefix and compares major.minor.patch.

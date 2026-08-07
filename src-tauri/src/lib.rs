@@ -576,6 +576,7 @@ pub fn run() {
             commands::update::check_update,
             commands::update::get_app_version,
             commands::update::install_update,
+            commands::update::restart_app,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
