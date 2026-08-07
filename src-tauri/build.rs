@@ -6,6 +6,15 @@ fn main() {
     // Load .env from crate root so JUHE_API_KEY is available.
     let _ = dotenvy::dotenv();
 
+    // Generate Tauri's default application manifest + run its codegen.
+    // CRITICAL on Windows: the manifest activates ComCtl32 v6
+    // (Microsoft.Windows.Common-Controls 6.0.0.0). Without it, the loader
+    // binds to legacy comctl32 v5 and the app fails to launch with
+    // "entry point TaskDialogIndirect could not be located" (tauri#6926).
+    // This line was dropped during the v1.0.0 build.rs rewrite and broke
+    // every Windows build since. Standard Tauri projects always call this.
+    tauri_build::build();
+
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     let juhe_key = env::var("JUHE_API_KEY").unwrap_or_default();
