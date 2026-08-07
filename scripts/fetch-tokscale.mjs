@@ -222,14 +222,26 @@ async function main() {
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
-  const url = `${opts.registry}/@tokscale/cli-${triple}/-/cli-${triple}-${version}.tgz`;
-  console.log(`[fetch-tokscale] GET ${url}`);
+  // Candidate registries: the configured one first, then the other as an
+  // automatic fallback. GitHub runners (US) often can't reach the China mirror
+  // (npmmirror); dev machines in CN sometimes can't reach the official registry.
+  // Trying both makes the fetch robust regardless of where it runs.
+  const registries = [...new Set([opts.registry, "https://registry.npmjs.org", DEFAULT_REGISTRY])];
   const tgz = join(tmpdir(), `tokscale-${triple}-${version}.tgz`);
-  try {
-    await download(url, tgz);
-  } catch (e) {
-    console.error(`[fetch-tokscale] download failed: ${e.message}`);
-    console.error(`[fetch-tokscale] hint: set TOKSCALE_REGISTRY=https://registry.npmjs.org if the mirror fails`);
+  let downloaded = false;
+  for (const reg of registries) {
+    const url = `${reg}/@tokscale/cli-${triple}/-/cli-${triple}-${version}.tgz`;
+    console.log(`[fetch-tokscale] GET ${url}`);
+    try {
+      await download(url, tgz);
+      downloaded = true;
+      break;
+    } catch (e) {
+      console.warn(`[fetch-tokscale] ${reg} failed: ${e.message}; trying next registry…`);
+    }
+  }
+  if (!downloaded) {
+    console.error(`[fetch-tokscale] download failed from all registries: ${registries.join(", ")}`);
     process.exit(1);
   }
 
