@@ -33,7 +33,7 @@
   let updateStatus = $state<UpdateInfo | null>(null);
   let showLatestAlert = $state(false);
   // Install state machine (application-internal auto-update via updater plugin).
-  type InstallState = "idle" | "downloading" | "installing" | "relaunching" | "error";
+  type InstallState = "idle" | "downloading" | "installing" | "installed" | "relaunching" | "error";
   let installState = $state<InstallState>("idle");
   let installError = $state<string>("");
   let downloadProgress = $state<{ downloaded: number; total: number }>({ downloaded: 0, total: 0 });
@@ -166,15 +166,9 @@
             installState = "installing";
             break;
           case "Installed":
-            // Updater will relaunch the app. macOS bug #11392 may leave the
-            // process alive — surface a manual-reopen hint after 3s.
-            installState = "relaunching";
-            sTimeout(() => {
-              if (installState === "relaunching") {
-                installState = "error";
-                installError = t("general.relaunchHint");
-              }
-            }, 3000);
+            // Update is staged; DON'T auto-restart. Wait for the user to click
+            // "Restart now" so the app doesn't vanish without explanation.
+            installState = "installed";
             break;
           case "Error":
             installState = "error";
@@ -186,6 +180,17 @@
       installState = "error";
       installError = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  // User explicitly chose to restart and finish applying the update.
+  function restartNow(): void {
+    installState = "relaunching";
+    api.restartApp().catch(() => {
+      // restartApp should kill this process; if we're still here it failed
+      // (macOS bug #11392) — hint the user to reopen manually.
+      installState = "error";
+      installError = t("general.relaunchHint");
+    });
   }
 
   // Fallback when the in-app updater fails: open the release page in a browser
@@ -396,6 +401,13 @@
             </div>
           {:else if installState === "installing"}
             <div class="install-status">{t("general.installing")}</div>
+          {:else if installState === "installed"}
+            <div class="install-ready">
+              <span class="install-ready-text">{t("general.updateReady")}</span>
+              <button type="button" class="btn-download" onclick={restartNow}>
+                {t("general.restartNow")}
+              </button>
+            </div>
           {:else if installState === "relaunching"}
             <div class="install-status">{t("general.relaunching")}</div>
           {:else if installState === "error"}
@@ -517,6 +529,8 @@
   .progress-text { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
 
   .install-status { font-size: 12px; color: var(--lime); font-weight: 500; margin-top: 4px; }
+  .install-ready { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; align-items: flex-start; }
+  .install-ready-text { font-size: 12px; color: var(--lime); font-weight: 500; }
   .install-error { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .install-err-text { font-size: 11.5px; color: var(--coral); line-height: 1.5; }
 

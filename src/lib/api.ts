@@ -406,4 +406,7 @@ export const api = {
   /** Open an external URL in the system browser. Only http/https URLs are
    *  allowed — javascript:, file:, and other schemes are rejected server-side. */
   openExternal: (url: string) => invoke<void>("open_external", { url }),
+
+  /** Restart the app to finish applying an installed update. */
+  restartApp: () => invoke<void>("restart_app"),
 };
