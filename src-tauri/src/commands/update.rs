@@ -442,6 +442,10 @@ pub async fn install_update(
     app: AppHandle,
     on_event: Channel<DownloadEvent>,
 ) -> Result<(), String> {
+    // reqwest (used by the updater) reads HTTPS_PROXY/HTTP_PROXY env vars.
+    // These are mirrored from the OS system proxy at startup by
+    // utils::proxy::sync_system_proxy(), so the updater routes through the
+    // user's Clash/V2Ray without any hard-coded port here.
     let updater = app
         .updater_builder()
         .build()
@@ -459,11 +463,21 @@ pub async fn install_update(
         })?
         .ok_or_else(|| "当前已是最新版本".to_string())?;
 
+    tracing::info!(
+        "install_update: found update v{} (target={}) → downloading {}",
+        update.version,
+        update.target,
+        update.download_url
+    );
+
     // Stream download progress to the frontend. v2.10+ API: the first callback
     // fires per chunk with `(chunk_length, total_option)`; the second fires
     // once when download finishes (before install). We synthesize a Started
     // event from the first chunk + its total, then Progress per chunk.
     let first = std::sync::atomic::AtomicBool::new(true);
+    let downloaded = std::sync::atomic::AtomicU64::new(0);
+    let last_log = std::sync::atomic::AtomicU64::new(0);
+    let start = std::time::Instant::now();
     let on_progress = {
         let on_event = on_event.clone();
         move |chunk_length: usize, total: Option<u64>| {
@@ -475,6 +489,22 @@ pub async fn install_update(
             let _ = on_event.send(DownloadEvent::Progress {
                 chunk_length: chunk_length as u64,
             });
+            // Log download speed every ~1MB so we can tell whether it's going
+            // through the proxy / VPN or crawling on a bad direct route.
+            let acc = downloaded
+                .fetch_add(chunk_length as u64, std::sync::atomic::Ordering::SeqCst)
+                + chunk_length as u64;
+            let last = last_log.load(std::sync::atomic::Ordering::SeqCst);
+            if acc.saturating_sub(last) >= 1024 * 1024 {
+                last_log.store(acc, std::sync::atomic::Ordering::SeqCst);
+                let secs = start.elapsed().as_secs_f64().max(0.001);
+                tracing::info!(
+                    "install_update: downloaded {:.2} MB / {:.2} MB ({:.0} KB/s)",
+                    acc as f64 / 1_048_576.0,
+                    total.map(|t| t as f64 / 1_048_576.0).unwrap_or(0.0),
+                    acc as f64 / 1024.0 / secs,
+                );
+            }
         }
     };
     let on_download_finish = {

@@ -340,6 +340,11 @@ pub fn run() {
                 )
                 .try_init();
 
+            // Mirror the OS system proxy into HTTPS_PROXY/HTTP_PROXY so every
+            // HTTP client (reqwest updater, ureq check-update/rate/quota) routes
+            // through it. Must run before any network request.
+            utils::proxy::sync_system_proxy();
+
             // ── Dock visibility (must be set BEFORE any window is created) ──
             // macOS: NSApplicationActivationPolicy must be chosen during
             // didFinishLaunching, before windows/tray exist, or tao panics.
