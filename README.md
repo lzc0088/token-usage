@@ -3,6 +3,7 @@
 </p>
 
 <div align="center">
+    <img src="assets/app.png" alt="Token Usage logo" width="120">
     <h1>Token Usage</h1>
 </div>
 
@@ -55,6 +56,26 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 | **Qwen CLI** | `~/.qwen/projects/` | ✅ | — | — |
 | **Trae** | （由 tokscale 适配） | ✅ | — | — |
 | **Hermes / Zed / Cline / Kiro / CodeBuddy / WorkBuddy / Proma / Pi** 等 | （详见 tokscale 支持列表） | ✅ | — | — |
+
+## 界面展示
+
+<table>
+<tr>
+<td width="290" align="center"><img src="assets/home-view.png" width="250" alt="总览视图"><br><sub>总览——今日 I/O/缓存分项 + Top 3 工具/模型/额度，实时速率</sub></td>
+<td width="290" align="center"><img src="assets/tools-view.png" width="250" alt="工具视图"><br><sub>工具——按维度拆解用量占比，支持展开缓存命中明细</sub></td>
+<td width="290" align="center"><img src="assets/models-view.png" width="250" alt="模型视图"><br><sub>模型——跨工具汇总每个模型的用量与成本</sub></td>
+</tr>
+<tr>
+<td width="290" align="center"><img src="assets/quotas-view.png" width="250" alt="额度视图"><br><sub>额度——17 家厂商余额/消耗窗口/到期时间，三类凭证</sub></td>
+<td width="290" align="center"><img src="assets/sessions-view.png" width="250" alt="会话视图"><br><sub>会话——按工具+项目排列，点击展开单会话模型明细 + 对话轮次</sub></td>
+<td width="290" align="center"><img src="assets/trends-view.png" width="250" alt="趋势视图"><br><sub>趋势——近 7 天/当月折线图 + 日均/峰值统计</sub></td>
+</tr>
+<tr>
+<td width="290" align="center"><img src="assets/projects-view.png" width="250" alt="项目视图"><br><sub>项目——按工作区/仓库自动分组，session JSONL cwd 回溯</sub></td>
+<td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="设置 常规"><br><sub>设置——基本/预览界面/窗口外观/采集追踪/账号额度 5 分区独立窗口</sub></td>
+<td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="菜单栏 popover"><br><sub>菜单栏——图标 + 自定义显示（今日/累计 Tokens/成本）+ 右键菜单</sub></td>
+</tr>
+</table>
 
 ## 为什么用 Token Usage？
 

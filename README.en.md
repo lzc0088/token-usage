@@ -3,6 +3,7 @@
 </p>
 
 <div align="center">
+    <img src="assets/app.png" alt="Token Usage logo" width="120">
     <h1>Token Usage</h1>
 </div>
 
@@ -55,6 +56,26 @@ Token Usage provides **token usage, vendor quota, and session detail** for each 
 | **Qwen CLI** | `~/.qwen/projects/` | ✅ | — | — |
 | **Trae** | (via tokscale adapter) | ✅ | — | — |
 | **Hermes / Zed / Cline / Kiro / CodeBuddy / WorkBuddy / Proma / Pi**, etc. | (see tokscale's supported list) | ✅ | — | — |
+
+## Showcase
+
+<table>
+<tr>
+<td width="290" align="center"><img src="assets/home-view.png" width="250" alt="Home View"><br><sub>Home — today's I/O/cache split, Top 3 tools/models/quotas, real-time rate</sub></td>
+<td width="290" align="center"><img src="assets/tools-view.png" width="250" alt="Tools View"><br><sub>Tools — usage breakdown by dimension, expandable cache-hit detail</sub></td>
+<td width="290" align="center"><img src="assets/models-view.png" width="250" alt="Models View"><br><sub>Models — usage and cost per model, aggregated across tools</sub></td>
+</tr>
+<tr>
+<td width="290" align="center"><img src="assets/quotas-view.png" width="250" alt="Quotas View"><br><sub>Quotas — 17 providers' balance / consumption windows / expiry, three credential types</sub></td>
+<td width="290" align="center"><img src="assets/sessions-view.png" width="250" alt="Sessions View"><br><sub>Sessions — by tool × project; click to open a single session's per-model detail + rounds</sub></td>
+<td width="290" align="center"><img src="assets/trends-view.png" width="250" alt="Trends View"><br><sub>Trends — last 7 days / month line chart, daily average + peak</sub></td>
+</tr>
+<tr>
+<td width="290" align="center"><img src="assets/projects-view.png" width="250" alt="Projects View"><br><sub>Projects — auto-grouped by workspace/repo, derived from session JSONL cwd</sub></td>
+<td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="Settings — General"><br><sub>Settings — 5 separate windows: General / Preview / Window / Collection / Quotas</sub></td>
+<td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="Tray popover"><br><sub>Menu bar / Tray — icon + custom readout (today/total tokens or cost) + context menu</sub></td>
+</tr>
+</table>
 
 ## Why Token Usage?
 
