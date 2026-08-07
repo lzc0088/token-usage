@@ -137,16 +137,6 @@ Download from [GitHub Releases](https://github.com/lzc0088/token-usage/releases)
 - **Windows 10 / 11** — NSIS `.exe` installer
 - **Linux x64** — `.AppImage`
 
-Packaged builds auto-check GitHub Releases. When an update is available, open **Settings → General** and click **Install now** to download and install in-app. Push a tag to trigger three-platform builds and a GitHub Release:
-
-```bash
-git tag v1.0.3 && git push origin v1.0.3
-```
-
-GitHub Actions builds on three runners (mac aarch64 / Windows x64 / Linux x64) and uploads installers directly to the GitHub Release. In-app **Check for updates** picks it up automatically.
-
-> **In China mainland:** first-launch tokscale download and the GitHub Release CDN may be slow. The app reads the system proxy automatically (macOS `scutil` / Windows registry / Linux `HTTPS_PROXY`). You can also start with `TOKSCALE_REGISTRY=https://registry.npmmirror.com npm run tauri dev` to point npm at a mirror.
-
 ### First run
 
 The app launches into a **menu bar / tray** mode by default. **No account or signup needed** — open and use. To check vendor quotas, fill in the corresponding credential in **Settings → Quotas** (API Key / Cookie / OAuth).

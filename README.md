@@ -137,16 +137,6 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 - **Windows 10 / 11** — NSIS `.exe` 安装包
 - **Linux x64** — `.AppImage`
 
-打包版会自动检查 GitHub Releases。设置 → 常规 中有更新时，可点击 **立即更新** 在应用内完成下载与安装。打 tag 即可触发三平台构建并发布到 GitHub Release：
-
-```bash
-git tag v1.0.3 && git push origin v1.0.3
-```
-
-GitHub Actions 在三平台 runner（mac aarch64 / Windows x64 / Linux x64）上构建，产物直接上传到 GitHub Release，应用内「检查更新」自动检出。
-
-> **中国大陆网络**：首启 tokscale 下载、GitHub Release CDN 可能较慢。应用会自动读取系统代理（macOS `scutil` / Windows 注册表 / Linux `HTTPS_PROXY`），也可在 `TOKSCALE_REGISTRY=https://registry.npmmirror.com npm run tauri dev` 启动时指定 npm 镜像。
-
 ### 首次启动
 
 应用启动后默认进入「菜单栏 / 托盘常驻」模式，**不需要任何账号或注册**——打开即用。额度查询需要在「设置 → 账号额度」中按厂商填入对应凭证（API Key / Cookie / OAuth）。
