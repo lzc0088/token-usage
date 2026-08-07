@@ -177,14 +177,32 @@ jobs:
   # Runs after all three platform builds finish. Downloads the unsigned Windows
   # NSIS installer from the just-created GitHub Release, submits it to SignPath
   # for code signing, then replaces the unsigned asset with the signed one.
-  # Prerequisite: register at signpath.io (see docs/release.md § SignPath 注册).
+  # Prerequisite: register at signpath.io (see docs/release.md § Windows 代码签名).
+
+  # Guard job: the `secrets` context can't be referenced in a job-level `if:`
+  # (it's not available that early), so we detect SignPath config here and
+  # expose it as a job output that `sign-windows.if` can read via `needs`.
+  signpath-enabled:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   sign-windows:
-    needs: bundle
-    # Only run when SignPath is configured. Until the OSS subscription is
-    # approved + secrets are set (see docs/release.md § Windows 代码签名),
-    # this job is skipped so it doesn't block the release. Windows builds
-    # still ship (unsigned — users bypass SmartScreen manually for now).
-    if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+    needs: [bundle, signpath-enabled]
+    # Skipped until SignPath is registered + secrets are set — see
+    # docs/release.md § Windows 代码签名. Windows builds still ship unsigned
+    # (users bypass SmartScreen manually for now).
+    if: ${{ needs.signpath-enabled.outputs.enabled == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
