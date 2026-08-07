@@ -29,7 +29,10 @@ fn ensure_tokscale() {
         .join("..")
         .join("scripts")
         .join("fetch-tokscale.mjs");
-    println!("cargo:warning=tokscale binary missing — fetching via {script_display}", script_display = script.display());
+    println!(
+        "cargo:warning=tokscale binary missing — fetching via {script_display}",
+        script_display = script.display()
+    );
     match std::process::Command::new("node").arg(&script).status() {
         Ok(status) if status.success() => {
             println!("cargo:warning=tokscale fetched successfully");
@@ -68,4 +71,3 @@ fn main() {
 
     fs::write(out.join("generated.rs"), content).unwrap();
 }
-
