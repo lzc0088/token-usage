@@ -132,34 +132,107 @@ git push origin v1.0.4
 
 ## Windows 代码签名（SignPath Foundation）
 
-Windows 安装包默认 **未签名**，双击会触发 SmartScreen "已阻止可能不安全的应用"。消除该警告需要对接 [SignPath Foundation](https://signpath.io/) 的免费开源代码签名服务。
+Windows 安装包默认**未签名**，双击会触发 SmartScreen "已阻止可能不安全的应用"。消除该警告需要对接 [SignPath Foundation](https://signpath.io/) 的免费开源代码签名服务。
 
-### 注册步骤（仅首次，一次性）
+### 一、注册 SignPath 并创建 Organization
 
-1. 打开 [signpath.io](https://signpath.io/)，用 GitHub 账号注册/登录
-2. Create Organization → 名称自定（如 `token-usage`）
-3. Create Project → `Project slug` 填 `token-usage`（记下来，后面用作 CI secret）
-   - Repository URL: `https://github.com/lzc0088/token-usage`
-   - 启用 **Trusted Build System** + **Origin Verification**
-4. 在 Project 下创建 **Signing Policy**：
-   - `Signing Policy Slug` 填 `release-signing`
-   - Certificate: 选择 SignPath Foundation 提供的免费证书
-5. 创建 **Artifact Configuration**：
-   - Root element: `<zip-file>`（upload-artifact@v4 会将文件打包为 ZIP）
-   - Contents: `<pe-file>`（即 Windows .exe 安装包）
-6. 创建 **API Token**（Settings → API Tokens）：
-   - 权限：Submit signing requests
-   - 复制 token → 存入 GitHub Secrets：`SIGNPATH_API_TOKEN`
+1. 打开 [signpath.io](https://signpath.io/)，点右上角 **Sign in** → 选 **GitHub** 登录，授权 OAuth
+2. 首次登录后页面会提示创建 Organization
+   > 如果已登录但不在创建页面：点右上角头像 → **My Organizations** → 右侧 **Create Organization**
+3. **Name**: 填 `token-usage` 或你喜欢的名字
+4. **URL slug**: 自动等于 name（小写，`-` 连词），确认后点 **Create**
 
-### GitHub Secrets 配置
+### 二、创建 Project
 
-在仓库 Settings → Secrets and variables → Actions，新增 3 个 secret：
+1. 进入刚创建的 Organization（左侧选中它）
+2. 点右上角 **New Project**（或页面中间的 **Create your first project**）
+3. 填写以下字段：
 
-| Secret | 值 | 说明 |
-|--------|-----|------|
-| `SIGNPATH_API_TOKEN` | 第 6 步生成的 API token | 认证凭证 |
-| `SIGNPATH_ORGANIZATION_ID` | SignPath 组织页面 URL 中的 UUID | 形如 `2e13633d-…` |
-| `SIGNPATH_PROJECT_SLUG` | 第 3 步填的 project slug | 如 `token-usage` |
+   | 字段 | 值 | 说明 |
+   |------|-----|------|
+   | **Name** | `token-usage` | 项目名 |
+   | **Slug** | `token-usage` | 记下来，这就是 `SIGNPATH_PROJECT_SLUG` |
+   | **Repository URL** | `https://github.com/lzc0088/token-usage` | 必须完全一致 |
+   | **Visibility** | Public | |
+   | **Open Source** | ✅ **勾选** | 免费签名的必要条件 |
+
+4. 点 **Create Project**
+
+### 三、配置 Trusted Build System（必填，否则签名不生效）
+
+创建完 Project 后进入项目设置页面，左侧菜单：
+
+1. 点 **Trusted Build Systems** → 右上角 **Add Trusted Build System**
+2. 选择 **GitHub Actions**
+3. 填写：
+
+   | 字段 | 值 |
+   |------|-----|
+   | **Name** | `GitHub Actions` |
+   | **Repository** | `lzc0088/token-usage` |
+   | **Branch** | `master` |
+
+4. 点 **Add** 保存
+
+> 这会生成一条 Origin Verification 规则：只有从 `lzc0088/token-usage` 的 `master` 分支触发的构建才被信任。
+
+### 四、创建 Signing Policy
+
+1. 左侧菜单 **Signing Policies** → 右上角 **Add Signing Policy**
+2. 填写：
+
+   | 字段 | 值 | 说明 |
+   |------|-----|------|
+   | **Name** | `Release Signing` | |
+   | **Slug** | `release-signing` | **必须用这个值**——release.yml 里写死了 |
+   | **Certificate** | SignPath Foundation 提供的证书 | 下拉选 "SignPath Foundation" |
+   | **Artifact Digest** | SHA256 | |
+
+3. 点底部的 **Create**（或 **Save**）
+
+### 五、创建 Artifact Configuration
+
+1. 在刚创建的 Signing Policy 详情页，找到 **Artifact Configurations** 区域
+2. 点 **Add Artifact Configuration**
+3. 填写：
+
+   | 字段 | 值 | 说明 |
+   |------|-----|------|
+   | **Name** | `Windows installer` | |
+   | **Slug** | `default` | 留空也行，用默认值 |
+   | **Artifact Type** | 选 **ZIP file** (`zip-file`) | upload-artifact@v4 会自动打包为 ZIP |
+   | **ZIP contents** | 选 **Portable Executable** (`pe-file`) | 告诉 SignPath ZIP 里是一个 .exe |
+
+4. 点 **Create**
+
+### 六、生成 API Token
+
+1. 点右上角头像 → **User Settings**（或 **Settings**）
+2. 左侧菜单找 **API Tokens** → **Create API Token**
+3. 填写：
+
+   | 字段 | 值 |
+   |------|-----|
+   | **Name** | `CI signing` |
+   | **Permissions** | 勾选 **Submit signing requests** |
+   | **Expiration** | 设为最长时间（或 No expiration） |
+
+4. 点 **Create** → 页面会显示 token 明文
+5. ⚠️ **立刻复制**——关掉弹窗后 token 不再显示，只能重新生成
+
+### 七、把 3 个值填入 GitHub Secrets
+
+在 GitHub 仓库 `lzc0088/token-usage` → Settings → Secrets and variables → Actions：
+
+| Secret | 值 | 哪里找 |
+|--------|-----|--------|
+| `SIGNPATH_API_TOKEN` | 第 6 步复制的 token | User Settings → API Tokens |
+| `SIGNPATH_ORGANIZATION_ID` | 组织 UUID | 进入 Organization 页面，浏览器地址栏 URL 中 `/Organization/` 后面那段 UUID（形如 `2e13633d-4e7d-4462-9091-27536751c84c`） |
+| `SIGNPATH_PROJECT_SLUG` | `token-usage` | 第 2 步填的 slug |
+
+### 八、验证
+
+在 SignPath 项目页 → **Signing Policies** → 点进 `release-signing` → 页面顶部会显示一段 PowerShell 示例代码，里面有 `organizationId`、`projectSlug`、`signingPolicySlug`。确认这三个值和 GitHub Secrets 中一致。
 
 ### CI 行为
 
@@ -168,9 +241,7 @@ Windows 安装包默认 **未签名**，双击会触发 SmartScreen "已阻止�
 2. Windows 安装包 → 上传到 GitHub Release（**未签名**）
 3. `sign-windows` job 启动：下载未签名 .exe → 提交 SignPath → 获签 → 替换 Release 中的旧文件
 
-从用户角度看：Release 页面的 Windows .exe 在发布后约 5–10 分钟变为已签名版本（SignPath 处理时间）。
-
-如果希望先发一个测试版而不是正式版，tag 中包含 `-` 后缀即自动标为 "Pre-release"：
+从用户角度看：Release 页面的 Windows .exe 在发布后约 5–10 分钟变为已签名版本。
 
 ```bash
 git tag v1.0.4-beta
