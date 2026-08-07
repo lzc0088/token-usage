@@ -180,6 +180,11 @@ jobs:
   # Prerequisite: register at signpath.io (see docs/release.md § SignPath 注册).
   sign-windows:
     needs: bundle
+    # Only run when SignPath is configured. Until the OSS subscription is
+    # approved + secrets are set (see docs/release.md § Windows 代码签名),
+    # this job is skipped so it doesn't block the release. Windows builds
+    # still ship (unsigned — users bypass SmartScreen manually for now).
+    if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
