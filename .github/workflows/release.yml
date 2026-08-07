@@ -153,3 +153,69 @@ jobs:
           # Prefer NSIS -setup.exe in latest.json (updater-friendly, silent install)
           # over the .msi variant.
           updaterJsonPreferNsis: true
+
+  # ── Windows code signing (SignPath Foundation — free for open source) ──────
+  # Runs after all three platform builds finish. Downloads the unsigned Windows
+  # NSIS installer from the just-created GitHub Release, submits it to SignPath
+  # for code signing, then replaces the unsigned asset with the signed one.
+  # Prerequisite: register at signpath.io (see docs/release.md § SignPath 注册).
+  sign-windows:
+    needs: bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download Windows NSIS installer from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p unsigned signed
+          gh release download "${{ github.ref_name }}" \
+            --pattern "*-setup.exe" \
+            --dir unsigned/ \
+            --clobber
+          ls -lh unsigned/
+
+      - name: Upload unsigned NSIS installer as artifact
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-unsigned
+          path: unsigned/
+
+      - name: Submit to SignPath for code signing
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/
+
+      - name: Replace unsigned asset with signed installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="${{ github.ref_name }}"
+
+          # Delete the unsigned -setup.exe asset from the release.
+          ASSET_ID=$(gh release view "$RELEASE_TAG" \
+            --json assets \
+            -q '.assets[] | select(.name | test("-setup\\.exe$")) | .id')
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting unsigned asset id=$ASSET_ID"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$ASSET_ID"
+          fi
+
+          # Upload the signed .exe (SignPath returns it inside the ZIP — the
+          # action extracts to signed/). Find the first .exe and upload it.
+          SIGNED=$(find signed/ -name '*.exe' -o -name '*-setup*' | head -1)
+          if [ -z "$SIGNED" ]; then
+            echo "::error::No signed .exe found in signed/ — listing contents:"
+            find signed/ -type f
+            exit 1
+          fi
+
+          echo "Uploading signed installer: $SIGNED"
+          gh release upload "$RELEASE_TAG" "$SIGNED" --clobber

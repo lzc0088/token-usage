@@ -128,8 +128,47 @@ git push origin v1.0.4
 - [ ] 所有改动已提交（`git status` 干净）
 - [ ] 本地测试通过：`npm run check` + `cargo clippy -- -D warnings` + `cargo test --lib`
 - [ ] Apple Developer 证书仍在有效期内（macOS 签名依赖）← 每年 4–6 月检查
+- [ ] SignPath GitHub Secrets 已配置（Windows 签名依赖）← 首次配置后除非重新签发 token，否则不需再动
 
-## 预发布（Beta）
+## Windows 代码签名（SignPath Foundation）
+
+Windows 安装包默认 **未签名**，双击会触发 SmartScreen "已阻止可能不安全的应用"。消除该警告需要对接 [SignPath Foundation](https://signpath.io/) 的免费开源代码签名服务。
+
+### 注册步骤（仅首次，一次性）
+
+1. 打开 [signpath.io](https://signpath.io/)，用 GitHub 账号注册/登录
+2. Create Organization → 名称自定（如 `token-usage`）
+3. Create Project → `Project slug` 填 `token-usage`（记下来，后面用作 CI secret）
+   - Repository URL: `https://github.com/lzc0088/token-usage`
+   - 启用 **Trusted Build System** + **Origin Verification**
+4. 在 Project 下创建 **Signing Policy**：
+   - `Signing Policy Slug` 填 `release-signing`
+   - Certificate: 选择 SignPath Foundation 提供的免费证书
+5. 创建 **Artifact Configuration**：
+   - Root element: `<zip-file>`（upload-artifact@v4 会将文件打包为 ZIP）
+   - Contents: `<pe-file>`（即 Windows .exe 安装包）
+6. 创建 **API Token**（Settings → API Tokens）：
+   - 权限：Submit signing requests
+   - 复制 token → 存入 GitHub Secrets：`SIGNPATH_API_TOKEN`
+
+### GitHub Secrets 配置
+
+在仓库 Settings → Secrets and variables → Actions，新增 3 个 secret：
+
+| Secret | 值 | 说明 |
+|--------|-----|------|
+| `SIGNPATH_API_TOKEN` | 第 6 步生成的 API token | 认证凭证 |
+| `SIGNPATH_ORGANIZATION_ID` | SignPath 组织页面 URL 中的 UUID | 形如 `2e13633d-…` |
+| `SIGNPATH_PROJECT_SLUG` | 第 3 步填的 project slug | 如 `token-usage` |
+
+### CI 行为
+
+配置完成后，每次 `git push v*` 触发 release.yml：
+1. 三平台构建（macOS / Linux / Windows）并行跑
+2. Windows 安装包 → 上传到 GitHub Release（**未签名**）
+3. `sign-windows` job 启动：下载未签名 .exe → 提交 SignPath → 获签 → 替换 Release 中的旧文件
+
+从用户角度看：Release 页面的 Windows .exe 在发布后约 5–10 分钟变为已签名版本（SignPath 处理时间）。
 
 如果希望先发一个测试版而不是正式版，tag 中包含 `-` 后缀即自动标为 "Pre-release"：
 
