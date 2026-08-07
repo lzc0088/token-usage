@@ -59,6 +59,8 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 
 ## 界面展示
 
+### 主视图
+
 <table>
 <tr>
 <td width="290" align="center"><img src="assets/home-view.png" width="250" alt="总览视图"><br><sub>总览——今日 I/O/缓存分项 + Top 3 工具/模型/额度，实时速率</sub></td>
@@ -72,11 +74,21 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 </tr>
 <tr>
 <td width="290" align="center"><img src="assets/projects-view.png" width="250" alt="项目视图"><br><sub>项目——按工作区/仓库自动分组，session JSONL cwd 回溯</sub></td>
-<td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="设置 常规"><br><sub>设置——基本/预览界面/窗口外观/采集追踪/账号额度 5 分区独立窗口</sub></td>
 <td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="菜单栏 popover"><br><sub>菜单栏——图标 + 自定义显示（今日/累计 Tokens/成本）+ 右键菜单</sub></td>
+<td width="290"></td>
+</tr>
+</table>
+
+### 设置（5 分区独立窗口）
+
+<table>
+<tr>
+<td width="435" align="center"><img src="assets/settings-general.png" width="400" alt="设置 常规"><br><sub>常规——语言、登录启动、主题、检查更新等基础项</sub></td>
+<td width="435" align="center"><img src="assets/settings-windows.png" width="400" alt="设置 窗口"><br><sub>窗口——popover/固定/置顶三种窗口模式 + 全局热键</sub></td>
 </tr>
 <tr>
-<td width="290" align="center"><img src="assets/account.png" width="250" alt="账号配置"><br><sub>账号——多账号/多凭证配置，OAuth/API Key/Cookie 三类凭证</sub></td>
+<td width="435" align="center"><img src="assets/settings-account.png" width="400" alt="设置 账号"><br><sub>账号——多账号/多凭证配置，OAuth/API Key/Cookie 三类凭证</sub></td>
+<td width="435" align="center"><img src="assets/settings-tracking.png" width="400" alt="设置 采集追踪"><br><sub>采集追踪——实时/智能/定时间隔三种模式 + 归档会话</sub></td>
 </tr>
 </table>
 

@@ -59,6 +59,8 @@ Token Usage provides **token usage, vendor quota, and session detail** for each 
 
 ## Showcase
 
+### Main views
+
 <table>
 <tr>
 <td width="290" align="center"><img src="assets/home-view.png" width="250" alt="Home View"><br><sub>Home — today's I/O/cache split, Top 3 tools/models/quotas, real-time rate</sub></td>
@@ -72,11 +74,21 @@ Token Usage provides **token usage, vendor quota, and session detail** for each 
 </tr>
 <tr>
 <td width="290" align="center"><img src="assets/projects-view.png" width="250" alt="Projects View"><br><sub>Projects — auto-grouped by workspace/repo, derived from session JSONL cwd</sub></td>
-<td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="Settings — General"><br><sub>Settings — 5 separate windows: General / Preview / Window / Collection / Quotas</sub></td>
 <td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="Tray popover"><br><sub>Menu bar / Tray — icon + custom readout (today/total tokens or cost) + context menu</sub></td>
+<td width="290"></td>
+</tr>
+</table>
+
+### Settings (5 separate windows)
+
+<table>
+<tr>
+<td width="435" align="center"><img src="assets/settings-general.png" width="400" alt="Settings — General"><br><sub>General — language, launch at login, theme, check-for-updates</sub></td>
+<td width="435" align="center"><img src="assets/settings-windows.png" width="400" alt="Settings — Window"><br><sub>Window — popover / pinned / always-on-top modes, global hotkey</sub></td>
 </tr>
 <tr>
-<td width="290" align="center"><img src="assets/account.png" width="250" alt="Accounts"><br><sub>Accounts — multi-account / multi-credential setup, OAuth / API Key / Cookie</sub></td>
+<td width="435" align="center"><img src="assets/settings-account.png" width="400" alt="Settings — Accounts"><br><sub>Accounts — multi-account / multi-credential, OAuth / API Key / Cookie</sub></td>
+<td width="435" align="center"><img src="assets/settings-tracking.png" width="400" alt="Settings — Collection"><br><sub>Collection — live / smart / fixed interval modes, archived sessions</sub></td>
 </tr>
 </table>
 
