@@ -2,9 +2,50 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+/// Ensure the tokscale sidecar binary is present at `src-tauri/bin/`.
+///
+/// `tauri_build::build()` strictly validates `bundle.resources` (the
+/// `bin/tokscale*` glob) at build-script time — if the binary is missing it
+/// panics with "resource path `bin/tokscale` doesn't exist" (exit 101). That
+/// breaks every `cargo` invocation (clippy, test, check, IDE rust-analyzer)
+/// on a fresh checkout that hasn't run `npm run fetch-tokscale`.
+///
+/// This fetches the binary via the node script when it's absent, so cargo
+/// build is self-contained everywhere. The script is idempotent and fast
+/// (skips when the file exists), so when the binary is already present this
+/// does nothing. Never panics — if node/fetch fails it only warns and lets
+/// `tauri_build::build()` emit its own clear error.
+fn ensure_tokscale() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let bin_dir = manifest_dir.join("bin");
+    let present = ["tokscale", "tokscale.exe"]
+        .iter()
+        .any(|name| bin_dir.join(name).exists());
+    if present {
+        return;
+    }
+
+    let script = manifest_dir
+        .join("..")
+        .join("scripts")
+        .join("fetch-tokscale.mjs");
+    println!("cargo:warning=tokscale binary missing — fetching via {script_display}", script_display = script.display());
+    match std::process::Command::new("node").arg(&script).status() {
+        Ok(status) if status.success() => {
+            println!("cargo:warning=tokscale fetched successfully");
+        }
+        _ => {
+            println!("cargo:warning=fetch-tokscale failed (node missing or network error) — cargo build may fail on resource validation");
+        }
+    }
+}
+
 fn main() {
     // Load .env from crate root so JUHE_API_KEY is available.
     let _ = dotenvy::dotenv();
+
+    // Ensure the tokscale sidecar exists BEFORE tauri_build validates it.
+    ensure_tokscale();
 
     // Generate Tauri's default application manifest + run its codegen.
     // CRITICAL on Windows: the manifest activates ComCtl32 v6
@@ -27,3 +68,4 @@ fn main() {
 
     fs::write(out.join("generated.rs"), content).unwrap();
 }
+

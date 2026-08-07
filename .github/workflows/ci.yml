@@ -55,6 +55,16 @@ jobs:
       - name: Install npm deps
         run: npm install
 
+      - name: Fetch tokscale binary
+        # tauri_build::build() (run by every cargo command below) strictly
+        # validates bundle.resources — the tokscale sidecar must be present.
+        # Fetch it once here so clippy/test/check don't each re-fetch.
+        # (build.rs also self-heals as a fallback, but this is the fast path.)
+        env:
+          TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+          TOKSCALE_REGISTRY: https://registry.npmjs.org
+        run: node scripts/fetch-tokscale.mjs
+
       - name: Lint / type-check frontend
         run: npm run check
 
