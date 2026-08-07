@@ -107,7 +107,26 @@ jobs:
           # macOS cross-compile: the runner is x86_64 but we target arm64.
           # Tell the script which arch to fetch instead of detecting the host.
           TAURI_TARGET: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+          # CI runners are US-based → use the official npm registry. The script's
+          # default (npmmirror) is a China mirror that's slow/unreliable from US
+          # runners and caused the Windows build to ship without tokscale.exe,
+          # tripping tauri_build's resource validation.
+          TOKSCALE_REGISTRY: https://registry.npmjs.org
         run: node scripts/fetch-tokscale.mjs
+
+      - name: Verify tokscale binary present
+        # Fail fast with a clear message if fetch didn't land the binary —
+        # otherwise tauri-action fails later with a confusing
+        # "resource path 'bin/tokscale.exe' doesn't exist".
+        shell: bash
+        run: |
+          echo "Contents of src-tauri/bin/:"
+          ls -la src-tauri/bin/ || true
+          if [ ! -f src-tauri/bin/tokscale ] && [ ! -f src-tauri/bin/tokscale.exe ]; then
+            echo "::error::tokscale binary missing after fetch — check the Fetch step logs (registry / network)"
+            exit 1
+          fi
+          echo "OK: tokscale binary present"
 
       - name: Read release notes
         id: notes
