@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+    <!--
+      upload-artifact@v4 zips the file before sending it to SignPath.
+      The ZIP contains a single .exe (NSIS installer). This config tells
+      SignPath: "unzip → find the .exe → apply Authenticode signature."
+    -->
+    <zip-file>
+        <pe-file path="*.exe">
+            <authenticode-sign />
+        </pe-file>
+    </zip-file>
+</artifact-configuration>
