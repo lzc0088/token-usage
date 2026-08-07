@@ -75,6 +75,9 @@ Token Usage 对 **Token 用量、账户额度、Session 明细** 分别提供支
 <td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="设置 常规"><br><sub>设置——基本/预览界面/窗口外观/采集追踪/账号额度 5 分区独立窗口</sub></td>
 <td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="菜单栏 popover"><br><sub>菜单栏——图标 + 自定义显示（今日/累计 Tokens/成本）+ 右键菜单</sub></td>
 </tr>
+<tr>
+<td width="290" align="center"><img src="assets/account.png" width="250" alt="账号配置"><br><sub>账号——多账号/多凭证配置，OAuth/API Key/Cookie 三类凭证</sub></td>
+</tr>
 </table>
 
 ## 为什么用 Token Usage？

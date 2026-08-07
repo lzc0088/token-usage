@@ -75,6 +75,9 @@ Token Usage provides **token usage, vendor quota, and session detail** for each 
 <td width="290" align="center"><img src="assets/settings-general.png" width="250" alt="Settings — General"><br><sub>Settings — 5 separate windows: General / Preview / Window / Collection / Quotas</sub></td>
 <td width="290" align="center"><img src="assets/tray-popover.png" width="250" alt="Tray popover"><br><sub>Menu bar / Tray — icon + custom readout (today/total tokens or cost) + context menu</sub></td>
 </tr>
+<tr>
+<td width="290" align="center"><img src="assets/account.png" width="250" alt="Accounts"><br><sub>Accounts — multi-account / multi-credential setup, OAuth / API Key / Cookie</sub></td>
+</tr>
 </table>
 
 ## Why Token Usage?
