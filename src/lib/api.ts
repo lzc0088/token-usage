@@ -391,8 +391,8 @@ export const api = {
 
   getAppVersion: () => invoke<string>("get_app_version"),
 
-  checkUpdate: (repo: string, currentVersion: string) =>
-    invoke<UpdateInfo>("check_update", { repo, currentVersion }),
+  checkUpdate: (repo: string, currentVersion: string, force: boolean = false) =>
+    invoke<UpdateInfo>("check_update", { repo, currentVersion, force }),
 
   /** Download + verify + install the latest update via tauri-plugin-updater,
    *  then restart. Progress events stream to `onEvent`. Resolves when the

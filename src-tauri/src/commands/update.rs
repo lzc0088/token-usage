@@ -62,12 +62,12 @@ pub enum DownloadEvent {
 //   - on a transient failure we surface the last-known result instead of
 //     misleading the UI with `has_update: false` (the prior bug).
 
-/// Background (no-update) cooldown: once we know we're up-to-date, don't
-/// re-check for 24h.
-const BG_COOLDOWN_MS: i64 = 24 * 60 * 60 * 1000;
-/// Outdated (has-update) cooldown: once we know an update exists, re-check
-/// every 1h so the user sees a freshly-published build reasonably soon.
-const OUTDATED_COOLDOWN_MS: i64 = 60 * 60 * 1000;
+/// Cooldown for the background (auto) update check: within this window since
+/// the last check we short-circuit to the cached result. 1h balances freshness
+/// (a newly published release shows up within the hour) against GitHub's
+/// ~60 req/hour unauthenticated rate limit. Manual checks via the "Check
+/// Update" button pass `force=true` to bypass this entirely.
+const COOLDOWN_MS: i64 = 60 * 60 * 1000;
 const KV_LAST_CHECK_MS: &str = "update_last_check_ms";
 const KV_LAST_KNOWN: &str = "update_last_known";
 
@@ -76,17 +76,9 @@ fn now_ms() -> i64 {
 }
 
 /// Decide whether a new network check can be skipped because the cached result
-/// is still within its cooldown. Pure (no I/O) so it's unit-testable.
-///
-/// - `cached_has_update` → 1h cooldown (re-fetch a freshly-published build soon).
-/// - otherwise → 24h cooldown (we're up-to-date; don't hammer the API).
-fn within_cooldown(last_check_ms: i64, now_ms: i64, cached_has_update: bool) -> bool {
-    let cooldown = if cached_has_update {
-        OUTDATED_COOLDOWN_MS
-    } else {
-        BG_COOLDOWN_MS
-    };
-    now_ms - last_check_ms < cooldown
+/// is still within the cooldown. Pure (no I/O) so it's unit-testable.
+fn within_cooldown(last_check_ms: i64, now_ms: i64) -> bool {
+    now_ms - last_check_ms < COOLDOWN_MS
 }
 
 /// Load cached (last-check-ms, last-known UpdateInfo) from the app_config KV.
@@ -144,10 +136,10 @@ fn release_url(owner: &str, repo: &str, tag: &str) -> String {
 
 /// Query the releases API and compare with the current version.
 ///
-/// Cooldown: within `BG_COOLDOWN_MS` (24h, no update) or `OUTDATED_COOLDOWN_MS`
-/// (1h, has update) of the last check, short-circuit to the cached result
-/// without hitting the network — GitHub rate-limits unauthenticated
-/// requests to ~60/hour.
+/// Cooldown: within `COOLDOWN_MS` (1h) of the last check, short-circuit to
+/// the cached result without hitting the network — GitHub rate-limits
+/// unauthenticated requests to ~60/hour. Pass `force=Some(true)` to bypass
+/// (the manual "Check Update" button does this).
 ///
 /// On a transient failure (network / rate-limit / API error), the last-known
 /// result is returned if present (so the UI never forgets an available update
@@ -158,22 +150,21 @@ pub fn check_update(
     state: State<AppState>,
     repo: String,
     current_version: String,
+    force: Option<bool>,
 ) -> Result<UpdateInfo, String> {
     let (owner, repo_name) = parse_repo(&repo);
+    let force = force.unwrap_or(false);
 
     // ── 1. Cooldown short-circuit (cached path, no network) ────────────────
-    {
+    // Skipped when force=true — manual "Check Update" button always hits the
+    // network so the user sees the freshest state.
+    if !force {
         let conn = state.db_read();
         let (last_check, last_known) = load_cached(&conn);
         if let (Some(last), Some(known)) = (last_check, last_known) {
             let now = now_ms();
-            if within_cooldown(last, now, known.has_update) {
-                let cooldown = if known.has_update {
-                    OUTDATED_COOLDOWN_MS
-                } else {
-                    BG_COOLDOWN_MS
-                };
-                tracing::debug!("update check skipped: within {}ms cooldown", cooldown);
+            if within_cooldown(last, now) {
+                tracing::debug!("update check skipped: within {}ms cooldown", COOLDOWN_MS);
                 return Ok(known);
             }
         }
@@ -693,18 +684,11 @@ mod tests {
     }
 
     #[test]
-    fn within_cooldown_uses_24h_when_up_to_date() {
-        // No update known → 24h cooldown. 23h later → still cached.
-        assert!(within_cooldown(0, 23 * 60 * 60 * 1000, false));
-        // 25h later → expired.
-        assert!(!within_cooldown(0, 25 * 60 * 60 * 1000, false));
-    }
-
-    #[test]
-    fn within_cooldown_uses_1h_when_update_available() {
-        // Update known → 1h cooldown (re-check sooner for fresh builds).
-        assert!(within_cooldown(0, 59 * 60 * 1000, true));
-        assert!(!within_cooldown(0, 61 * 60 * 1000, true));
+    fn within_cooldown_1h_window() {
+        // 1h cooldown regardless of cached state. 59min → cached.
+        assert!(within_cooldown(0, 59 * 60 * 1000));
+        // 61min → expired, re-check.
+        assert!(!within_cooldown(0, 61 * 60 * 1000));
     }
 
     #[test]

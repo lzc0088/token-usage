@@ -124,7 +124,7 @@
       return;
     }
 
-    api.checkUpdate(UPDATE_REPO, appVersion).then((info) => {
+    api.checkUpdate(UPDATE_REPO, appVersion, true).then((info) => {
       updateStatus = info;
       checking = false;
       if (info.error) {
