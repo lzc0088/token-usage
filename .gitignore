@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# References
+token-monitor/
+
+# Build output
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Tauri sidecar binaries (fetched at runtime per plan.md §4.1, not committed)
+src-tauri/bin/
+
+# Coverage reports (ephemeral build artifacts)
+coverage/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Playwright MCP artifacts (local only)
+.playwright-mcp/
+
+# Project guidance (local only, not on remote)
+CLAUDE.md
+.claude/
+assets/design-scripts/
+docs/
