@@ -1,7 +1,7 @@
 <script lang="ts">
   // 常规 (T5.2): 启动 + 应用更新 + 关于. 参考 wireframe #general.
   import { untrack } from "svelte";
-  import type { Config, UpdateInfo } from "../../lib/api";
+  import type { Config, UpdateInfo, InstallEvent } from "../../lib/api";
   import { api } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
@@ -32,6 +32,11 @@
   let checking = $state(false);
   let updateStatus = $state<UpdateInfo | null>(null);
   let showLatestAlert = $state(false);
+  // Install state machine (application-internal auto-update via updater plugin).
+  type InstallState = "idle" | "downloading" | "installing" | "relaunching" | "error";
+  let installState = $state<InstallState>("idle");
+  let installError = $state<string>("");
+  let downloadProgress = $state<{ downloaded: number; total: number }>({ downloaded: 0, total: 0 });
   let rateMode = $state<"auto" | "manual">(
     untrack(() => (config.rate_mode === "manual" ? "manual" : "auto")),
   );
@@ -139,6 +144,61 @@
       };
       checking = false;
     });
+  }
+
+  // Trigger the in-app auto-update: download + verify + install + relaunch.
+  // Progress events from the Rust backend drive `installState`.
+  async function installUpdate(): Promise<void> {
+    if (installState === "downloading" || installState === "installing") return;
+    installState = "downloading";
+    installError = "";
+    downloadProgress = { downloaded: 0, total: 0 };
+    try {
+      await api.installUpdate((e: InstallEvent) => {
+        switch (e.event) {
+          case "Started":
+            downloadProgress = { downloaded: 0, total: e.data.content_length };
+            break;
+          case "Progress":
+            downloadProgress = { ...downloadProgress, downloaded: downloadProgress.downloaded + e.data.chunk_length };
+            break;
+          case "Finished":
+            installState = "installing";
+            break;
+          case "Installed":
+            // Updater will relaunch the app. macOS bug #11392 may leave the
+            // process alive — surface a manual-reopen hint after 3s.
+            installState = "relaunching";
+            sTimeout(() => {
+              if (installState === "relaunching") {
+                installState = "error";
+                installError = t("general.relaunchHint");
+              }
+            }, 3000);
+            break;
+          case "Error":
+            installState = "error";
+            installError = e.data.message;
+            break;
+        }
+      });
+    } catch (e) {
+      installState = "error";
+      installError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // Fallback when the in-app updater fails: open the release page in a browser
+  // so the user can download the installer manually.
+  function fallbackDownload(): void {
+    const url = updateStatus?.download_url ?? updateStatus?.url;
+    if (url) openExternal(url);
+  }
+
+  function resetInstall(): void {
+    installState = "idle";
+    installError = "";
+    downloadProgress = { downloaded: 0, total: 0 };
   }
 
   function saveRate(): void {
@@ -317,14 +377,39 @@
           {#if updateStatus.changelog}
             <div class="update-changelog">{updateStatus.changelog}</div>
           {/if}
-          {#if updateStatus.download_url}
-            <button type="button" class="btn-download" onclick={() => openExternal(updateStatus!.download_url!)}>
-              {t("general.downloadUpdate")}
-            </button>
-          {:else}
-            <button type="button" class="btn-download" onclick={() => openExternal(updateStatus!.url)}>
-              {t("general.gotoDownload")}
-            </button>
+          {#if installState === "idle"}
+            <div class="install-actions">
+              <button type="button" class="btn-download" onclick={installUpdate}>
+                {t("general.installNow")}
+              </button>
+            </div>
+          {:else if installState === "downloading"}
+            <div class="install-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: {downloadProgress.total > 0 ? Math.min(100, downloadProgress.downloaded / downloadProgress.total * 100) : 0}%"></div>
+              </div>
+              <span class="progress-text">
+                {downloadProgress.total > 0
+                  ? `${(downloadProgress.downloaded / 1048576).toFixed(1)} / ${(downloadProgress.total / 1048576).toFixed(1)} MB`
+                  : `${(downloadProgress.downloaded / 1048576).toFixed(1)} MB`}
+              </span>
+            </div>
+          {:else if installState === "installing"}
+            <div class="install-status">{t("general.installing")}</div>
+          {:else if installState === "relaunching"}
+            <div class="install-status">{t("general.relaunching")}</div>
+          {:else if installState === "error"}
+            <div class="install-error">
+              <span class="install-err-text">{installError}</span>
+              <div class="install-actions">
+                <button type="button" class="btn-download" onclick={() => { resetInstall(); installUpdate(); }}>
+                  {t("general.retry")}
+                </button>
+                <button type="button" class="btn-outline-sm" onclick={fallbackDownload}>
+                  {t("general.browserDownload")}
+                </button>
+              </div>
+            </div>
           {/if}
         </div>
       </div>
@@ -414,6 +499,26 @@
     align-self: flex-start;
   }
   .btn-download:hover { opacity: 0.88; }
+
+  /* ── install actions / progress (auto-update UI) ── */
+  .install-actions { display: flex; gap: 8px; margin-top: 4px; align-self: flex-start; }
+  .btn-outline-sm {
+    background: transparent; border: 1px solid var(--glass-3); color: var(--text-dim);
+    padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-outline-sm:hover { border-color: var(--text-dim); color: var(--text); }
+
+  .install-progress { display: flex; align-items: center; gap: 8px; margin-top: 4px; width: 100%; }
+  .progress-bar {
+    flex: 1; height: 6px; background: rgba(0,0,0,0.15); border-radius: 3px; overflow: hidden; min-width: 120px;
+  }
+  .progress-fill { height: 100%; background: var(--lime); transition: width 0.2s; }
+  .progress-text { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+
+  .install-status { font-size: 12px; color: var(--lime); font-weight: 500; margin-top: 4px; }
+  .install-error { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .install-err-text { font-size: 11.5px; color: var(--coral); line-height: 1.5; }
 
   .update-error {
     display: flex; align-items: center; gap: 8px;

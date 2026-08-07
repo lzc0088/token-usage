@@ -2,7 +2,7 @@
 // #[command] fns in src-tauri/src/commands/. The Rust serde shapes are the
 // source of truth; these interfaces keep the frontend end of the contract.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 // ── shared enums ────────────────────────────────────────────────────────────
 
@@ -282,6 +282,17 @@ export interface UpdateInfo {
   download_url: string | null;
 }
 
+/**
+ * Progress events streamed from `install_update` during download + install.
+ * Drives the install UI state machine in General.svelte.
+ */
+export type InstallEvent =
+  | { event: "Started"; data: { content_length: number } }
+  | { event: "Progress"; data: { chunk_length: number } }
+  | { event: "Finished"; data: null }
+  | { event: "Installed"; data: null }
+  | { event: "Error"; data: { message: string } };
+
 // ── command wrappers ────────────────────────────────────────────────────────
 
 export const api = {
@@ -382,6 +393,15 @@ export const api = {
 
   checkUpdate: (repo: string, currentVersion: string) =>
     invoke<UpdateInfo>("check_update", { repo, currentVersion }),
+
+  /** Download + verify + install the latest update via tauri-plugin-updater,
+   *  then restart. Progress events stream to `onEvent`. Resolves when the
+   *  install is done (the app then relaunches). */
+  installUpdate: (onEvent: (e: InstallEvent) => void) => {
+    const channel = new Channel<InstallEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("install_update", { onEvent: channel });
+  },
 
   /** Open an external URL in the system browser. Only http/https URLs are
    *  allowed — javascript:, file:, and other schemes are rejected server-side. */

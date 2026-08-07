@@ -382,8 +382,8 @@
       {#if updateInfo?.hasUpdate}
         <button
           class="ver-tag update"
-          onclick={() => { updateInfo?.url && invoke("open_external", { url: updateInfo.url }).catch(() => {}); }}
-          title="新版本 {updateInfo.version} 可用，点击下载"
+          onclick={() => { invoke("open_settings").catch(() => {}); }}
+          title="新版本 {updateInfo.version} 可用，点击打开更新页"
           aria-label="新版本可用"
         >
           <span class="ver-dot"></span>

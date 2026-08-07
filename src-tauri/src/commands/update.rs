@@ -4,7 +4,9 @@
 //! Tauri runs commands on a blocking thread pool, so this is fine.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::ipc::Channel;
+use tauri::{AppHandle, State};
+use tauri_plugin_updater::UpdaterExt;
 
 use crate::state::AppState;
 
@@ -33,6 +35,23 @@ pub struct UpdateInfo {
     /// Direct download URL for the first release asset (e.g. .dmg file).
     /// None when no asset is available.
     pub download_url: Option<String>,
+}
+
+/// Progress events pushed to the frontend during `install_update`.
+/// Drives the install UI state machine (idle → downloading → installing → relaunching).
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data")]
+pub enum DownloadEvent {
+    /// Download started; `content_length` is total bytes (0 if unknown).
+    Started { content_length: u64 },
+    /// A chunk was downloaded; frontend accumulates `chunk_length`.
+    Progress { chunk_length: u64 },
+    /// Download finished, about to install.
+    Finished,
+    /// Installation complete, app is about to restart.
+    Installed,
+    /// Any error during check / download / install.
+    Error { message: String },
 }
 
 // ── persistent cooldown (app_config KV) ─────────────────────────────────────
@@ -414,6 +433,80 @@ fn asset_url(asset: &serde_json::Value) -> Option<String> {
 #[tauri::command]
 pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Download + verify + install the latest update via `tauri-plugin-updater`,
+/// then restart the app. Progress is streamed to the frontend via `on_event`.
+///
+/// This walks the `latest.json` endpoint (configured in tauri.conf.json →
+/// plugins.updater) — independent of `check_update`'s GitHub API path, so the
+/// two never interfere. `check_update` decides *whether* an update exists and
+/// shows the changelog; `install_update` does the actual replace + relaunch.
+///
+/// On macOS there's a known restart bug (tauri#11392) where the app may not
+/// relaunch — the frontend treats `Installed` as "about to restart" and shows
+/// a manual-reopen hint if it's still alive 3s later.
+#[tauri::command]
+pub async fn install_update(
+    app: AppHandle,
+    on_event: Channel<DownloadEvent>,
+) -> Result<(), String> {
+    let updater = app
+        .updater_builder()
+        .build()
+        .map_err(|e| format!("updater 初始化失败：{e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| {
+            let msg = format!("检查更新失败：{e}");
+            let _ = on_event.send(DownloadEvent::Error {
+                message: msg.clone(),
+            });
+            msg
+        })?
+        .ok_or_else(|| "当前已是最新版本".to_string())?;
+
+    // Stream download progress to the frontend. v2.10+ API: the first callback
+    // fires per chunk with `(chunk_length, total_option)`; the second fires
+    // once when download finishes (before install). We synthesize a Started
+    // event from the first chunk + its total, then Progress per chunk.
+    let first = std::sync::atomic::AtomicBool::new(true);
+    let on_progress = {
+        let on_event = on_event.clone();
+        move |chunk_length: usize, total: Option<u64>| {
+            if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                let _ = on_event.send(DownloadEvent::Started {
+                    content_length: total.unwrap_or(0),
+                });
+            }
+            let _ = on_event.send(DownloadEvent::Progress {
+                chunk_length: chunk_length as u64,
+            });
+        }
+    };
+    let on_download_finish = {
+        let on_event = on_event.clone();
+        move || {
+            let _ = on_event.send(DownloadEvent::Finished);
+        }
+    };
+
+    update
+        .download_and_install(on_progress, on_download_finish)
+        .await
+        .map_err(|e| {
+            let msg = format!("下载/安装失败：{e}");
+            let _ = on_event.send(DownloadEvent::Error {
+                message: msg.clone(),
+            });
+            msg
+        })?;
+
+    let _ = on_event.send(DownloadEvent::Installed);
+    // app.restart() diverges (returns `!`) — the process is replaced.
+    app.restart()
 }
 
 /// Simple semver comparison: strips "v" prefix and compares major.minor.patch.

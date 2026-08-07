@@ -325,6 +325,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .setup(|app| {
             // Initialize structured logging inside setup (after tao init).
@@ -569,6 +570,7 @@ pub fn run() {
             commands::autostart::get_auto_start,
             commands::update::check_update,
             commands::update::get_app_version,
+            commands::update::install_update,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();

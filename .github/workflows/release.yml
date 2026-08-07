@@ -139,8 +139,17 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Read by scripts/sign-sidecar.sh (runs as beforeBundleCommand).
           APPLE_SIGN_IDENTITY: "Developer ID Application: Ze Chuan Liu (2F74TS79TL)"
+          # Updater signing key — signs the update packages (.tar.gz/.exe/.AppImage)
+          # so the in-app updater can verify them against the pubkey in
+          # tauri.conf.json. tauri-action auto-generates latest.json + .sig
+          # files when these are present + createUpdaterArtifacts is true.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Token Usage ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
+          # Prefer NSIS -setup.exe in latest.json (updater-friendly, silent install)
+          # over the .msi variant.
+          updaterJsonPreferNsis: true
