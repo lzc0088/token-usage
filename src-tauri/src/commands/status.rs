@@ -94,8 +94,11 @@ pub async fn get_tokscale_status(app: tauri::AppHandle) -> Result<TokscaleStatus
             })
         }
     };
-    let out = tokio::process::Command::new(&bin)
-        .arg("--version")
+    let mut cmd = tokio::process::Command::new(&bin);
+    cmd.arg("--version");
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd/powershell flash
+    let out = cmd
         .output()
         .await
         .map_err(|e| e.to_string())?;

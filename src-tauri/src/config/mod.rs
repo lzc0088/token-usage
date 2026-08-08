@@ -180,7 +180,13 @@ fn default_trigger_mode() -> String {
     "click".into()
 }
 fn default_window_display_mode() -> String {
-    "normal".into()
+    // Windows: apply_drag_mode / set_window_draggable are macOS-only, so
+    // "normal" makes the window neither draggable nor always-on-top.
+    // Default to "always_on_top" so it's at least useful out of the box.
+    #[cfg(windows)]
+    return "always_on_top".into();
+    #[cfg(not(windows))]
+    return "normal".into();
 }
 fn default_tray_display() -> String {
     "icon_only".into()

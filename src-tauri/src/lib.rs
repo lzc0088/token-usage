@@ -257,21 +257,32 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     )?;
 
     // ── 窗口呈现 submenu ──
+    // Windows: only "always_on_top" works (drag modes are macOS-only).
+    // macOS / Linux: "normal" + "fixed".
     let win = |id: &str, sel: &str, label| {
         let val = id.strip_prefix("window_").unwrap_or(id);
         let check = if val == sel { "✓ " } else { "    " };
         menu_item(id, &format!("{check}{label}"))
     };
     let wd = &win_sel;
-    let win_sub = Submenu::with_items(
-        app,
-        label("窗口呈现", "Window Mode"),
-        true,
-        &[
-            &win("window_normal", wd, label("普通窗口", "Normal"))?,
-            &win("window_fixed", wd, label("固定位置", "Fixed"))?,
-        ],
-    )?;
+    let win_sub = if cfg!(windows) {
+        Submenu::with_items(
+            app,
+            label("窗口呈现", "Window Mode"),
+            true,
+            &[&win("window_always_on_top", wd, label("置顶显示", "Always On Top"))?],
+        )
+    } else {
+        Submenu::with_items(
+            app,
+            label("窗口呈现", "Window Mode"),
+            true,
+            &[
+                &win("window_normal", wd, label("普通窗口", "Normal"))?,
+                &win("window_fixed", wd, label("固定位置", "Fixed"))?,
+            ],
+        )
+    }?;
 
     // ── 切换主题 submenu ──
     let th = |id: &str, sel: &str, label| {
@@ -689,7 +700,7 @@ pub fn run() {
                             });
                         })
                         .is_some(),
-                    "window_normal" | "window_fixed" => {
+                    "window_normal" | "window_fixed" | "window_always_on_top" => {
                         let _ = id.strip_prefix("window_").map(|mode| {
                             let _ = config::with_config(c, |cfg| {
                                 cfg.window_display_mode = mode.to_string();

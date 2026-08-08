@@ -45,20 +45,7 @@
       {
         "label": "floating",
         "url": "floating.html",
-        "width": 44,
-        "height": 44,
-        "visible": false,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "center": false
-      },
-      {
-        "label": "floating-panel",
-        "url": "floating-panel.html",
-        "width": 176,
+        "width": 148,
         "height": 44,
         "visible": false,
         "resizable": false,

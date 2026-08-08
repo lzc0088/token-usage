@@ -16,49 +16,109 @@
       -webkit-user-select: none;
     }
 
-    /* Theme palettes — mirror the app's app.css variables (dark default). */
-    :root {
-      --glass: rgba(28, 26, 22, 0.85);     /* #1c1a16 */
-      --border: rgba(255, 255, 255, 0.12);
-      --amber: #e8b04b;
-      --shadow: rgba(0, 0, 0, 0.35);
-    }
-    body.theme-light {
-      --glass: rgba(255, 255, 255, 0.85);  /* #ffffff */
-      --border: rgba(0, 0, 0, 0.08);
-      --amber: #c98a1e;
-      --shadow: rgba(0, 0, 0, 0.16);
+    /* Right-align the capsule so its flat (screen-edge) side stays flush
+       with the window's right edge (= the screen edge). */
+    body {
+      display: flex;
+      justify-content: flex-end;
     }
 
-    /* The handle fills the whole window so its edge meets the panel flush. */
-    .handle {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
+    /* Theme palettes — mirror the app's app.css variables. */
+    :root {
+      --glass: rgba(28, 26, 22, 0.95);
+      --border: rgba(255, 255, 255, 0.25);
+      --amber: #e8b04b;
+    }
+    body.theme-light {
+      --glass: rgba(255, 255, 255, 0.95);
+      --border: rgba(0, 0, 0, 0.15);
+      --amber: #c98a1e;
+    }
+
+    /*
+     * Floating widget — single capsule, width animates on hover.
+     *
+     * The OS window (148×44) sits flush against the right screen edge.
+     * The capsule is anchored to the window's right edge (screen edge):
+     *   - Collapsed (44px): a clean semicircle — flat side flush with the
+     *     screen, rounded side facing outward. Only the "T" shows.
+     *   - Expanded (148px): a half-pill. The "T" stays at the screen-edge
+     *     end; the data value fades in centered in the outward region. The
+     *     outer rounded cap carries no icon.
+     * Border is transparent when collapsed (no edge line) and turns solid
+     * on expand. The screen-edge side has no border (flush against screen).
+     */
+    .capsule {
+      height: 44px;
+      width: 44px;
       background: var(--glass);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid var(--border);
-      box-shadow: 0 6px 18px var(--shadow);
+      border: 1px solid transparent;
+      border-right: none;
+      border-radius: 22px 0 0 22px;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      cursor: pointer;
+      transition: width 0.3s cubic-bezier(0.22, 0.61, 0.36, 1),
+                  border-color 0.15s ease;
+    }
+    .capsule:hover {
+      width: 148px;
+      border-color: var(--border);
+    }
+
+    /* "T" icon: fixed 44px region at the screen-edge (right) end. Never moves. */
+    .t-icon {
+      width: 44px;
+      height: 100%;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 16px;
+      font-family: "SF Mono", "JetBrains Mono", "Consolas", monospace;
       font-weight: 700;
+      font-size: 18px;
       color: var(--amber);
-      cursor: pointer;
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
     }
-    .handle:hover {
-      transform: scale(1.06);
-      box-shadow: 0 8px 22px var(--shadow);
+
+    /* Data value: fills the outward region, centered. Hidden (opacity 0)
+       when collapsed so only the "T" shows in the default semicircle; fades
+       in as the pill widens on hover. */
+    .data {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      white-space: nowrap;
+      padding: 0 12px;
+      font-family: "SF Mono", "JetBrains Mono", "Consolas", monospace;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--amber);
+      letter-spacing: -0.01em;
+      opacity: 0;
+      transition: opacity 0.2s ease;
     }
-    .handle.dragging { transform: scale(1.02); cursor: grabbing; }
+    .capsule:hover .data {
+      opacity: 1;
+    }
+    /* Empty/placeholder readout is dimmed (but only once expanded). */
+    .capsule:hover .data.placeholder {
+      opacity: 0.35;
+    }
+
+    /* Windows: suppress backdrop-filter (WebView2 unreliable on transparent windows). */
+    body.platform-windows .capsule {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   </style>
 </head>
 <body class="theme-dark">
-  <div class="handle" id="handle">T</div>
+
+  <div class="capsule" id="capsule">
+    <span class="data" id="val">–</span>
+    <span class="t-icon">T</span>
+  </div>
 
   <script>
     (function () {
@@ -69,15 +129,26 @@
       }
 
       function setup(invoke, listen, win) {
-        const handle = document.getElementById("handle");
+        const capsule = document.getElementById("capsule");
+        const val = document.getElementById("val");
 
-        function applyTheme(theme) {
-          document.body.classList.toggle("theme-light", theme === "light");
-          document.body.classList.toggle("theme-dark", theme !== "light");
+        // Windows: suppress backdrop-filter fallback class
+        if (typeof navigator !== "undefined" && /Win/.test(navigator.platform || "")) {
+          document.body.classList.add("platform-windows");
         }
 
-        // Hover → show the panel beside the handle. Hide scheduling is owned by
-        // Rust (debounced) so the cursor can cross handle → panel freely.
+        function apply(payload) {
+          if (!payload) return;
+          document.body.classList.toggle("theme-light", payload.theme === "light");
+          document.body.classList.toggle("theme-dark", payload.theme !== "light");
+          if (payload.text != null) {
+            const t = payload.text && payload.text.length ? payload.text : "–";
+            val.textContent = t;
+            val.classList.toggle("placeholder", !payload.text || payload.text.length === 0);
+          }
+        }
+
+        // Hover bridging: mouseenter cancels the hide timer; mouseleave restarts it.
         document.body.addEventListener("mouseenter", () => {
           invoke("show_floating_panel").catch(() => {});
         });
@@ -85,34 +156,34 @@
           invoke("hide_floating_panel").catch(() => {});
         });
 
-        // Click vs drag: pointerdown records origin; moving past a threshold
-        // hands control to the OS drag; a pointerup without movement is a click.
+        // Click anywhere → open the main popover.
+        capsule.addEventListener("click", () => {
+          invoke("show_main_window").catch(() => {});
+        });
+
+        // Drag: pointerdown records origin; moving past a threshold hands control
+        // to the OS drag; a pointerup without movement is a click.
         let down = null;
-        handle.addEventListener("pointerdown", (e) => {
+        capsule.addEventListener("pointerdown", (e) => {
           down = { x: e.screenX, y: e.screenY, moved: false };
         });
-        handle.addEventListener("pointermove", (e) => {
+        capsule.addEventListener("pointermove", (e) => {
           if (!down || down.moved) return;
           if (Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
             down.moved = true;
-            handle.classList.add("dragging");
             invoke("hide_floating_panel").catch(() => {});
             win.startDragging().catch(() => {});
           }
         });
-        handle.addEventListener("pointerup", () => {
+        capsule.addEventListener("pointerup", () => {
           if (down && !down.moved) {
             invoke("show_main_window").catch(() => {});
           }
-          handle.classList.remove("dragging");
           down = null;
         });
 
-        // Theme sync (handle ignores text/side, applies only theme).
-        listen("floating:update", (e) => {
-          if (e.payload && e.payload.theme) applyTheme(e.payload.theme);
-        });
-        invoke("get_floating_data").then((d) => { if (d && d.theme) applyTheme(d.theme); }).catch(() => {});
+        listen("floating:update", (e) => apply(e.payload));
+        invoke("get_floating_data").then(apply).catch(() => {});
       }
 
       boot();

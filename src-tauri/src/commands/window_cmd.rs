@@ -183,7 +183,7 @@ fn drag_baseline(label: &str, main_baseline: bool) -> bool {
     }
 }
 
-// ── Floating widget commands (M8, plan B) ───────────────────────────────────
+// ── Floating widget commands (single window, CSS slide) ────────────────────
 
 /// Show the main popover window. Called when the floating handle is clicked.
 #[tauri::command]
@@ -196,22 +196,24 @@ pub fn show_main_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the data panel flush beside the handle (hover-in). Cancels any pending
-/// hide so the cursor can cross from handle → panel.
+/// Show the floating window (hover-in cancels any pending hide).
 #[tauri::command]
 pub fn show_floating_panel(app: AppHandle) -> Result<(), String> {
     crate::ui::floating::show_panel(&app);
+    if let Some(w) = app.get_webview_window("floating") {
+        let _ = w.show();
+    }
     Ok(())
 }
 
-/// (Re)start the debounced panel hide (hover-out from either window).
+/// (Re)start the debounced hide (hover-out).
 #[tauri::command]
 pub fn hide_floating_panel(app: AppHandle) -> Result<(), String> {
     crate::ui::floating::schedule_hide(&app);
     Ok(())
 }
 
-/// Return the panel's readout + side for its initial paint.
+/// Return the floating widget's readout + theme for its initial paint.
 #[tauri::command]
 pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::FloatingData, String> {
     let state = app.state::<crate::state::AppState>();
@@ -238,7 +240,6 @@ pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::Floating
     };
     Ok(crate::ui::floating::FloatingData {
         text,
-        side: crate::ui::floating::panel_side(&app),
         theme: crate::ui::floating::resolved_theme(&app, &cfg),
     })
 }

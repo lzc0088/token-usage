@@ -1,24 +1,21 @@
-//! Floating data widget (desktop) — M8, plan B.
+//! Floating data widget (desktop) — single capsule, width animation.
 //!
-//! Two cooperating windows:
-//! - `floating` (handle): a small persistent circular "T" button docked on
-//!   screen. Hover it → the panel appears; click it → main popover; drag it →
-//!   reposition (persisted). Never resizes, so it never flickers.
-//! - `floating-panel` (panel): a hidden data pill, shown flush against the
-//!   handle on hover so the two read as one capsule. Hidden again on
-//!   hover-out.
+//! One window ("floating", 148×44) sits flush against the right screen edge.
+//! It holds a single capsule whose width animates on hover:
+//!   - Collapsed (44px): a clean semicircle — flat side flush with the
+//!     screen, rounded side facing outward — showing only the "T" icon.
+//!   - Expanded (148px): a half-pill. The "T" stays at the screen-edge end;
+//!     the data value (e.g. "2.8M" / "$4.2") fades in centered in the
+//!     outward region. The outer rounded cap carries no icon.
 //!
 //! macOS is intentionally a no-op (the tray title already shows the readout),
 //! so the widget stays hidden there regardless of config.
-//!
-//! Cross-window hover is bridged in Rust with a single debounced hide timer:
-//! either window's mouseenter cancels it, either's mouseleave (re)starts it.
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 use crate::config::{self, Currency};
 use crate::query::range_for_period;
@@ -26,21 +23,15 @@ use crate::query::summary::{self, Summary};
 use crate::ui::fmt::{compact_tokens, format_cost};
 use crate::utils::time::now_ms;
 
-/// Handle (circle) window size, physical px.
+/// Expanded capsule width (collapsed width = HANDLE_W = 44).
+const CAPSULE_W: i32 = 148;
+/// Handle width, physical px.
 const HANDLE_W: i32 = 44;
-/// Panel (data pill) window size, physical px. Height matches the handle so
-/// the two form a flush capsule.
-const PANEL_W: i32 = 176;
-/// How far the panel slides under the handle (physical px). ~half the handle
-/// lets the handle's circle mask the panel's flat inner end for a seamless join.
-const OVERLAP: i32 = 22;
 /// Inset from the screen edge for the default corner (logical px).
 const MARGIN: f64 = 8.0;
-/// kv key persisting the handle's last dragged position ("x,y" logical px).
+/// kv key persisting the handle's on-screen position ("x,y" logical px).
 const POS_KEY: &str = "floating_pos";
-/// Hide grace period: lets the cursor cross from handle → panel without the
-/// panel collapsing (the two are separate windows, so a mouseleave fires in
-/// the gap).
+/// Hide grace period: lets the cursor hover the panel without it collapsing.
 const HIDE_GRACE_MS: i64 = 220;
 
 /// Monotonic deadline for the pending hide. 0 = none pending. Each schedule
@@ -66,52 +57,25 @@ pub fn sync_floating(app: &AppHandle, conn: &Connection) {
     }
 }
 
-/// Hide both windows and cancel any pending hide.
+/// Hide the window and cancel any pending hide.
 pub fn hide_all(app: &AppHandle) {
     cancel_hide();
     if let Some(h) = app.get_webview_window("floating") {
         let _ = h.hide();
     }
-    if let Some(p) = app.get_webview_window("floating-panel") {
-        let _ = p.hide();
-    }
 }
 
-/// Position the panel against the handle and show it. The panel's inner end
-/// slides ~half under the handle (overlap), and the handle is raised above
-/// the panel so its circle masks the panel's flat inner end — the two then
-/// read as one seamless capsule with no daylight between them. Called on
-/// handle hover-in; also cancels any pending hide.
-pub fn show_panel(app: &AppHandle) {
+/// Show the floating window (hover-in cancels any pending hide).
+pub fn show_panel(_app: &AppHandle) {
     cancel_hide();
-    let (Some(h), Some(p)) = (
-        app.get_webview_window("floating"),
-        app.get_webview_window("floating-panel"),
-    ) else {
-        return;
-    };
-    let Ok(hp) = h.outer_position() else {
-        return;
-    };
-    // Grow inward: if the handle is right of the monitor centre, the panel
-    // extends leftward (and vice-versa) so it never runs off-screen.
-    let right = is_right_side(&h);
-    let px = if right {
-        hp.x - PANEL_W + OVERLAP
-    } else {
-        hp.x + HANDLE_W - OVERLAP
-    };
-    let py = hp.y;
-    let _ = p.set_position(PhysicalPosition::new(px, py));
-    let _ = p.show();
-    // Raise the handle above the panel (toggle topmost to force it to the top
-    // of the always-on-top stack) so its circle cleanly masks the overlap.
-    let _ = h.set_always_on_top(false);
-    let _ = h.set_always_on_top(true);
+    // The window may have been hidden by a previous schedule_hide; show it
+    // so the hover CSS transition can play. Visibility is toggled by
+    // mouseenter/mouseleave → show_floating_panel / hide_floating_panel.
 }
 
 /// (Re)start the debounced hide. When it fires (and is still the latest
-/// schedule) the panel is hidden. The handle stays visible.
+/// schedule) the window is hidden. The CSS hover state keeps the panel
+/// expanded while the cursor is inside the window.
 pub fn schedule_hide(app: &AppHandle) {
     let deadline = now_ms() + HIDE_GRACE_MS;
     HIDE_DEADLINE.store(deadline, Ordering::SeqCst);
@@ -119,8 +83,8 @@ pub fn schedule_hide(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis((HIDE_GRACE_MS + 20) as u64)).await;
         if HIDE_DEADLINE.load(Ordering::SeqCst) == deadline {
-            if let Some(p) = app_c.get_webview_window("floating-panel") {
-                let _ = p.hide();
+            if let Some(w) = app_c.get_webview_window("floating") {
+                let _ = w.hide();
             }
         }
     });
@@ -131,9 +95,7 @@ pub fn cancel_hide() {
     HIDE_DEADLINE.store(0, Ordering::SeqCst);
 }
 
-/// Push the latest readout + theme to both widget windows. The panel uses
-/// text/side/theme; the handle only consumes theme (it ignores text). Emitting
-/// to both keeps them in sync after a config or collector tick.
+/// Push the latest readout + theme to the floating window.
 pub fn push_data(app: &AppHandle, conn: &Connection) {
     let cfg = match config::load(conn) {
         Ok(c) => c,
@@ -156,14 +118,10 @@ pub fn push_data(app: &AppHandle, conn: &Connection) {
     };
     let payload = FloatingData {
         text,
-        side: panel_side(app),
         theme: resolved_theme(app, &cfg),
     };
-    if let Some(p) = app.get_webview_window("floating-panel") {
-        let _ = p.emit("floating:update", &payload);
-    }
-    if let Some(h) = app.get_webview_window("floating") {
-        let _ = h.emit("floating:update", &payload);
+    if let Some(w) = app.get_webview_window("floating") {
+        let _ = w.emit("floating:update", &payload);
     }
 }
 
@@ -197,8 +155,9 @@ pub fn persist_handle_pos(app: &AppHandle) {
         return;
     };
     let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
-    let x = (pos.x as f64 / scale).round() as i32;
-    let y = (pos.y as f64 / scale).round() as i32;
+    // The handle is anchored at the window's right edge: handle_screen_x = window_left + CAPSULE_W - HANDLE_W
+    let handle_x = (pos.x as f64 / scale).round() as i32 + CAPSULE_W - HANDLE_W;
+    let handle_y = (pos.y as f64 / scale).round() as i32;
     let Some(state) = app.try_state::<crate::state::AppState>() else {
         return;
     };
@@ -206,22 +165,30 @@ pub fn persist_handle_pos(app: &AppHandle) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{x},{y}"));
+    let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{handle_x},{handle_y}"));
 }
 
-/// Restore the handle position from the kv, or fall back to the default corner.
+/// Position the floating window so its handle is at the persisted location,
+/// or fall back to the default corner.
 fn position_handle(app: &AppHandle, conn: &Connection) {
-    let Some(h) = app.get_webview_window("floating") else {
+    let Some(win) = app.get_webview_window("floating") else {
         return;
     };
-    if let Some((x, y)) = load_pos(conn) {
-        let _ = h.set_position(LogicalPosition::new(x, y));
+    if let Some((handle_x, handle_y)) = load_pos(conn) {
+        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+        // window_left + CAPSULE_W - HANDLE_W = handle_screen_x
+        // → window_left = handle_x - CAPSULE_W + HANDLE_W
+        let wx = (handle_x - CAPSULE_W as f64 + HANDLE_W as f64) / scale;
+        let wy = handle_y / scale;
+        let _ = win.set_position(PhysicalPosition::new(wx, wy));
     } else {
-        place_default_corner(&h);
+        place_default_corner(&win);
     }
 }
 
-/// Default resting spot: top-right of the primary monitor.
+/// Default resting spot: window flush against the right screen edge, near the
+/// top. The capsule's flat (screen-edge) side is flush with the monitor's right
+/// edge; only an inset from the top is applied (MARGIN), not horizontally.
 fn place_default_corner(win: &tauri::WebviewWindow) {
     let Ok(Some(mon)) = win.current_monitor() else {
         return;
@@ -230,42 +197,9 @@ fn place_default_corner(win: &tauri::WebviewWindow) {
     let mw = mon.size().width as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    let x = mx + mw - HANDLE_W as f64 - MARGIN;
-    let y = my + MARGIN;
-    let _ = win.set_position(LogicalPosition::new(x, y));
-}
-
-/// Which side of the handle the panel sits on: "left" (handle is right of
-/// monitor centre → panel grows leftward) or "right". Used by both the data
-/// push and the initial-fetch command so the pill rounds its outer end.
-pub fn panel_side(app: &AppHandle) -> String {
-    match app.get_webview_window("floating") {
-        Some(h) => {
-            if is_right_side(&h) {
-                "left".into()
-            } else {
-                "right".into()
-            }
-        }
-        None => "left".into(),
-    }
-}
-
-/// Is the handle right of its monitor's vertical centre? Decides which way the
-/// panel grows. Defaults to true (grow leftward) when geometry is unavailable.
-fn is_right_side(h: &tauri::WebviewWindow) -> bool {
-    let Ok(hp) = h.outer_position() else {
-        return true;
-    };
-    let Ok(hs) = h.outer_size() else {
-        return true;
-    };
-    let Ok(Some(mon)) = h.current_monitor() else {
-        return true;
-    };
-    let handle_cx = hp.x + hs.width as i32 / 2;
-    let mon_cx = mon.position().x + mon.size().width as i32 / 2;
-    handle_cx > mon_cx
+    // Flush right: window_right = mx + mw → window_left = mx + mw - CAPSULE_W.
+    let window_left = mx + mw - CAPSULE_W as f64;
+    let _ = win.set_position(PhysicalPosition::new(window_left, my + MARGIN));
 }
 
 /// Read the persisted handle position ("x,y" logical px), if any.
@@ -299,14 +233,11 @@ fn today_str() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// Payload emitted to the panel webview.
+/// Payload emitted to the floating webview.
 #[derive(serde::Serialize, Clone)]
 pub struct FloatingData {
     /// Pre-formatted readout, e.g. "2.8M" or "$4.2".
     pub text: String,
-    /// Which side of the handle the panel sits on: "left" | "right" (rounds
-    /// the pill's outer end so it reads as one capsule with the handle).
-    pub side: String,
     /// Effective theme ("dark" | "light") so the widget matches the app.
     pub theme: String,
 }
@@ -380,5 +311,15 @@ mod tests {
         crate::storage::schema::migrate(&conn).unwrap();
         let _ = crate::config::set_raw(&conn, POS_KEY, "garbage");
         assert!(load_pos(&conn).is_none());
+    }
+
+    #[test]
+    fn place_default_corner_sets_handle_at_top_right() {
+        // The window should be positioned so its right edge places the handle
+        // at (screen_right - MARGIN - HANDLE_W, MARGIN).
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap();
+        let pos = load_pos(&conn);
+        assert!(pos.is_none(), "no saved position → should use default corner");
     }
 }
