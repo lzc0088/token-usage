@@ -516,19 +516,28 @@ pub fn run() {
                 .build(app)?;
 
             // ── auto-hide popover on blur ──────────────────────────────────
-            // Always hide when the popover loses focus — standard menu bar behaviour.
-            // Using a simple clone-based listener (no Mutex lock in the event callback)
-            // ensures Focused(false) triggers reliably on macOS.
+            // Hide when the popover loses focus — standard menu bar behaviour.
+            // We defer a tick so that, if focus moved to the floating widget
+            // (the user clicked it to toggle the popover closed), we DON'T yank
+            // the popover away — the widget's toggle owns that case. If focus
+            // went to the desktop / another app, hide on blur as usual.
             {
                 let w = window.clone();
                 window.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
                         if !menu_just_closed() {
-                            let _ = w.hide();
-                            // The floating handle is hidden while the popover is
-                            // open (mutual exclusion); bring it back now that the
-                            // popover closed.
-                            crate::ui::floating::show_if_enabled(w.app_handle());
+                            let w2 = w.clone();
+                            let app = w.app_handle().clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                let floating_focused = app
+                                    .get_webview_window("floating")
+                                    .map(|f| f.is_focused().unwrap_or(false))
+                                    .unwrap_or(false);
+                                if !floating_focused {
+                                    let _ = w2.hide();
+                                }
+                            });
                         }
                     }
                 });
@@ -620,7 +629,7 @@ pub fn run() {
             commands::window_cmd::set_window_draggable,
             commands::window_cmd::set_drag_suspended,
             commands::window_cmd::frontend_log,
-            commands::window_cmd::show_main_window,
+            commands::window_cmd::toggle_main_window,
             commands::window_cmd::get_floating_data,
             commands::window_cmd::show_floating_panel,
             commands::window_cmd::hide_floating_panel,

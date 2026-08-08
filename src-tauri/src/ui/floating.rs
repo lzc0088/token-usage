@@ -93,30 +93,6 @@ pub fn cancel_hide() {
     HIDE_DEADLINE.store(0, Ordering::SeqCst);
 }
 
-/// Re-show the floating widget if it is enabled — used after the main popover
-/// closes so the handle reappears (it is hidden while the popover is open).
-/// Does not reposition: the window keeps its current on-screen spot.
-pub fn show_if_enabled(app: &AppHandle) {
-    if std::env::consts::OS == "macos" {
-        return;
-    }
-    let Some(state) = app.try_state::<crate::state::AppState>() else {
-        return;
-    };
-    let conn = match state.db.lock() {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let cfg = config::load(&conn).unwrap_or_default();
-    if !cfg.floating_enabled {
-        return;
-    }
-    if let Some(h) = app.get_webview_window("floating") {
-        let _ = h.show();
-    }
-    push_data(app, &conn);
-}
-
 /// Push the latest readout + theme to the floating window.
 pub fn push_data(app: &AppHandle, conn: &Connection) {
     let cfg = match config::load(conn) {

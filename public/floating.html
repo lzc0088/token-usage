@@ -163,9 +163,11 @@
           invoke("show_floating_panel").catch(() => {});
         });
 
-        // Click anywhere → open the main popover (Rust hides this widget).
+        // Click anywhere → toggle the main popover (open if closed, close if
+        // open). This widget stays visible so the user can click it again to
+        // dismiss the popover; clicking elsewhere blurs-and-closes the popover.
         capsule.addEventListener("click", () => {
-          invoke("show_main_window").catch(() => {});
+          invoke("toggle_main_window").catch(() => {});
         });
 
         // Drag: pointerdown records origin; moving past a threshold hands
@@ -183,7 +185,7 @@
         });
         capsule.addEventListener("pointerup", () => {
           if (down && !down.moved) {
-            invoke("show_main_window").catch(() => {});
+            invoke("toggle_main_window").catch(() => {});
           }
           down = null;
         });

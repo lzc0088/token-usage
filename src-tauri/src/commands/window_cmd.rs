@@ -185,13 +185,18 @@ fn drag_baseline(label: &str, main_baseline: bool) -> bool {
 
 // ── Floating widget commands (single window, CSS slide) ────────────────────
 
-/// Show the main popover window. Called when the floating handle is clicked.
+/// Toggle the main popover's visibility. Called when the floating widget is
+/// clicked: open it if closed, close it if open. The floating widget itself
+/// stays visible (so the user can click it again to dismiss the popover).
 #[tauri::command]
-pub fn show_main_window(app: AppHandle) -> Result<(), String> {
-    crate::ui::floating::hide_all(&app);
+pub fn toggle_main_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+        } else {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
     }
     Ok(())
 }
