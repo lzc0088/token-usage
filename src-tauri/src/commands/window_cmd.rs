@@ -188,12 +188,19 @@ fn drag_baseline(label: &str, main_baseline: bool) -> bool {
 /// Toggle the main popover's visibility. Called when the floating widget is
 /// clicked: open it if closed, close it if open. The floating widget itself
 /// stays visible (so the user can click it again to dismiss the popover).
+/// When opening, the popover is placed at the configured screen edge.
 #[tauri::command]
 pub fn toggle_main_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("main") {
         if w.is_visible().unwrap_or(false) {
             let _ = w.hide();
         } else {
+            let edge = app
+                .state::<crate::state::AppState>()
+                .load_config()
+                .map(|c| c.floating_position)
+                .unwrap_or_else(|_| "right".into());
+            crate::ui::window::position_main_at_edge(&app, &edge);
             let _ = w.show();
             let _ = w.set_focus();
         }

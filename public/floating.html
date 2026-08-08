@@ -112,12 +112,6 @@
     .capsule:hover .data.placeholder {
       opacity: 0.35;
     }
-
-    /* Windows: suppress backdrop-filter (WebView2 unreliable on transparent windows). */
-    body.platform-windows .capsule {
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
   </style>
 </head>
 <body class="theme-dark">
@@ -138,11 +132,6 @@
       function setup(invoke, listen, win) {
         const capsule = document.getElementById("capsule");
         const val = document.getElementById("val");
-
-        // Windows: suppress backdrop-filter fallback class
-        if (typeof navigator !== "undefined" && /Win/.test(navigator.platform || "")) {
-          document.body.classList.add("platform-windows");
-        }
 
         function apply(payload) {
           if (!payload) return;
