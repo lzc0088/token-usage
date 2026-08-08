@@ -525,6 +525,10 @@ pub fn run() {
                     if let tauri::WindowEvent::Focused(false) = ev {
                         if !menu_just_closed() {
                             let _ = w.hide();
+                            // The floating handle is hidden while the popover is
+                            // open (mutual exclusion); bring it back now that the
+                            // popover closed.
+                            crate::ui::floating::show_if_enabled(w.app_handle());
                         }
                     }
                 });

@@ -280,6 +280,13 @@
     </div>
     {#if config.floating_enabled}
     <div class="box-row">
+      <div class="lab">{t('window.floatingPosition')}</div>
+      <select class="sel" value={config.floating_position || "right"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ floating_position: target.value as Config["floating_position"] }); }}>
+        <option value="right">{t('window.floatingPosRight')}</option>
+        <option value="left">{t('window.floatingPosLeft')}</option>
+      </select>
+    </div>
+    <div class="box-row">
       <div class="lab">{t('window.floatingDisplay')}</div>
       <select class="sel" value={config.floating_display || "today_tokens"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ floating_display: target.value as Config["floating_display"] }); }}>
         <option value="today_tokens">{t('window.floatingTodayTokens')}</option>

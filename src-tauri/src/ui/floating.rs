@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, LogicalPosition, Manager};
 
 use crate::config::{self, Currency};
 use crate::query::range_for_period;
@@ -23,11 +23,9 @@ use crate::query::summary::{self, Summary};
 use crate::ui::fmt::{compact_tokens, format_cost};
 use crate::utils::time::now_ms;
 
-/// Expanded capsule width (collapsed width = HANDLE_W = 44).
+/// Expanded capsule width in logical px (collapsed width = 44, the T region).
 const CAPSULE_W: i32 = 148;
-/// Handle width, physical px.
-const HANDLE_W: i32 = 44;
-/// Inset from the screen edge for the default corner (logical px).
+/// Inset from the top of the screen for the default corner (logical px).
 const MARGIN: f64 = 8.0;
 /// kv key persisting the handle's on-screen position ("x,y" logical px).
 const POS_KEY: &str = "floating_pos";
@@ -95,6 +93,30 @@ pub fn cancel_hide() {
     HIDE_DEADLINE.store(0, Ordering::SeqCst);
 }
 
+/// Re-show the floating widget if it is enabled — used after the main popover
+/// closes so the handle reappears (it is hidden while the popover is open).
+/// Does not reposition: the window keeps its current on-screen spot.
+pub fn show_if_enabled(app: &AppHandle) {
+    if std::env::consts::OS == "macos" {
+        return;
+    }
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let cfg = config::load(&conn).unwrap_or_default();
+    if !cfg.floating_enabled {
+        return;
+    }
+    if let Some(h) = app.get_webview_window("floating") {
+        let _ = h.show();
+    }
+    push_data(app, &conn);
+}
+
 /// Push the latest readout + theme to the floating window.
 pub fn push_data(app: &AppHandle, conn: &Connection) {
     let cfg = match config::load(conn) {
@@ -119,6 +141,7 @@ pub fn push_data(app: &AppHandle, conn: &Connection) {
     let payload = FloatingData {
         text,
         theme: resolved_theme(app, &cfg),
+        position: cfg.floating_position.clone(),
     };
     if let Some(w) = app.get_webview_window("floating") {
         let _ = w.emit("floating:update", &payload);
@@ -142,8 +165,9 @@ pub fn resolved_theme(app: &AppHandle, cfg: &crate::config::Config) -> String {
     }
 }
 
-/// Persist the handle's current on-screen position (called from a low-rate
-/// poller, so this is cheap and always captures the final resting spot).
+/// Persist the floating window's current top-left position (called from a
+/// low-rate poller, so this is cheap and always captures the final resting
+/// spot).
 pub fn persist_handle_pos(app: &AppHandle) {
     let Some(h) = app.get_webview_window("floating") else {
         return;
@@ -155,9 +179,8 @@ pub fn persist_handle_pos(app: &AppHandle) {
         return;
     };
     let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
-    // The handle is anchored at the window's right edge: handle_screen_x = window_left + CAPSULE_W - HANDLE_W
-    let handle_x = (pos.x as f64 / scale).round() as i32 + CAPSULE_W - HANDLE_W;
-    let handle_y = (pos.y as f64 / scale).round() as i32;
+    let wx = (pos.x as f64 / scale).round() as i32;
+    let wy = (pos.y as f64 / scale).round() as i32;
     let Some(state) = app.try_state::<crate::state::AppState>() else {
         return;
     };
@@ -165,50 +188,59 @@ pub fn persist_handle_pos(app: &AppHandle) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{handle_x},{handle_y}"));
+    // Store the configured edge alongside the position so a later edge change
+    // invalidates the saved spot (the widget re-defaults to the new edge).
+    let edge = config::load(&conn)
+        .map(|c| c.floating_position)
+        .unwrap_or_else(|_| "right".into());
+    let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{edge},{wx},{wy}"));
 }
 
-/// Position the floating window so its handle is at the persisted location,
-/// or fall back to the default corner.
+/// Position the floating window at its saved spot — but only if the saved edge
+/// still matches the configured edge. Otherwise (first run, or the user just
+/// switched edges) fall back to the default corner for the current edge.
 fn position_handle(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("floating") else {
         return;
     };
-    if let Some((handle_x, handle_y)) = load_pos(conn) {
-        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-        // window_left + CAPSULE_W - HANDLE_W = handle_screen_x
-        // → window_left = handle_x - CAPSULE_W + HANDLE_W
-        let wx = (handle_x - CAPSULE_W as f64 + HANDLE_W as f64) / scale;
-        let wy = handle_y / scale;
-        let _ = win.set_position(PhysicalPosition::new(wx, wy));
-    } else {
-        place_default_corner(&win);
+    let cfg = config::load(conn).unwrap_or_default();
+    if let Some((saved_edge, wx, wy)) = load_pos(conn) {
+        if saved_edge == cfg.floating_position {
+            let _ = win.set_position(LogicalPosition::new(wx, wy));
+            return;
+        }
     }
+    place_default_corner(&win, &cfg.floating_position);
 }
 
-/// Default resting spot: window flush against the right screen edge, near the
-/// top. The capsule's flat (screen-edge) side is flush with the monitor's right
-/// edge; only an inset from the top is applied (MARGIN), not horizontally.
-fn place_default_corner(win: &tauri::WebviewWindow) {
-    let Ok(Some(mon)) = win.current_monitor() else {
+/// Default resting spot: flush against the configured screen edge (left or
+/// right) of the **primary** monitor, near the top. The capsule's flat side
+/// sits flush with the screen edge; only a top inset (MARGIN) is applied.
+fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
+    let Ok(Some(mon)) = win.primary_monitor() else {
         return;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let mw = mon.size().width as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    // Flush right: window_right = mx + mw → window_left = mx + mw - CAPSULE_W.
-    let window_left = mx + mw - CAPSULE_W as f64;
-    let _ = win.set_position(PhysicalPosition::new(window_left, my + MARGIN));
+    // Flush against the configured edge: flat side meets the screen border.
+    let window_left = if position == "left" {
+        mx
+    } else {
+        mx + mw - CAPSULE_W as f64
+    };
+    let _ = win.set_position(LogicalPosition::new(window_left, my + MARGIN));
 }
 
-/// Read the persisted handle position ("x,y" logical px), if any.
-fn load_pos(conn: &Connection) -> Option<(f64, f64)> {
+/// Read the persisted window position ("edge,x,y" logical px), if any.
+fn load_pos(conn: &Connection) -> Option<(String, f64, f64)> {
     let raw = crate::config::get_raw(conn, POS_KEY).ok().flatten()?;
     let mut it = raw.split(',');
+    let edge = it.next()?.to_string();
     let x = it.next()?.parse::<f64>().ok()?;
     let y = it.next()?.parse::<f64>().ok()?;
-    Some((x, y))
+    Some((edge, x, y))
 }
 
 /// Format the display value for a resolved summary + display mode.
@@ -240,6 +272,8 @@ pub struct FloatingData {
     pub text: String,
     /// Effective theme ("dark" | "light") so the widget matches the app.
     pub theme: String,
+    /// Screen edge ("left" | "right") — drives the capsule's CSS variant.
+    pub position: String,
 }
 
 #[cfg(test)]
@@ -299,10 +333,11 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::schema::migrate(&conn).unwrap();
         assert!(load_pos(&conn).is_none());
-        let _ = crate::config::set_raw(&conn, POS_KEY, "123.4,567.8");
-        let (x, y) = load_pos(&conn).unwrap();
-        assert!((x - 123.4).abs() < f64::EPSILON);
-        assert!((y - 567.8).abs() < f64::EPSILON);
+        let _ = crate::config::set_raw(&conn, POS_KEY, "right,123,568");
+        let (edge, x, y) = load_pos(&conn).unwrap();
+        assert_eq!(edge, "right");
+        assert!((x - 123.0).abs() < f64::EPSILON);
+        assert!((y - 568.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -311,12 +346,15 @@ mod tests {
         crate::storage::schema::migrate(&conn).unwrap();
         let _ = crate::config::set_raw(&conn, POS_KEY, "garbage");
         assert!(load_pos(&conn).is_none());
+        // Edge but missing coordinates.
+        let _ = crate::config::set_raw(&conn, POS_KEY, "right");
+        assert!(load_pos(&conn).is_none());
     }
 
     #[test]
-    fn place_default_corner_sets_handle_at_top_right() {
-        // The window should be positioned so its right edge places the handle
-        // at (screen_right - MARGIN - HANDLE_W, MARGIN).
+    fn no_saved_position_yields_none() {
+        // No persisted spot → load_pos returns None → caller uses the default
+        // corner for the configured edge.
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::schema::migrate(&conn).unwrap();
         let pos = load_pos(&conn);

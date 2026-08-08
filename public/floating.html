@@ -16,58 +16,64 @@
       -webkit-user-select: none;
     }
 
-    /* Right-align the capsule so its flat (screen-edge) side stays flush
-       with the window's right edge (= the screen edge). */
+    /* Right edge by default: capsule pinned to the window's right edge
+       (= the screen edge). `edge-left` mirrors it to the left edge. */
     body {
       display: flex;
       justify-content: flex-end;
+    }
+    body.edge-left {
+      justify-content: flex-start;
     }
 
     /* Theme palettes — mirror the app's app.css variables. */
     :root {
       --glass: rgba(28, 26, 22, 0.95);
-      --border: rgba(255, 255, 255, 0.25);
       --amber: #e8b04b;
+      --shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     }
     body.theme-light {
       --glass: rgba(255, 255, 255, 0.95);
-      --border: rgba(0, 0, 0, 0.15);
       --amber: #c98a1e;
+      --shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
     }
 
     /*
-     * Floating widget — single capsule, width animates on hover.
+     * Floating widget — single capsule, width animates on hover. No border in
+     * either state (a subtle drop shadow separates it from the desktop).
      *
-     * The OS window (148×44) sits flush against the right screen edge.
-     * The capsule is anchored to the window's right edge (screen edge):
+     * The OS window (148×44) sits flush against the configured screen edge.
+     * The capsule is anchored to that edge:
      *   - Collapsed (44px): a clean semicircle — flat side flush with the
-     *     screen, rounded side facing outward. Only the "T" shows.
-     *   - Expanded (148px): a half-pill. The "T" stays at the screen-edge
-     *     end; the data value fades in centered in the outward region. The
-     *     outer rounded cap carries no icon.
-     * Border is transparent when collapsed (no edge line) and turns solid
-     * on expand. The screen-edge side has no border (flush against screen).
+     *     screen, rounded side facing outward — showing only the "T".
+     *   - Expanded (148px): a half-pill. The "T" stays at the screen-edge end;
+     *     the data value fades in centered in the outward region. The outer
+     *     rounded cap carries no icon.
      */
     .capsule {
       height: 44px;
       width: 44px;
       background: var(--glass);
-      border: 1px solid transparent;
-      border-right: none;
       border-radius: 22px 0 0 22px;
+      box-shadow: var(--shadow);
       display: flex;
       align-items: center;
       overflow: hidden;
       cursor: pointer;
-      transition: width 0.3s cubic-bezier(0.22, 0.61, 0.36, 1),
-                  border-color 0.15s ease;
+      transition: width 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
     }
     .capsule:hover {
       width: 148px;
-      border-color: var(--border);
     }
 
-    /* "T" icon: fixed 44px region at the screen-edge (right) end. Never moves. */
+    /* Left edge: mirror the shape (rounded outer = right) and the content
+       order so the "T" sits at the left (screen) edge. */
+    body.edge-left .capsule {
+      border-radius: 0 22px 22px 0;
+      flex-direction: row-reverse;
+    }
+
+    /* "T" icon: fixed 44px region at the screen-edge end. Never moves. */
     .t-icon {
       width: 44px;
       height: 100%;
@@ -81,9 +87,8 @@
       color: var(--amber);
     }
 
-    /* Data value: fills the outward region, centered. Hidden (opacity 0)
-       when collapsed so only the "T" shows in the default semicircle; fades
-       in as the pill widens on hover. */
+    /* Data value: fills the outward region, centered. Hidden (opacity 0) when
+       collapsed so only the "T" shows; fades in as the pill widens on hover. */
     .data {
       flex: 1;
       min-width: 0;
@@ -101,7 +106,6 @@
     .capsule:hover .data {
       opacity: 1;
     }
-    /* Empty/placeholder readout is dimmed (but only once expanded). */
     .capsule:hover .data.placeholder {
       opacity: 0.35;
     }
@@ -141,6 +145,8 @@
           if (!payload) return;
           document.body.classList.toggle("theme-light", payload.theme === "light");
           document.body.classList.toggle("theme-dark", payload.theme !== "light");
+          // Edge variant: "left" mirrors the capsule; anything else = right.
+          document.body.classList.toggle("edge-left", payload.position === "left");
           if (payload.text != null) {
             const t = payload.text && payload.text.length ? payload.text : "–";
             val.textContent = t;
@@ -148,21 +154,22 @@
           }
         }
 
-        // Hover bridging: mouseenter cancels the hide timer; mouseleave restarts it.
+        // The widget is meant to stay visible (handle always shown). Hover only
+        // drives the CSS expand/collapse — it does NOT hide the window. The
+        // window is hidden solely while the main popover is open (mutual
+        // exclusion, handled in Rust) and re-shown when the popover closes.
+        // mouseenter → ensure visible (safety net) in case it was hidden.
         document.body.addEventListener("mouseenter", () => {
           invoke("show_floating_panel").catch(() => {});
         });
-        document.body.addEventListener("mouseleave", () => {
-          invoke("hide_floating_panel").catch(() => {});
-        });
 
-        // Click anywhere → open the main popover.
+        // Click anywhere → open the main popover (Rust hides this widget).
         capsule.addEventListener("click", () => {
           invoke("show_main_window").catch(() => {});
         });
 
-        // Drag: pointerdown records origin; moving past a threshold hands control
-        // to the OS drag; a pointerup without movement is a click.
+        // Drag: pointerdown records origin; moving past a threshold hands
+        // control to the OS drag; a pointerup without movement is a click.
         let down = null;
         capsule.addEventListener("pointerdown", (e) => {
           down = { x: e.screenX, y: e.screenY, moved: false };
@@ -171,7 +178,6 @@
           if (!down || down.moved) return;
           if (Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
             down.moved = true;
-            invoke("hide_floating_panel").catch(() => {});
             win.startDragging().catch(() => {});
           }
         });

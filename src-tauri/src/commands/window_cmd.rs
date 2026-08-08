@@ -241,6 +241,7 @@ pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::Floating
     Ok(crate::ui::floating::FloatingData {
         text,
         theme: crate::ui::floating::resolved_theme(&app, &cfg),
+        position: cfg.floating_position.clone(),
     })
 }
 

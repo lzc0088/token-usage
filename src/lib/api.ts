@@ -259,6 +259,8 @@ export interface Config {
   floating_enabled?: boolean;
   /** Floating widget display mode. */
   floating_display?: "today_tokens" | "today_cost" | "total_tokens" | "total_cost";
+  /** Floating widget screen edge: "left" | "right". */
+  floating_position?: "left" | "right";
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────

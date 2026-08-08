@@ -118,6 +118,9 @@ pub struct Config {
     /// Floating widget display mode: "today_tokens" | "today_cost" | "total_tokens" | "total_cost".
     #[serde(default = "default_floating_display")]
     pub floating_display: String,
+    /// Floating widget screen edge: "left" | "right".
+    #[serde(default = "default_floating_position")]
+    pub floating_position: String,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -157,6 +160,7 @@ impl Default for Config {
             overview_quota_vendors: None,
             floating_enabled: default_false(),
             floating_display: default_floating_display(),
+            floating_position: default_floating_position(),
         }
     }
 }
@@ -214,6 +218,9 @@ fn default_false() -> bool {
 }
 fn default_floating_display() -> String {
     "today_tokens".into()
+}
+fn default_floating_position() -> String {
+    "right".into()
 }
 
 // Stable config keys.
