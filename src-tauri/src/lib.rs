@@ -270,7 +270,11 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
             app,
             label("窗口呈现", "Window Mode"),
             true,
-            &[&win("window_always_on_top", wd, label("置顶显示", "Always On Top"))?],
+            &[&win(
+                "window_always_on_top",
+                wd,
+                label("置顶显示", "Always On Top"),
+            )?],
         )
     } else {
         Submenu::with_items(

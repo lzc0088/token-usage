@@ -98,10 +98,7 @@ pub async fn get_tokscale_status(app: tauri::AppHandle) -> Result<TokscaleStatus
     cmd.arg("--version");
     #[cfg(windows)]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd/powershell flash
-    let out = cmd
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let out = cmd.output().await.map_err(|e| e.to_string())?;
     let version = out
         .status
         .success()

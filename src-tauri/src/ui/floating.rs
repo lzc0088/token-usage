@@ -320,6 +320,9 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::schema::migrate(&conn).unwrap();
         let pos = load_pos(&conn);
-        assert!(pos.is_none(), "no saved position → should use default corner");
+        assert!(
+            pos.is_none(),
+            "no saved position → should use default corner"
+        );
     }
 }
