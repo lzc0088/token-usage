@@ -167,7 +167,21 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
         if let Ok(guard) = LAST_TRAY_RECT.lock() {
             if let Some((tray_pos, tray_size)) = *guard {
                 if let Ok(win_size) = w.outer_size() {
-                    let x = tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
+                    let mut x =
+                        tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
+                    // Keep a margin from the screen edges so the popover isn't
+                    // flush with the right/left border (the tray icon usually
+                    // sits at the very edge → x would otherwise clip it).
+                    const EDGE_MARGIN: f64 = 16.0;
+                    if let Ok(Some(mon)) = w.current_monitor() {
+                        let mon_x = mon.position().x as f64;
+                        let mon_w = mon.size().width as f64;
+                        let min_x = mon_x + EDGE_MARGIN;
+                        let max_x = mon_x + mon_w - win_size.width as f64 - EDGE_MARGIN;
+                        if max_x > min_x {
+                            x = x.clamp(min_x, max_x);
+                        }
+                    }
                     // macOS: menu bar at top → window below the tray.
                     // Windows/Linux: taskbar at bottom → window above the tray.
                     #[cfg(target_os = "macos")]

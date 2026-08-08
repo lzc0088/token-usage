@@ -28,17 +28,16 @@
 
     /* Theme palettes — solid (opaque) backgrounds. The widget sits on a
        transparent OS window, so an alpha background would show the desktop
-       through it (a muddy semi-transparent look, especially on Windows
-       WebView2). Solid keeps the "T" crisp and the shape clean. */
+       through it. Solid keeps the "T" crisp and the shape clean. No box-shadow:
+       a blurred shadow on a transparent window renders as a soft halo that
+       reads as a "glass/blur" box around the capsule. */
     :root {
       --glass: rgb(30, 28, 24);
       --amber: #e8b04b;
-      --shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     }
     body.theme-light {
       --glass: rgb(255, 255, 255);
       --amber: #c98a1e;
-      --shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
     }
 
     /*
@@ -58,7 +57,6 @@
       width: 44px;
       background: var(--glass);
       border-radius: 22px 0 0 22px;
-      box-shadow: var(--shadow);
       display: flex;
       align-items: center;
       overflow: hidden;

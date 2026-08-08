@@ -27,8 +27,11 @@ use crate::utils::time::now_ms;
 const CAPSULE_W: i32 = 148;
 /// Window/capsule height in logical px.
 const WIN_H: f64 = 44.0;
-/// Inset from the screen edge for the default corner (logical px).
-const MARGIN: f64 = 8.0;
+/// Estimated taskbar/panel height (logical px). The widget sits above it so
+/// it isn't covered by the taskbar.
+const TASKBAR_H: f64 = 48.0;
+/// Gap between the floating widget and the taskbar (logical px).
+const FLOAT_GAP: f64 = 50.0;
 /// kv key persisting the handle's on-screen position ("x,y" logical px).
 const POS_KEY: &str = "floating_pos";
 /// Hide grace period: lets the cursor hover the panel without it collapsing.
@@ -210,8 +213,8 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     } else {
         mx + mw - CAPSULE_W as f64
     };
-    // Bottom of the screen with a small inset.
-    let window_top = my + mh - WIN_H - MARGIN;
+    // Sit above the taskbar with a gap (taskbar otherwise covers the widget).
+    let window_top = my + mh - TASKBAR_H - FLOAT_GAP - WIN_H;
     let _ = win.set_position(LogicalPosition::new(window_left, window_top));
 }
 

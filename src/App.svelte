@@ -339,7 +339,7 @@
 </script>
 
 <div class="popover" data-testid="popover">
-  <header class="pop-hero">
+  <header class="pop-hero" data-tauri-drag-region>
     <Hero
       {summary}
       currency={config.currency}

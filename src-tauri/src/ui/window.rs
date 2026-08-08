@@ -242,20 +242,6 @@ pub fn schedule_hover_hide(app: AppHandle) {
 /// fully launched (drag mode, hotkey, tray title). Dock activation policy is
 /// NOT included here — it must be set before window creation (see
 /// `apply_dock_visibility`), so it is applied separately early in setup.
-/// Main-window chrome (title bar / borders). On Windows the popover uses
-/// NATIVE decorations so the user can drag and resize it like a normal window
-/// (there is no MovableByWindowBackground equivalent there). macOS/Linux keep
-/// the frameless custom look. Both Windows modes (Normal / Always On Top) are
-/// decorated and resizable; Always On Top additionally floats (set elsewhere).
-pub fn apply_main_chrome(app: &AppHandle) {
-    #[cfg(windows)]
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.set_decorations(true);
-    }
-    #[cfg(not(windows))]
-    let _ = app;
-}
-
 /// Place the main popover flush against the given screen edge ("left" |
 /// "right") of the primary monitor, vertically centred, with a small inset.
 /// Used as the default resting spot when opening from the floating widget.
@@ -295,7 +281,6 @@ pub fn apply_window_features(app: &AppHandle, conn: &Connection) {
         }
     };
     apply_drag_mode(app, cfg.window_display_mode == "fixed");
-    apply_main_chrome(app);
     apply_hotkey(app, &cfg.hotkey);
     // Repaint tray title immediately (tray_display) instead of waiting for
     // the next collector tick.
