@@ -6,6 +6,7 @@ pub(crate) mod autostart;
 pub(crate) mod collection;
 pub(crate) mod copilot;
 pub(crate) mod exchange;
+pub(crate) mod platform;
 pub(crate) mod query;
 pub(crate) mod quota;
 pub(crate) mod settings;

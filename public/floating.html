@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floating</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Theme palettes — mirror the app's app.css variables (dark default). */
+    :root {
+      --glass: rgba(28, 26, 22, 0.85);     /* #1c1a16 */
+      --border: rgba(255, 255, 255, 0.12);
+      --amber: #e8b04b;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+    body.theme-light {
+      --glass: rgba(255, 255, 255, 0.85);  /* #ffffff */
+      --border: rgba(0, 0, 0, 0.08);
+      --amber: #c98a1e;
+      --shadow: rgba(0, 0, 0, 0.16);
+    }
+
+    /* The handle fills the whole window so its edge meets the panel flush. */
+    .handle {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: var(--glass);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 18px var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--amber);
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .handle:hover {
+      transform: scale(1.06);
+      box-shadow: 0 8px 22px var(--shadow);
+    }
+    .handle.dragging { transform: scale(1.02); cursor: grabbing; }
+  </style>
+</head>
+<body class="theme-dark">
+  <div class="handle" id="handle">T</div>
+
+  <script>
+    (function () {
+      function boot() {
+        const T = window.__TAURI__;
+        if (!T || !T.core || !T.event || !T.window) { setTimeout(boot, 80); return; }
+        setup(T.core.invoke, T.event.listen, T.window.getCurrentWindow());
+      }
+
+      function setup(invoke, listen, win) {
+        const handle = document.getElementById("handle");
+
+        function applyTheme(theme) {
+          document.body.classList.toggle("theme-light", theme === "light");
+          document.body.classList.toggle("theme-dark", theme !== "light");
+        }
+
+        // Hover → show the panel beside the handle. Hide scheduling is owned by
+        // Rust (debounced) so the cursor can cross handle → panel freely.
+        document.body.addEventListener("mouseenter", () => {
+          invoke("show_floating_panel").catch(() => {});
+        });
+        document.body.addEventListener("mouseleave", () => {
+          invoke("hide_floating_panel").catch(() => {});
+        });
+
+        // Click vs drag: pointerdown records origin; moving past a threshold
+        // hands control to the OS drag; a pointerup without movement is a click.
+        let down = null;
+        handle.addEventListener("pointerdown", (e) => {
+          down = { x: e.screenX, y: e.screenY, moved: false };
+        });
+        handle.addEventListener("pointermove", (e) => {
+          if (!down || down.moved) return;
+          if (Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
+            down.moved = true;
+            handle.classList.add("dragging");
+            invoke("hide_floating_panel").catch(() => {});
+            win.startDragging().catch(() => {});
+          }
+        });
+        handle.addEventListener("pointerup", () => {
+          if (down && !down.moved) {
+            invoke("show_main_window").catch(() => {});
+          }
+          handle.classList.remove("dragging");
+          down = null;
+        });
+
+        // Theme sync (handle ignores text/side, applies only theme).
+        listen("floating:update", (e) => {
+          if (e.payload && e.payload.theme) applyTheme(e.payload.theme);
+        });
+        invoke("get_floating_data").then((d) => { if (d && d.theme) applyTheme(d.theme); }).catch(() => {});
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>

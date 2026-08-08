@@ -106,6 +106,7 @@ mod tests {
 }
 use crate::query::summary;
 use crate::storage;
+use crate::ui::floating;
 use crate::ui::tray;
 use crate::utils::paths;
 
@@ -263,6 +264,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                 scheduler::CollectionEvent::TodaySummary(v) => {
                     if let Ok(conn) = db.lock() {
                         tray::update_from_json(&app, &v, &conn);
+                        floating::push_data(&app, &conn);
                     }
                     if let Some(s) = summary::from_today_json(&v) {
                         // Cache the live today Summary so get_summary("day") can

@@ -1,6 +1,5 @@
 //! System tray title helper (M6). The TrayIcon itself is created in lib.rs
-//! via Tauri's native `tauri::tray::TrayIconBuilder` (integrated with Tauri's
-//! event loop, unlike the standalone tray-icon crate). This module formats
+//! via Tauri's native `tauri::tray::TrayIconBuilder`. This module formats
 //! and dispatches title updates from the collector consumer thread, honouring
 //! the user's `tray_display` config.
 
@@ -11,6 +10,7 @@ use tauri::AppHandle;
 use crate::config::{self, Currency};
 use crate::query::range_for_period;
 use crate::query::summary::{self, Summary};
+use crate::ui::fmt::{compact_tokens, format_cost};
 
 /// Tray display modes that read the "total" range instead of today.
 fn is_total_mode(mode: &str) -> bool {
@@ -36,30 +36,6 @@ fn format_title(s: &Summary, mode: &str, currency: Currency, cny_rate: f64) -> S
         ),
         // icon_only / unknown — caller handles icon_only separately.
         _ => String::new(),
-    }
-}
-
-/// Format cost per the user's currency config (mirrors frontend `formatCost`).
-/// CNY / 双显 use the stored USD→CNY rate, falling back to 7.2 when unset.
-fn format_cost(usd: f64, currency: Currency, cny_rate: f64) -> String {
-    let rate = if cny_rate > 0.0 { cny_rate } else { 7.2 };
-    match currency {
-        Currency::Usd => format!("${:.1}", usd),
-        Currency::Cny => format!("¥{:.1}", usd * rate),
-        Currency::Both => format!("¥{:.1}/${:.1}", usd * rate, usd),
-    }
-}
-
-fn compact_tokens(n: i64) -> String {
-    let abs = n.unsigned_abs();
-    if abs >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    } else if abs >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if abs >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        format!("{n}")
     }
 }
 
@@ -95,12 +71,13 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
     let Some(tray) = h.tray_by_id("main") else {
         return;
     };
+
+    // icon_only: clear the title.
     if mode == "icon_only" {
-        // NOTE: tray-icon's macOS `set_title(None)` is a no-op (it only calls
-        // setTitle when Some). Pass an empty string to actually clear it.
         let _ = tray.set_title(Some(""));
         return;
     }
+
     // total_* modes query the unbounded range; today_* use the passed summary.
     let s = if is_total_mode(&mode) {
         match summary::query(
@@ -130,9 +107,7 @@ pub fn update_from_json(h: &AppHandle, v: &Value, conn: &Connection) {
 }
 
 /// Repaint the tray title from persisted state alone — used right after a
-/// config change, before the next collector tick. Always reaches `paint` so
-/// that `icon_only` (which needs no data) clears the title even if the
-/// summary query fails.
+/// config change, before the next collector tick.
 pub fn refresh_from_db(h: &AppHandle, conn: &Connection) {
     let today = summary::query(
         conn,

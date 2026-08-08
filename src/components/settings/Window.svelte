@@ -38,6 +38,8 @@
   const MODIFIER_NAMES = new Set(["Alt", "Meta", "Shift", "Control"]);
   // 根据运行平台决定修饰键的显示名称
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform ?? "");
+  // M7: 平台检测（与 Rust 端 get_platform 对齐，但用 navigator.platform 避免额外 IPC）
+  const platform: "macos" | "windows" | "linux" = isMac ? "macos" : /Win/.test(navigator.platform ?? "") ? "windows" : "linux";
   // accelerator 名 → 键盘按键显示名（全小写 key 做匹配）
   const KEY_LABELS: Record<string, string> = {
     alt:     isMac ? "OPT" : "ALT",    // Mac 物理键是 Option，Win/Linux 是 Alt
@@ -209,7 +211,7 @@
   <div class="section-title">{t("window.display")}</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">{t('window.displayMode')}<div class="hint">{t('window.displayHint')}</div></div>
+      <div class="lab">{t('window.displayMode')}<div class="hint">{platform === 'windows' ? t('window.displayHintWin') : t('window.displayHint')}</div></div>
       <select
         class="sel"
         value={config.window_display_mode || "normal"}
@@ -218,8 +220,10 @@
           onSelect("window_display_mode", target.value as Config["window_display_mode"]);
         }}
       >
-        <option value="normal">{t('window.displayNormal')}</option>
-        <option value="fixed">{t('window.displayFixed')}</option>
+        {#if platform !== "windows"}
+          <option value="normal">{t('window.displayNormal')}</option>
+          <option value="fixed">{t('window.displayFixed')}</option>
+        {/if}
         <option value="always_on_top">{t('window.displayTop')}</option>
       </select>
     </div>
@@ -240,6 +244,7 @@
       </select>
     </div>
 
+    {#if platform === "macos"}
     <div class="box-row">
       <div class="lab">{t('window.dock')}<div class="hint">{t('window.dockHint')}</div></div>
       <div class="tg-placeholder">
@@ -253,7 +258,39 @@
         ></button>
       </div>
     </div>
+    {/if}
   </div>
+
+  <!-- ══ 悬浮（macOS 不支持：菜单栏标题已显示读数） ══ -->
+  {#if platform !== "macos"}
+  <div class="section-title">{t("window.floating")}</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">{t('window.floating')}<div class="hint">{t('window.floatingHint')}</div></div>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={!!config.floating_enabled}
+          role="switch"
+          aria-checked={!!config.floating_enabled}
+          aria-label={t("window.floating")}
+          onclick={() => onUpdate({ floating_enabled: !config.floating_enabled })}
+        ></button>
+      </div>
+    </div>
+    {#if config.floating_enabled}
+    <div class="box-row">
+      <div class="lab">{t('window.floatingDisplay')}</div>
+      <select class="sel" value={config.floating_display || "today_tokens"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ floating_display: target.value as Config["floating_display"] }); }}>
+        <option value="today_tokens">{t('window.floatingTodayTokens')}</option>
+        <option value="today_cost">{t('window.floatingTodayCost')}</option>
+        <option value="total_tokens">{t('window.floatingTotalTokens')}</option>
+        <option value="total_cost">{t('window.floatingTotalCost')}</option>
+      </select>
+    </div>
+    {/if}
+  </div>
+  {/if}
 
 </div>
 

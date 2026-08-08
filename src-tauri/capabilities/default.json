@@ -2,11 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability set for the main popover and settings windows",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "floating", "floating-panel"],
   "permissions": [
     "core:default",
     "shell:default",
     "core:event:default",
+    "core:window:allow-start-dragging",
     "updater:default"
   ]
 }

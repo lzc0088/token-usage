@@ -118,7 +118,7 @@ pub fn app_bin_dir() -> Option<PathBuf> {
 /// tokscale version used for install fallback. Automatically bumped by
 /// `scripts/fetch-tokscale.mjs --latest` at build time (reads npm registry
 /// for the latest published @tokscale/cli-{triple} and writes back here).
-pub const TOKSCALE_VERSION: &str = "4.10.0";
+pub const TOKSCALE_VERSION: &str = "4.11.0";
 
 /// tokscale platform package suffix for the current compile target, matching
 /// `@tokscale/cli-<suffix>` optionalDependencies.
@@ -270,13 +270,10 @@ pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleErro
         .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd flash
-    let output = tokio::time::timeout(
-        Duration::from_secs(TOKSCALE_TIMEOUT_SECS),
-        cmd.output(),
-    )
-    .await
-    .map_err(|_| TokscaleError::Timeout(TOKSCALE_TIMEOUT_SECS))?
-    .map_err(TokscaleError::Io)?;
+    let output = tokio::time::timeout(Duration::from_secs(TOKSCALE_TIMEOUT_SECS), cmd.output())
+        .await
+        .map_err(|_| TokscaleError::Timeout(TOKSCALE_TIMEOUT_SECS))?
+        .map_err(TokscaleError::Io)?;
     if !output.status.success() {
         return Err(TokscaleError::NonZeroExit {
             code: output.status.code().unwrap_or(-1),

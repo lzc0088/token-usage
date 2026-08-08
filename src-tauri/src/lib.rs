@@ -546,7 +546,21 @@ pub fn run() {
                     e.into_inner()
                 });
                 ui::window::apply_window_features(app.handle(), &conn);
+                // Sync floating widget visibility + handle position with config.
+                ui::floating::sync_floating(app.handle(), &conn);
             }
+
+            // ── persist the floating handle's dragged position ──────────────
+            // A low-rate poll captures the resting position after a drag without
+            // the bookkeeping of per-move event debouncing. No-op on macOS /
+            // when the widget is hidden.
+            let persist_h = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    ui::floating::persist_handle_pos(&persist_h);
+                }
+            });
 
             Ok(())
         })
@@ -587,6 +601,10 @@ pub fn run() {
             commands::window_cmd::set_window_draggable,
             commands::window_cmd::set_drag_suspended,
             commands::window_cmd::frontend_log,
+            commands::window_cmd::show_main_window,
+            commands::window_cmd::get_floating_data,
+            commands::window_cmd::show_floating_panel,
+            commands::window_cmd::hide_floating_panel,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,
@@ -597,6 +615,7 @@ pub fn run() {
             commands::update::get_app_version,
             commands::update::install_update,
             commands::update::restart_app,
+            commands::platform::get_platform,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -618,10 +637,15 @@ pub fn run() {
                     // after show() can land while the webview is still
                     // suspended and get dropped).
                     let app_c = app.clone();
+                    let state_c = app.state::<crate::state::AppState>().db.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         show_main_under_tray(&app_c);
                         let _ = app_c.emit("tray:refresh", ());
+                        // Also push fresh data to the floating panel.
+                        if let Ok(conn) = state_c.lock() {
+                            crate::ui::floating::push_data(&app_c, &conn);
+                        }
                     });
                 }
                 "settings" => {

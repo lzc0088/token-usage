@@ -183,6 +183,66 @@ fn drag_baseline(label: &str, main_baseline: bool) -> bool {
     }
 }
 
+// ── Floating widget commands (M8, plan B) ───────────────────────────────────
+
+/// Show the main popover window. Called when the floating handle is clicked.
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+    crate::ui::floating::hide_all(&app);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    Ok(())
+}
+
+/// Show the data panel flush beside the handle (hover-in). Cancels any pending
+/// hide so the cursor can cross from handle → panel.
+#[tauri::command]
+pub fn show_floating_panel(app: AppHandle) -> Result<(), String> {
+    crate::ui::floating::show_panel(&app);
+    Ok(())
+}
+
+/// (Re)start the debounced panel hide (hover-out from either window).
+#[tauri::command]
+pub fn hide_floating_panel(app: AppHandle) -> Result<(), String> {
+    crate::ui::floating::schedule_hide(&app);
+    Ok(())
+}
+
+/// Return the panel's readout + side for its initial paint.
+#[tauri::command]
+pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::FloatingData, String> {
+    let state = app.state::<crate::state::AppState>();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let cfg = crate::config::load(&conn).map_err(|e| e.to_string())?;
+    let cny_rate = crate::ui::floating::load_cny_rate(&conn);
+
+    let mode = cfg.floating_display.as_str();
+    let range = if mode.starts_with("total_") {
+        crate::query::range_for_period(
+            crate::query::Period::Total,
+            &chrono::Local::now().format("%Y-%m-%d").to_string(),
+        )
+    } else {
+        crate::query::range_for_period(
+            crate::query::Period::Day,
+            &chrono::Local::now().format("%Y-%m-%d").to_string(),
+        )
+    };
+
+    let text = match crate::query::summary::query(&conn, &range) {
+        Ok(s) => crate::ui::floating::build_text(&s, mode, cfg.currency, cny_rate),
+        Err(_) => String::new(),
+    };
+    Ok(crate::ui::floating::FloatingData {
+        text,
+        side: crate::ui::floating::panel_side(&app),
+        theme: crate::ui::floating::resolved_theme(&app, &cfg),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

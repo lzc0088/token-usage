@@ -20,8 +20,9 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
     crate::config::save(&conn, &config).map_err(|e| e.to_string())?;
     // Update the cached config so the scheduler picks up changes without a DB read.
     state.update_config_cache(config.clone());
-    // Apply window-behaviour settings live (dock, drag, hotkey, tray).
+    // Apply window-behaviour settings live (dock, drag, hotkey, tray, floating).
     crate::ui::window::apply_window_config(&app, &conn);
+    crate::ui::floating::sync_floating(&app, &conn);
     // Notify all windows (e.g. the main popover) so layout/currency changes
     // apply live without waiting for a manual refresh.
     let _ = app.emit("config:changed", ());

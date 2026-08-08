@@ -250,6 +250,7 @@ const DICT: Record<string, Record<string, string>> = {
   "window.shortcutNone": { zh: "未设置", en: "Not set" },
   "window.shortcutRecording": { zh: "按下快捷键…", en: "Press shortcut…" },
   "window.displayHint": { zh: "仅针对主窗口 · 普通：可拖动记住位置 | 固定：贴托盘 | 置顶：浮在其他 App 上", en: "Main popover only · Normal: draggable | Fixed: pinned to tray | Top: always on top" },
+  "window.displayHintWin": { zh: "仅针对主窗口 · 置顶：浮在其他 App 上", en: "Main popover · Always on top: float above other apps" },
   "window.displayNormal": { zh: "普通窗口", en: "Normal" },
   "window.displayFixed": { zh: "固定位置", en: "Fixed" },
   "window.displayTop": { zh: "浮在其他 App 上", en: "Always on Top" },
@@ -262,6 +263,13 @@ const DICT: Record<string, Record<string, string>> = {
   "window.trayTotalBoth": { zh: "累计 Tokens + 成本", en: "Total Tokens + Cost" },
   "window.trayIconOnly": { zh: "仅显示图标", en: "Icon Only" },
   "window.dockHint": { zh: "在 Dock 中显示应用图标（默认隐藏）", en: "Show app icon in Dock (hidden by default)" },
+  "window.floating": { zh: "悬浮", en: "Floating" },
+  "window.floatingHint": { zh: "桌面角落的悬浮小部件，悬停展开显示用量，点击打开主窗口（可拖动）", en: "Corner widget: hover to peek usage, click to open the main window (draggable)" },
+  "window.floatingDisplay": { zh: "显示内容", en: "Display" },
+  "window.floatingTodayTokens": { zh: "今日 Token", en: "Today Tokens" },
+  "window.floatingTodayCost": { zh: "今日费用", en: "Today Cost" },
+  "window.floatingTotalTokens": { zh: "累计 Token", en: "Total Tokens" },
+  "window.floatingTotalCost": { zh: "累计费用", en: "Total Cost" },
 
   // ── Settings / Collection ──
   "collection.desc": { zh: "本机 AI 工具发现、追踪状态与排序", en: "Local AI tool discovery, tracking & ordering" },

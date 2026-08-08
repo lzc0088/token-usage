@@ -112,6 +112,12 @@ pub struct Config {
     /// Overview: quota vendor IDs to show, in order (None = show all active).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overview_quota_vendors: Option<Vec<String>>,
+    /// Show a floating data widget on the desktop (Windows/Linux only).
+    #[serde(default = "default_false")]
+    pub floating_enabled: bool,
+    /// Floating widget display mode: "today_tokens" | "today_cost" | "total_tokens" | "total_cost".
+    #[serde(default = "default_floating_display")]
+    pub floating_display: String,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -149,6 +155,8 @@ impl Default for Config {
             layout_modules: None,
             layout_overview_sub: None,
             overview_quota_vendors: None,
+            floating_enabled: default_false(),
+            floating_display: default_floating_display(),
         }
     }
 }
@@ -194,6 +202,12 @@ fn default_quota_refresh_interval() -> String {
 }
 fn default_quota_progress_mode() -> String {
     "剩余".into()
+}
+fn default_false() -> bool {
+    false
+}
+fn default_floating_display() -> String {
+    "today_tokens".into()
 }
 
 // Stable config keys.

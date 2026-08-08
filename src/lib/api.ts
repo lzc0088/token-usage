@@ -255,6 +255,10 @@ export interface Config {
   layout_overview_sub?: string[] | null;
   /** Overview: quota vendor IDs to show, in order. */
   overview_quota_vendors?: string[] | null;
+  /** Show a floating data widget on the desktop (Windows/Linux only). */
+  floating_enabled?: boolean;
+  /** Floating widget display mode. */
+  floating_display?: "today_tokens" | "today_cost" | "total_tokens" | "total_cost";
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────
@@ -409,4 +413,7 @@ export const api = {
 
   /** Restart the app to finish applying an installed update. */
   restartApp: () => invoke<void>("restart_app"),
+
+  /** Return the current OS: "macos" | "windows" | "linux". */
+  getPlatform: () => invoke<string>("get_platform"),
 };
