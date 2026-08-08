@@ -214,14 +214,14 @@
       <div class="lab">{t('window.displayMode')}<div class="hint">{platform === 'windows' ? t('window.displayHintWin') : t('window.displayHint')}</div></div>
       <select
         class="sel"
-        value={config.window_display_mode || "normal"}
+        value={config.window_display_mode || (platform === 'windows' ? 'always_on_top' : 'normal')}
         onchange={(e) => {
           const target = e.target as HTMLSelectElement;
           onSelect("window_display_mode", target.value as Config["window_display_mode"]);
         }}
       >
-        {#if platform !== "windows"}
-          <option value="normal">{t('window.displayNormal')}</option>
+        <option value="normal">{t('window.displayNormal')}</option>
+        {#if platform !== 'windows'}
           <option value="fixed">{t('window.displayFixed')}</option>
         {/if}
         <option value="always_on_top">{t('window.displayTop')}</option>

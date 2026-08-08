@@ -25,7 +25,9 @@ use crate::utils::time::now_ms;
 
 /// Expanded capsule width in logical px (collapsed width = 44, the T region).
 const CAPSULE_W: i32 = 148;
-/// Inset from the top of the screen for the default corner (logical px).
+/// Window/capsule height in logical px.
+const WIN_H: f64 = 44.0;
+/// Inset from the screen edge for the default corner (logical px).
 const MARGIN: f64 = 8.0;
 /// kv key persisting the handle's on-screen position ("x,y" logical px).
 const POS_KEY: &str = "floating_pos";
@@ -190,14 +192,16 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
 }
 
 /// Default resting spot: flush against the configured screen edge (left or
-/// right) of the **primary** monitor, near the top. The capsule's flat side
-/// sits flush with the screen edge; only a top inset (MARGIN) is applied.
+/// right) of the **primary** monitor, near the **bottom** (with a small inset).
+/// The capsule's flat side sits flush with the screen edge horizontally; a
+/// MARGIN inset keeps it off the very bottom corner.
 fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let mw = mon.size().width as f64 / scale;
+    let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
     // Flush against the configured edge: flat side meets the screen border.
@@ -206,7 +210,9 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     } else {
         mx + mw - CAPSULE_W as f64
     };
-    let _ = win.set_position(LogicalPosition::new(window_left, my + MARGIN));
+    // Bottom of the screen with a small inset.
+    let window_top = my + mh - WIN_H - MARGIN;
+    let _ = win.set_position(LogicalPosition::new(window_left, window_top));
 }
 
 /// Read the persisted window position ("edge,x,y" logical px), if any.

@@ -26,14 +26,17 @@
       justify-content: flex-start;
     }
 
-    /* Theme palettes — mirror the app's app.css variables. */
+    /* Theme palettes — solid (opaque) backgrounds. The widget sits on a
+       transparent OS window, so an alpha background would show the desktop
+       through it (a muddy semi-transparent look, especially on Windows
+       WebView2). Solid keeps the "T" crisp and the shape clean. */
     :root {
-      --glass: rgba(28, 26, 22, 0.95);
+      --glass: rgb(30, 28, 24);
       --amber: #e8b04b;
       --shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     }
     body.theme-light {
-      --glass: rgba(255, 255, 255, 0.95);
+      --glass: rgb(255, 255, 255);
       --amber: #c98a1e;
       --shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
     }
@@ -163,15 +166,10 @@
           invoke("show_floating_panel").catch(() => {});
         });
 
-        // Click anywhere → toggle the main popover (open if closed, close if
-        // open). This widget stays visible so the user can click it again to
-        // dismiss the popover; clicking elsewhere blurs-and-closes the popover.
-        capsule.addEventListener("click", () => {
-          invoke("toggle_main_window").catch(() => {});
-        });
-
-        // Drag: pointerdown records origin; moving past a threshold hands
-        // control to the OS drag; a pointerup without movement is a click.
+        // Pointer-based click vs. drag. We do NOT also bind a `click` listener:
+        // the browser fires `click` after a clean `pointerup`, so binding both
+        // would toggle twice (open → immediately close = "does nothing").
+        // pointerup alone handles the click (no drag) case.
         let down = null;
         capsule.addEventListener("pointerdown", (e) => {
           down = { x: e.screenX, y: e.screenY, moved: false };
@@ -185,6 +183,8 @@
         });
         capsule.addEventListener("pointerup", () => {
           if (down && !down.moved) {
+            // Toggle the main popover: open if closed, close if open. This
+            // widget stays visible so the user can click again to dismiss.
             invoke("toggle_main_window").catch(() => {});
           }
           down = null;

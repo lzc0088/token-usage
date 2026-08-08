@@ -250,7 +250,7 @@ const DICT: Record<string, Record<string, string>> = {
   "window.shortcutNone": { zh: "未设置", en: "Not set" },
   "window.shortcutRecording": { zh: "按下快捷键…", en: "Press shortcut…" },
   "window.displayHint": { zh: "仅针对主窗口 · 普通：可拖动记住位置 | 固定：贴托盘 | 置顶：浮在其他 App 上", en: "Main popover only · Normal: draggable | Fixed: pinned to tray | Top: always on top" },
-  "window.displayHintWin": { zh: "仅针对主窗口 · 置顶：浮在其他 App 上", en: "Main popover · Always on top: float above other apps" },
+  "window.displayHintWin": { zh: "仅针对主窗口 · 普通：常规窗口 | 置顶：浮在其他 App 上", en: "Main popover · Normal: standard window | Always on top: float above other apps" },
   "window.displayNormal": { zh: "普通窗口", en: "Normal" },
   "window.displayFixed": { zh: "固定位置", en: "Fixed" },
   "window.displayTop": { zh: "浮在其他 App 上", en: "Always on Top" },

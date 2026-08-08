@@ -257,8 +257,9 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     )?;
 
     // ── 窗口呈现 submenu ──
-    // Windows: only "always_on_top" works (drag modes are macOS-only).
-    // macOS / Linux: "normal" + "fixed".
+    // Mirrors the settings page: Windows offers Normal + Always On Top
+    // (drag modes are macOS-only, so "Fixed" is redundant there);
+    // macOS / Linux get Normal + Fixed + Always On Top.
     let win = |id: &str, sel: &str, label| {
         let val = id.strip_prefix("window_").unwrap_or(id);
         let check = if val == sel { "✓ " } else { "    " };
@@ -270,11 +271,14 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
             app,
             label("窗口呈现", "Window Mode"),
             true,
-            &[&win(
-                "window_always_on_top",
-                wd,
-                label("置顶显示", "Always On Top"),
-            )?],
+            &[
+                &win("window_normal", wd, label("普通窗口", "Normal"))?,
+                &win(
+                    "window_always_on_top",
+                    wd,
+                    label("置顶显示", "Always On Top"),
+                )?,
+            ],
         )
     } else {
         Submenu::with_items(
@@ -284,6 +288,11 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
             &[
                 &win("window_normal", wd, label("普通窗口", "Normal"))?,
                 &win("window_fixed", wd, label("固定位置", "Fixed"))?,
+                &win(
+                    "window_always_on_top",
+                    wd,
+                    label("置顶显示", "Always On Top"),
+                )?,
             ],
         )
     }?;
