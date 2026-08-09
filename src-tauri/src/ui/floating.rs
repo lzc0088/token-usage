@@ -46,27 +46,11 @@ const HIDE_GRACE_MS: i64 = 220;
 /// overwrites; a fired timer only hides if its deadline is still the latest.
 static HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
 
-/// Force SQUARE window corners on Windows 11 (DWMWCP_DONOTROUND) so the widget
-/// has crisp 直角 corners instead of the system's default ~8px rounding. No-op
-/// elsewhere (macOS is hidden; Linux has no such default).
+/// No-op: shape is controlled by `apply_edge_rounding` (GDI region clipping).
+/// Windows default ~8px rounding is irrelevant since the region fully controls
+/// the window's visible shape.
 #[cfg(windows)]
-fn ensure_square_corners(win: &tauri::WebviewWindow) {
-    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
-    // DWMWA_WINDOW_CORNER_PREFERENCE = 33; DWMWCP_DONOTROUND = 1.
-    const DWMWCP_DONOTROUND: i32 = 1;
-    if let Ok(hwnd) = win.hwnd() {
-        let pref = DWMWCP_DONOTROUND;
-        // Safety: standard DWM attribute call with a valid HWND + i32 value.
-        unsafe {
-            let _ = DwmSetWindowAttribute(
-                hwnd,
-                DWMWINDOWATTRIBUTE(33),
-                &pref as *const i32 as *const _,
-                std::mem::size_of::<i32>() as u32,
-            );
-        }
-    }
-}
+fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 #[cfg(not(windows))]
 fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 
