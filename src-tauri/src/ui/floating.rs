@@ -1,15 +1,14 @@
-//! Floating data widget (desktop) — capsule fills the window; the WINDOW
-//! resizes on hover (no large transparent area → no glass/blur on Windows).
+//! Floating data widget (desktop) — capsule fills an OPAQUE window; the window
+//! resizes on hover, and its edge-side extends off-screen so the monitor clips
+//! it flat (half-capsule shape) while the OS rounds the outer side.
 //!
-//! The OS window is COLLAPSED size (44×44) at rest: a clean semicircle showing
-//! only the "T", flush against the configured screen edge. On hover, Rust grows
-//! the window to 148×44 (keeping the screen-edge side fixed) and the data value
-//! fades in beside the "T". On leave it shrinks back.
-//!
-//! Why resize the window instead of a CSS width animation? A 148-wide window
-//! with a 44-wide capsule leaves a large transparent region that Windows
-//! WebView2 renders as a glass/blur box. Keeping the window == the capsule size
-//! leaves only tiny rounded-corner transparency, which composites cleanly.
+//! The window is opaque (transparent:false) → no glass/blur (a transparent
+//! window rendered as glass on Windows). To still get a half-capsule (flat side
+//! flush with the screen edge) without transparency, the window's edge-side is
+//! pushed CLIP px beyond the screen; the monitor clips it to a straight edge,
+//! and the OS (DWM) rounds the outer corners. So:
+//!   - Collapsed (44 visible + CLIP off-screen): a rounded tab showing "T".
+//!   - Expanded (148 visible + CLIP off-screen): a half-pill with "T" + data.
 //!
 //! macOS is intentionally a no-op (the tray title already shows the readout),
 //! so the widget stays hidden there regardless of config.
@@ -26,12 +25,17 @@ use crate::query::summary::{self, Summary};
 use crate::ui::fmt::{compact_tokens, format_cost};
 use crate::utils::time::now_ms;
 
-/// Collapsed window/capsule size (logical px) — a 44×44 semicircle.
+/// Collapsed VISIBLE width (logical px) — the on-screen semicircle.
 const COLLAPSED_W: f64 = 44.0;
-/// Expanded window/capsule width (logical px) — a 148×44 half-pill.
+/// Expanded VISIBLE width (logical px) — the on-screen half-pill.
 const EXPANDED_W: f64 = 148.0;
 /// Window/capsule height in logical px.
 const WIN_H: f64 = 44.0;
+/// Off-screen clip (logical px). The window extends this far BEYOND the screen
+/// edge on the "flat" side; the monitor clips it → that side renders as a
+/// straight edge (so the widget looks like a half-capsule flush with the edge,
+/// not a fully-rounded pill). The outer side is rounded by the OS (DWM).
+const CLIP: f64 = 12.0;
 /// Estimated taskbar/panel height (logical px). The widget sits above it so
 /// it isn't covered by the taskbar.
 const TASKBAR_H: f64 = 48.0;
@@ -162,10 +166,10 @@ pub fn persist_handle_pos(app: &AppHandle) {
         return;
     }
     let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
-    // Only persist the collapsed resting position.
+    // Only persist the collapsed resting position (COLLAPSED_W + CLIP wide).
     let collapsed = h
         .outer_size()
-        .map(|s| (s.width as f64 / scale - COLLAPSED_W).abs() < 1.0)
+        .map(|s| (s.width as f64 / scale - (COLLAPSED_W + CLIP)).abs() < 1.0)
         .unwrap_or(true);
     if !collapsed {
         return;
@@ -200,6 +204,7 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
     let cfg = config::load(conn).unwrap_or_default();
     if let Some((saved_edge, wx, wy)) = load_pos(conn) {
         if saved_edge == cfg.floating_position {
+            let _ = win.set_size(LogicalSize::new(COLLAPSED_W + CLIP, WIN_H));
             let _ = win.set_position(LogicalPosition::new(wx, wy));
             return;
         }
@@ -207,10 +212,10 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
     place_default_corner(&win, &cfg.floating_position);
 }
 
-/// Default resting spot: flush against the configured screen edge (left or
-/// right) of the **primary** monitor, near the **bottom** (with a small inset).
-/// The capsule's flat side sits flush with the screen edge horizontally; a
-/// MARGIN inset keeps it off the very bottom corner.
+/// Default resting spot: the collapsed widget (44 visible + CLIP off-screen)
+/// flush against the configured screen edge of the primary monitor, above the
+/// taskbar. The edge-side extends CLIP px beyond the screen so the monitor
+/// clips it flat (half-capsule look); the outer side is OS-rounded.
 fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
@@ -220,22 +225,34 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    // Flush against the configured edge: flat side meets the screen border.
+    set_collapsed_geometry(
+        win,
+        position,
+        mx,
+        mw,
+        my + mh - TASKBAR_H - FLOAT_GAP - WIN_H,
+    );
+}
+
+/// Set the collapsed window geometry: size = COLLAPSED_W + CLIP, positioned so
+/// the configured edge-side is CLIP px off-screen. `mx`/`mw` = monitor left/
+/// width (logical); `top` = desired window top (logical).
+fn set_collapsed_geometry(win: &tauri::WebviewWindow, position: &str, mx: f64, mw: f64, top: f64) {
+    let win_w = COLLAPSED_W + CLIP;
+    let _ = win.set_size(LogicalSize::new(win_w, WIN_H));
     let window_left = if position == "left" {
-        mx
+        mx - CLIP // left edge CLIP px off-screen
     } else {
-        mx + mw - COLLAPSED_W
+        mx + mw - COLLAPSED_W // right edge CLIP px off-screen
     };
-    // Sit above the taskbar with a gap (taskbar otherwise covers the widget).
-    let window_top = my + mh - TASKBAR_H - FLOAT_GAP - WIN_H;
-    let _ = win.set_position(LogicalPosition::new(window_left, window_top));
+    let _ = win.set_position(LogicalPosition::new(window_left, top));
 }
 
 /// Grow (hover) or shrink (leave) the floating window between the collapsed
-/// semicircle (44×44) and the expanded half-pill (148×44). The screen-edge side
-/// stays fixed: for the right edge the window grows leftward (right edge pinned),
-/// for the left edge it grows rightward (left edge pinned). `expanded` = true
-/// grows, false shrinks.
+/// semicircle (44 visible) and the expanded half-pill (148 visible). The
+/// edge-side stays CLIP px off-screen (so it keeps rendering as the flat side):
+/// right edge → window grows leftward (right edge pinned); left edge → grows
+/// rightward (left edge pinned). `expanded` = true grows, false shrinks.
 pub fn resize_expanded(app: &AppHandle, expanded: bool) {
     let Some(win) = app.get_webview_window("floating") else {
         return;
@@ -246,24 +263,23 @@ pub fn resize_expanded(app: &AppHandle, expanded: bool) {
         .map(|c| c.floating_position)
         .unwrap_or_else(|| "right".into());
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-    let (target_w, cur_w) = if expanded {
-        (EXPANDED_W, COLLAPSED_W)
-    } else {
-        (COLLAPSED_W, EXPANDED_W)
-    };
+    let visible = if expanded { EXPANDED_W } else { COLLAPSED_W };
+    let target_w = visible + CLIP;
     if edge == "left" {
-        // Left edge fixed: just resize (window grows rightward).
+        // Left edge pinned off-screen: just resize (grows rightward).
         let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
         return;
     }
-    // Right edge fixed: pin the right edge, resize, then reposition left so the
-    // right edge ends where it started. (Position-first avoids the right edge
-    // drifting past the screen border mid-resize.)
+    // Right edge pinned off-screen: keep the right edge, resize, reposition.
     let Ok(pos) = win.outer_position() else {
         let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
         return;
     };
-    let right = pos.x as f64 / scale + cur_w;
+    let Ok(sz) = win.outer_size() else {
+        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
+        return;
+    };
+    let right = pos.x as f64 / scale + sz.width as f64 / scale;
     let new_x = right - target_w;
     let py = pos.y as f64 / scale;
     let _ = win.set_position(LogicalPosition::new(new_x, py));
