@@ -1,14 +1,15 @@
-//! Floating data widget (desktop) — capsule fills an OPAQUE window; the window
-//! resizes on hover, and its edge-side extends off-screen so the monitor clips
-//! it flat (half-capsule shape) while the OS rounds the outer side.
+//! Floating data widget (desktop) — capsule fills an OPAQUE window with SQUARE
+//! corners, flush against the configured screen edge; the window resizes on
+//! hover.
 //!
-//! The window is opaque (transparent:false) → no glass/blur (a transparent
-//! window rendered as glass on Windows). To still get a half-capsule (flat side
-//! flush with the screen edge) without transparency, the window's edge-side is
-//! pushed CLIP px beyond the screen; the monitor clips it to a straight edge,
-//! and the OS (DWM) rounds the outer corners. So:
-//!   - Collapsed (44 visible + CLIP off-screen): a rounded tab showing "T".
-//!   - Expanded (148 visible + CLIP off-screen): a half-pill with "T" + data.
+//! The window is opaque (transparent:false) → no glass/blur. On Windows 11 the
+//! DWM default corner rounding is disabled (DWMWCP_DONOTROUND) so the widget
+//! has crisp 直角 corners; with square corners a flush position has no gap, so
+//! no off-screen clipping trick is needed. The window is re-anchored to the
+//! screen edge on every resize (not derived from its current position) so
+//! repeated hover/leave can't drift it.
+//!   - Collapsed (44 wide): a square-cornered tab showing "T".
+//!   - Expanded (148 wide): a square-cornered pill with "T" + data.
 //!
 //! macOS is intentionally a no-op (the tray title already shows the readout),
 //! so the widget stays hidden there regardless of config.
@@ -25,17 +26,12 @@ use crate::query::summary::{self, Summary};
 use crate::ui::fmt::{compact_tokens, format_cost};
 use crate::utils::time::now_ms;
 
-/// Collapsed VISIBLE width (logical px) — the on-screen semicircle.
+/// Collapsed window width (logical px) — the on-screen tab.
 const COLLAPSED_W: f64 = 44.0;
-/// Expanded VISIBLE width (logical px) — the on-screen half-pill.
+/// Expanded window width (logical px) — the on-screen pill.
 const EXPANDED_W: f64 = 148.0;
 /// Window/capsule height in logical px.
 const WIN_H: f64 = 44.0;
-/// Off-screen clip (logical px). The window extends this far BEYOND the screen
-/// edge on the "flat" side; the monitor clips it → that side renders as a
-/// straight edge (so the widget looks like a half-capsule flush with the edge,
-/// not a fully-rounded pill). The outer side is rounded by the OS (DWM).
-const CLIP: f64 = 12.0;
 /// Estimated taskbar/panel height (logical px). The widget sits above it so
 /// it isn't covered by the taskbar.
 const TASKBAR_H: f64 = 48.0;
@@ -50,6 +46,31 @@ const HIDE_GRACE_MS: i64 = 220;
 /// overwrites; a fired timer only hides if its deadline is still the latest.
 static HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
 
+/// Force SQUARE window corners on Windows 11 (DWMWCP_DONOTROUND) so the widget
+/// has crisp 直角 corners instead of the system's default ~8px rounding. No-op
+/// elsewhere (macOS is hidden; Linux has no such default).
+#[cfg(windows)]
+fn ensure_square_corners(win: &tauri::WebviewWindow) {
+    use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+    // DWMWA_WINDOW_CORNER_PREFERENCE = 33; DWMWCP_DONOTROUND = 1.
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_DONOTROUND: i32 = 1;
+    if let Ok(hwnd) = win.hwnd() {
+        let pref = DWMWCP_DONOTROUND;
+        // Safety: standard DWM attribute call with a valid HWND + i32 value.
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref as *const i32 as *const _,
+                std::mem::size_of::<i32>() as u32,
+            );
+        }
+    }
+}
+#[cfg(not(windows))]
+fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
+
 /// Sync widget visibility + handle position with config (startup + on change).
 pub fn sync_floating(app: &AppHandle, conn: &Connection) {
     // macOS: tray title already covers this — never show the widget.
@@ -61,6 +82,7 @@ pub fn sync_floating(app: &AppHandle, conn: &Connection) {
     if cfg.floating_enabled {
         position_handle(app, conn);
         if let Some(h) = app.get_webview_window("floating") {
+            ensure_square_corners(&h);
             let _ = h.show();
         }
         push_data(app, conn);
@@ -166,10 +188,10 @@ pub fn persist_handle_pos(app: &AppHandle) {
         return;
     }
     let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
-    // Only persist the collapsed resting position (COLLAPSED_W + CLIP wide).
+    // Only persist the collapsed resting position (COLLAPSED_W wide).
     let collapsed = h
         .outer_size()
-        .map(|s| (s.width as f64 / scale - (COLLAPSED_W + CLIP)).abs() < 1.0)
+        .map(|s| (s.width as f64 / scale - COLLAPSED_W).abs() < 1.0)
         .unwrap_or(true);
     if !collapsed {
         return;
@@ -204,7 +226,7 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
     let cfg = config::load(conn).unwrap_or_default();
     if let Some((saved_edge, wx, wy)) = load_pos(conn) {
         if saved_edge == cfg.floating_position {
-            let _ = win.set_size(LogicalSize::new(COLLAPSED_W + CLIP, WIN_H));
+            let _ = win.set_size(LogicalSize::new(COLLAPSED_W, WIN_H));
             let _ = win.set_position(LogicalPosition::new(wx, wy));
             return;
         }
@@ -212,10 +234,9 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
     place_default_corner(&win, &cfg.floating_position);
 }
 
-/// Default resting spot: the collapsed widget (44 visible + CLIP off-screen)
-/// flush against the configured screen edge of the primary monitor, above the
-/// taskbar. The edge-side extends CLIP px beyond the screen so the monitor
-/// clips it flat (half-capsule look); the outer side is OS-rounded.
+/// Default resting spot: the collapsed widget (44 wide) flush against the
+/// configured screen edge of the primary monitor, above the taskbar. Square
+/// corners (DWM rounding disabled) sit flush with no gap.
 fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
@@ -234,25 +255,24 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     );
 }
 
-/// Set the collapsed window geometry: size = COLLAPSED_W + CLIP, positioned so
-/// the configured edge-side is CLIP px off-screen. `mx`/`mw` = monitor left/
-/// width (logical); `top` = desired window top (logical).
+/// Set the collapsed window geometry: size = COLLAPSED_W, flush against the
+/// configured screen edge. `mx`/`mw` = monitor left/width (logical); `top` =
+/// desired window top (logical). Corners are square (DWM rounding disabled on
+/// Windows — see ensure_square_corners), so a flush position has no gap.
 fn set_collapsed_geometry(win: &tauri::WebviewWindow, position: &str, mx: f64, mw: f64, top: f64) {
-    let win_w = COLLAPSED_W + CLIP;
-    let _ = win.set_size(LogicalSize::new(win_w, WIN_H));
+    let _ = win.set_size(LogicalSize::new(COLLAPSED_W, WIN_H));
     let window_left = if position == "left" {
-        mx - CLIP // left edge CLIP px off-screen
+        mx
     } else {
-        mx + mw - COLLAPSED_W // right edge CLIP px off-screen
+        mx + mw - COLLAPSED_W
     };
     let _ = win.set_position(LogicalPosition::new(window_left, top));
 }
 
-/// Grow (hover) or shrink (leave) the floating window between the collapsed
-/// semicircle (44 visible) and the expanded half-pill (148 visible). The
-/// edge-side stays CLIP px off-screen (so it keeps rendering as the flat side):
-/// right edge → window grows leftward (right edge pinned); left edge → grows
-/// rightward (left edge pinned). `expanded` = true grows, false shrinks.
+/// Grow (hover) or shrink (leave) the floating window between the collapsed tab
+/// (44) and the expanded pill (148). The window is re-anchored to the SCREEN
+/// EDGE every call (not derived from its current position), so repeated
+/// hover/leave can't drift it toward the edge. Only the Y is preserved.
 pub fn resize_expanded(app: &AppHandle, expanded: bool) {
     let Some(win) = app.get_webview_window("floating") else {
         return;
@@ -262,28 +282,25 @@ pub fn resize_expanded(app: &AppHandle, expanded: bool) {
         .and_then(|s| s.load_config().ok())
         .map(|c| c.floating_position)
         .unwrap_or_else(|| "right".into());
+    let Ok(Some(mon)) = win.primary_monitor() else {
+        return;
+    };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let mw = mon.size().width as f64 / scale;
+    let mx = mon.position().x as f64 / scale;
     let visible = if expanded { EXPANDED_W } else { COLLAPSED_W };
-    let target_w = visible + CLIP;
-    if edge == "left" {
-        // Left edge pinned off-screen: just resize (grows rightward).
-        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
-        return;
-    }
-    // Right edge pinned off-screen: keep the right edge, resize, reposition.
-    let Ok(pos) = win.outer_position() else {
-        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
-        return;
+    // Preserve the current Y (vertical drag); recompute X from the screen edge.
+    let py = win
+        .outer_position()
+        .map(|p| p.y as f64 / scale)
+        .unwrap_or_else(|_| mon.position().y as f64 / scale);
+    let new_x = if edge == "left" {
+        mx // left edge flush, grows rightward
+    } else {
+        mx + mw - visible // right edge flush, grows leftward
     };
-    let Ok(sz) = win.outer_size() else {
-        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
-        return;
-    };
-    let right = pos.x as f64 / scale + sz.width as f64 / scale;
-    let new_x = right - target_w;
-    let py = pos.y as f64 / scale;
     let _ = win.set_position(LogicalPosition::new(new_x, py));
-    let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
+    let _ = win.set_size(LogicalSize::new(visible, WIN_H));
 }
 
 /// Read the persisted window position ("edge,x,y" logical px), if any.

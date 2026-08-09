@@ -4473,6 +4473,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "url",
+ "windows",
 ]
 
 [[package]]

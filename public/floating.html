@@ -45,21 +45,13 @@
     }
 
     /*
-     * Floating widget — the capsule FILLS the OS window; the WINDOW resizes on
-     * hover (Rust, keeping the screen-edge side fixed). No border, no shadow,
-     * no blur (solid background only).
-     *
-     * The window is the COLLAPSED size (44×44) at rest = a clean semicircle
-     * showing only the "T" (in the rounded outer cap). On hover Rust grows the
-     * window to 148×44 and the data value fades in beside the "T".
-     *
-     * Why resize the window instead of a CSS width animation? A 148-wide window
-     * with a 44-wide capsule leaves a large transparent region that Windows
-     * WebView2 renders as a glass/blur box. Window == capsule size leaves only
-     * tiny rounded-corner transparency, which composites cleanly.
-     *
-     * The "T" is absolutely positioned so it is ALWAYS visible (a flex sibling
-     * could push it out of a 44px box).
+     * Floating widget — the capsule FILLS an OPAQUE OS window; the WINDOW
+     * resizes on hover (Rust). No border, no shadow, no blur (solid fill only).
+     * Corners are SQUARE (Windows 11 DWM rounding disabled in Rust), flush
+     * against the configured screen edge.
+     *   - Collapsed (44 wide): a square tab showing only the "T".
+     *   - Expanded (148 wide): a square pill — "T" + the data value fades in.
+     * The "T" is absolutely positioned so it is ALWAYS visible.
      */
     .capsule {
       position: relative;
