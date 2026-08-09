@@ -51,9 +51,8 @@ static HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
 /// elsewhere (macOS is hidden; Linux has no such default).
 #[cfg(windows)]
 fn ensure_square_corners(win: &tauri::WebviewWindow) {
-    use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
     // DWMWA_WINDOW_CORNER_PREFERENCE = 33; DWMWCP_DONOTROUND = 1.
-    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
     const DWMWCP_DONOTROUND: i32 = 1;
     if let Ok(hwnd) = win.hwnd() {
         let pref = DWMWCP_DONOTROUND;
@@ -61,7 +60,7 @@ fn ensure_square_corners(win: &tauri::WebviewWindow) {
         unsafe {
             let _ = DwmSetWindowAttribute(
                 hwnd,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
+                DWMWINDOWATTRIBUTE(33),
                 &pref as *const i32 as *const _,
                 std::mem::size_of::<i32>() as u32,
             );
