@@ -17,7 +17,7 @@ pub mod utils;
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
 use state::AppState;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use tauri::menu::ContextMenu;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -25,9 +25,19 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 use utils::time::now_ms;
 
 /// Timestamp (ms since epoch) of the last menu event. Used to suppress the
-/// `Focused(false)` blur event that macOS fires when a popup menu closes —
-/// without this guard the popover would hide right after a menu selection.
+/// `Focused(false)` blur event that fires when a popup menu closes — without
+/// this guard the popover would hide right after a menu selection.
 static MENU_CLOSE_MS: AtomicI64 = AtomicI64::new(0);
+/// True while the user is dragging/resizing the main window (set from the
+/// frontend on drag-region pointerdown). Suppresses blur-hide so the window
+/// isn't yanked away mid-interaction. Cleared on Focused(true) (refocus after
+/// the interaction).
+pub(crate) static MAIN_INTERACTING: AtomicBool = AtomicBool::new(false);
+/// Monotonic deadline for the pending main-window hide. 0 = none pending.
+static MAIN_HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
+/// Grace period (ms) before hiding on blur: lets a momentary drag/resize blur
+/// be canceled by a refocus.
+const MAIN_HIDE_GRACE_MS: i64 = 200;
 
 /// Last-known tray icon rect (physical pixels). Updated on every tray event
 /// that carries a rect, so `show_main_under_tray` can position the popover
@@ -38,7 +48,7 @@ fn mark_menu_close() {
     MENU_CLOSE_MS.store(now_ms(), Ordering::SeqCst);
 }
 
-#[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn menu_just_closed() -> bool {
     let last = MENU_CLOSE_MS.load(Ordering::SeqCst);
     if last == 0 {
@@ -539,25 +549,46 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // ── auto-hide popover on blur (macOS only) ────────────────────
-            // macOS: menu-bar popover auto-hides on blur (click-away-to-close).
-            // Windows/Linux: the main window is a NORMAL window (draggable +
-            // resizable). It must NOT auto-hide on blur — drag/resize fire
-            // Focused(false), which would yank the window away mid-interaction.
-            // It closes via the floating widget (toggle) or the tray instead.
-            #[cfg(target_os = "macos")]
+            // ── auto-hide main window on blur (click-away-to-close) ───────
+            // Hide when the window loses focus to the desktop / another app.
+            // Dragging/resizing the window also fires Focused(false), so two
+            // guards prevent hiding mid-interaction:
+            //   1. MAIN_INTERACTING — set by the frontend on drag-region
+            //      pointerdown; cleared on Focused(true) (refocus).
+            //   2. A grace period with cancel-on-refocus: if the blur was
+            //      momentary (window refocuses within the grace), the pending
+            //      hide is canceled.
             {
                 let w = window.clone();
-                window.on_window_event(move |ev| {
-                    if let tauri::WindowEvent::Focused(false) = ev {
-                        if !menu_just_closed() {
-                            let _ = w.hide();
+                window.on_window_event(move |ev| match ev {
+                    tauri::WindowEvent::Focused(false) => {
+                        let interacting = MAIN_INTERACTING.load(Ordering::SeqCst);
+                        if interacting || menu_just_closed() {
+                            return;
                         }
+                        let deadline = now_ms() + MAIN_HIDE_GRACE_MS;
+                        MAIN_HIDE_DEADLINE.store(deadline, Ordering::SeqCst);
+                        let w2 = w.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                (MAIN_HIDE_GRACE_MS + 20) as u64,
+                            ))
+                            .await;
+                            if MAIN_HIDE_DEADLINE.load(Ordering::SeqCst) == deadline {
+                                let _ = w2.hide();
+                            }
+                        });
                     }
+                    tauri::WindowEvent::Focused(true) => {
+                        // Refocus (e.g. after a drag/resize, or re-clicking the
+                        // window): clear the interacting flag and cancel any
+                        // pending hide.
+                        MAIN_INTERACTING.store(false, Ordering::SeqCst);
+                        MAIN_HIDE_DEADLINE.store(0, Ordering::SeqCst);
+                    }
+                    _ => {}
                 });
             }
-            #[cfg(not(target_os = "macos"))]
-            let _ = window; // main window persists until explicitly closed
 
             // ── make settings window drag-movable by background ──────────
             #[cfg(target_os = "macos")]
@@ -646,9 +677,12 @@ pub fn run() {
             commands::window_cmd::set_drag_suspended,
             commands::window_cmd::frontend_log,
             commands::window_cmd::toggle_main_window,
+            commands::window_cmd::set_main_interacting,
             commands::window_cmd::get_floating_data,
             commands::window_cmd::show_floating_panel,
             commands::window_cmd::hide_floating_panel,
+            commands::window_cmd::expand_floating,
+            commands::window_cmd::collapse_floating,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,

@@ -121,6 +121,14 @@ pub fn open_external(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Mark the main window as being dragged/resized (frontend sets this on
+/// drag-region pointerdown). While true, the blur-hide is suppressed so the
+/// window isn't yanked away mid-interaction. Cleared on refocus (Rust).
+#[tauri::command]
+pub fn set_main_interacting(interacting: bool) {
+    crate::MAIN_INTERACTING.store(interacting, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Temporarily enable/disable native window dragging. Used by the frontend
 /// when input fields gain/lose focus — dragging is disabled while the user
 /// is typing or selecting text, then restored when the input loses focus.
@@ -222,6 +230,22 @@ pub fn show_floating_panel(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn hide_floating_panel(app: AppHandle) -> Result<(), String> {
     crate::ui::floating::schedule_hide(&app);
+    Ok(())
+}
+
+/// Grow the floating window to the expanded half-pill (hover-in). Keeps the
+/// screen-edge side fixed. Eliminates the large transparent area that Windows
+/// WebView2 renders as glass.
+#[tauri::command]
+pub fn expand_floating(app: AppHandle) -> Result<(), String> {
+    crate::ui::floating::resize_expanded(&app, true);
+    Ok(())
+}
+
+/// Shrink the floating window back to the collapsed semicircle (hover-out).
+#[tauri::command]
+pub fn collapse_floating(app: AppHandle) -> Result<(), String> {
+    crate::ui::floating::resize_expanded(&app, false);
     Ok(())
 }
 

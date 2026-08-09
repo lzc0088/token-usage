@@ -41,30 +41,30 @@
     }
 
     /*
-     * Floating widget — single capsule, width animates on hover. No border,
-     * no shadow, no blur (solid background only).
+     * Floating widget — the capsule FILLS the OS window; the WINDOW resizes on
+     * hover (Rust, keeping the screen-edge side fixed). No border, no shadow,
+     * no blur (solid background only).
      *
-     * The OS window (148×44) sits flush against the configured screen edge.
-     * The capsule's flat side meets the screen edge; its rounded side faces
-     * outward. The "T" sits in that rounded outer cap:
-     *   - Collapsed (44px): a clean semicircle showing only the "T".
-     *   - Expanded (148px): a half-pill — "T" stays in the rounded cap, the
-     *     data value fades in beside it (toward the screen edge).
-     * The "T" is absolutely positioned so it is ALWAYS visible in the
-     * collapsed capsule (a flex sibling could push it out of the 44px box).
-    */
+     * The window is the COLLAPSED size (44×44) at rest = a clean semicircle
+     * showing only the "T" (in the rounded outer cap). On hover Rust grows the
+     * window to 148×44 and the data value fades in beside the "T".
+     *
+     * Why resize the window instead of a CSS width animation? A 148-wide window
+     * with a 44-wide capsule leaves a large transparent region that Windows
+     * WebView2 renders as a glass/blur box. Window == capsule size leaves only
+     * tiny rounded-corner transparency, which composites cleanly.
+     *
+     * The "T" is absolutely positioned so it is ALWAYS visible (a flex sibling
+     * could push it out of a 44px box).
+     */
     .capsule {
       position: relative;
-      height: 44px;
-      width: 44px;
+      width: 100%;
+      height: 100%;
       background: var(--glass);
       border-radius: 22px 0 0 22px;
       overflow: hidden;
       cursor: pointer;
-      transition: width 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
-    }
-    .capsule:hover {
-      width: 148px;
     }
 
     /* "T" icon: absolutely positioned at the ROUNDED outer cap (left for the
@@ -161,13 +161,17 @@
           }
         }
 
-        // The widget is meant to stay visible (handle always shown). Hover only
-        // drives the CSS expand/collapse — it does NOT hide the window. The
-        // window is hidden solely while the main popover is open (mutual
-        // exclusion, handled in Rust) and re-shown when the popover closes.
-        // mouseenter → ensure visible (safety net) in case it was hidden.
-        document.body.addEventListener("mouseenter", () => {
+        // Hover grows the window (Rust resizes it, keeping the screen-edge side
+        // fixed) so the data shows; leaving shrinks it back. Resizing the OS
+        // window — rather than a CSS width animation on a 148-wide transparent
+        // window — avoids the large transparent region that Windows WebView2
+        // renders as a glass/blur box.
+        capsule.addEventListener("mouseenter", () => {
           invoke("show_floating_panel").catch(() => {});
+          invoke("expand_floating").catch(() => {});
+        });
+        capsule.addEventListener("mouseleave", () => {
+          invoke("collapse_floating").catch(() => {});
         });
 
         // Pointer-based click vs. drag. We do NOT also bind a `click` listener:

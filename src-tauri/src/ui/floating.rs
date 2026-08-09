@@ -1,12 +1,15 @@
-//! Floating data widget (desktop) — single capsule, width animation.
+//! Floating data widget (desktop) — capsule fills the window; the WINDOW
+//! resizes on hover (no large transparent area → no glass/blur on Windows).
 //!
-//! One window ("floating", 148×44) sits flush against the right screen edge.
-//! It holds a single capsule whose width animates on hover:
-//!   - Collapsed (44px): a clean semicircle — flat side flush with the
-//!     screen, rounded side facing outward — showing only the "T" icon.
-//!   - Expanded (148px): a half-pill. The "T" stays at the screen-edge end;
-//!     the data value (e.g. "2.8M" / "$4.2") fades in centered in the
-//!     outward region. The outer rounded cap carries no icon.
+//! The OS window is COLLAPSED size (44×44) at rest: a clean semicircle showing
+//! only the "T", flush against the configured screen edge. On hover, Rust grows
+//! the window to 148×44 (keeping the screen-edge side fixed) and the data value
+//! fades in beside the "T". On leave it shrinks back.
+//!
+//! Why resize the window instead of a CSS width animation? A 148-wide window
+//! with a 44-wide capsule leaves a large transparent region that Windows
+//! WebView2 renders as a glass/blur box. Keeping the window == the capsule size
+//! leaves only tiny rounded-corner transparency, which composites cleanly.
 //!
 //! macOS is intentionally a no-op (the tray title already shows the readout),
 //! so the widget stays hidden there regardless of config.
@@ -15,7 +18,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
 use crate::config::{self, Currency};
 use crate::query::range_for_period;
@@ -23,8 +26,10 @@ use crate::query::summary::{self, Summary};
 use crate::ui::fmt::{compact_tokens, format_cost};
 use crate::utils::time::now_ms;
 
-/// Expanded capsule width in logical px (collapsed width = 44, the T region).
-const CAPSULE_W: i32 = 148;
+/// Collapsed window/capsule size (logical px) — a 44×44 semicircle.
+const COLLAPSED_W: f64 = 44.0;
+/// Expanded window/capsule width (logical px) — a 148×44 half-pill.
+const EXPANDED_W: f64 = 148.0;
 /// Window/capsule height in logical px.
 const WIN_H: f64 = 44.0;
 /// Estimated taskbar/panel height (logical px). The widget sits above it so
@@ -146,9 +151,9 @@ pub fn resolved_theme(app: &AppHandle, cfg: &crate::config::Config) -> String {
     }
 }
 
-/// Persist the floating window's current top-left position (called from a
-/// low-rate poller, so this is cheap and always captures the final resting
-/// spot).
+/// Persist the floating window's resting (collapsed) position, called from a
+/// low-rate poller. Skipped while expanded so we never save the transient
+/// expanded geometry (which would misalign the widget after a restore).
 pub fn persist_handle_pos(app: &AppHandle) {
     let Some(h) = app.get_webview_window("floating") else {
         return;
@@ -156,10 +161,18 @@ pub fn persist_handle_pos(app: &AppHandle) {
     if !h.is_visible().unwrap_or(false) {
         return;
     }
+    let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
+    // Only persist the collapsed resting position.
+    let collapsed = h
+        .outer_size()
+        .map(|s| (s.width as f64 / scale - COLLAPSED_W).abs() < 1.0)
+        .unwrap_or(true);
+    if !collapsed {
+        return;
+    }
     let Ok(pos) = h.outer_position() else {
         return;
     };
-    let scale = h.scale_factor().unwrap_or(1.0).max(1.0);
     let wx = (pos.x as f64 / scale).round() as i32;
     let wy = (pos.y as f64 / scale).round() as i32;
     let Some(state) = app.try_state::<crate::state::AppState>() else {
@@ -211,11 +224,50 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let window_left = if position == "left" {
         mx
     } else {
-        mx + mw - CAPSULE_W as f64
+        mx + mw - COLLAPSED_W
     };
     // Sit above the taskbar with a gap (taskbar otherwise covers the widget).
     let window_top = my + mh - TASKBAR_H - FLOAT_GAP - WIN_H;
     let _ = win.set_position(LogicalPosition::new(window_left, window_top));
+}
+
+/// Grow (hover) or shrink (leave) the floating window between the collapsed
+/// semicircle (44×44) and the expanded half-pill (148×44). The screen-edge side
+/// stays fixed: for the right edge the window grows leftward (right edge pinned),
+/// for the left edge it grows rightward (left edge pinned). `expanded` = true
+/// grows, false shrinks.
+pub fn resize_expanded(app: &AppHandle, expanded: bool) {
+    let Some(win) = app.get_webview_window("floating") else {
+        return;
+    };
+    let edge = app
+        .try_state::<crate::state::AppState>()
+        .and_then(|s| s.load_config().ok())
+        .map(|c| c.floating_position)
+        .unwrap_or_else(|| "right".into());
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let (target_w, cur_w) = if expanded {
+        (EXPANDED_W, COLLAPSED_W)
+    } else {
+        (COLLAPSED_W, EXPANDED_W)
+    };
+    if edge == "left" {
+        // Left edge fixed: just resize (window grows rightward).
+        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
+        return;
+    }
+    // Right edge fixed: pin the right edge, resize, then reposition left so the
+    // right edge ends where it started. (Position-first avoids the right edge
+    // drifting past the screen border mid-resize.)
+    let Ok(pos) = win.outer_position() else {
+        let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
+        return;
+    };
+    let right = pos.x as f64 / scale + cur_w;
+    let new_x = right - target_w;
+    let py = pos.y as f64 / scale;
+    let _ = win.set_position(LogicalPosition::new(new_x, py));
+    let _ = win.set_size(LogicalSize::new(target_w, WIN_H));
 }
 
 /// Read the persisted window position ("edge,x,y" logical px), if any.

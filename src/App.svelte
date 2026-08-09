@@ -339,7 +339,13 @@
 </script>
 
 <div class="popover" data-testid="popover">
-  <header class="pop-hero" data-tauri-drag-region>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <header
+    class="pop-hero"
+    data-tauri-drag-region
+    onpointerdown={() => invoke("set_main_interacting", { interacting: true })}
+    onpointerup={() => invoke("set_main_interacting", { interacting: false })}
+  >
     <Hero
       {summary}
       currency={config.currency}
