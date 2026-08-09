@@ -3,6 +3,11 @@
 // Usage: import { t, setLang } from "$lib/i18n.svelte"; <span>{t("settings.general")}</span>
 
 const DICT: Record<string, Record<string, string>> = {
+  // ── Common (shared empty / loading states) ──
+  "common.loading": { zh: "加载中…", en: "Loading…" },
+  "common.loadFailed": { zh: "加载失败，请重试", en: "Failed to load, please retry" },
+  "common.goSettings": { zh: "去设置", en: "Open settings" },
+
   // ── Popover shell ──
   "hero.todayTokens": { zh: "今日 Token", en: "Today Tokens" },
   "hero.todayCost": { zh: "今日成本", en: "Today Cost" },
@@ -79,7 +84,6 @@ const DICT: Record<string, Record<string, string>> = {
 
   // ── Limits segment ──
   "limits.title": { zh: "额度", en: "Quota" },
-  "limits.empty": { zh: "暂无额度数据", en: "No quota data" },
 
   // ── Settings nav ──
   "settings.general": { zh: "基本设置", en: "General" },
@@ -361,6 +365,9 @@ const DICT: Record<string, Record<string, string>> = {
 
   // ── Overview ──
   "overview.loading": { zh: "加载中…", en: "Loading…" },
+  "overview.noData": { zh: "暂无数据", en: "No data yet" },
+  "overview.noModules": { zh: "总览列表为空", en: "Overview list is empty" },
+  "overview.noModulesHint": { zh: "在 设置 → 预览界面 的总览列表中勾选要显示的内容", en: "Select modules to show in Settings → Preview overview list" },
   "overview.all": { zh: "全部", en: "All" },
   "overview.msgs": { zh: " 会话", en: " msgs" },
   "overview.noToolData": { zh: "暂无工具数据 — 等待 tokscale 采集", en: "No tool data — waiting for tokscale" },
@@ -392,14 +399,10 @@ const DICT: Record<string, Record<string, string>> = {
   // ── Limits ──
   
   "limits.noBinding": { zh: "未绑定厂商账号", en: "No vendor bound" },
-  "mainview.settingsHint": { zh: "设置 → 预览界面", en: "Settings → Preview" },
-  "limits.settingsHint": { zh: "设置 → 账号额度", en: "Settings → Account" },
   "breakdown.msgs": { zh: " 条", en: "" },
   "limits.allDisabled": { zh: "所有厂商已停用", en: "All vendors disabled" },
-  "limits.allDisabledHint1": { zh: "在 ", en: "Enable vendors in " },
-  "limits.allDisabledHint2": { zh: " 中启用的厂商额度将显示在此", en: " to show quota here" },
-  "limits.noBindingHint1": { zh: "在 ", en: "Bind API Key / OAuth in " },
-  "limits.noBindingHint2": { zh: " 绑定 API Key / OAuth 后，额度将显示在此", en: " to show quota here" },
+  "limits.allDisabledHint": { zh: "启用的厂商额度将显示在此", en: "Enable a vendor to show its quota here" },
+  "limits.noBindingHint": { zh: "绑定 API Key / OAuth 后显示额度", en: "Bind an API Key / OAuth to show quota" },
 
   // ── QuotaCard ──
   "quota.justNow": { zh: "刚刚刷新", en: "Just now" },

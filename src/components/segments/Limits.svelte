@@ -8,6 +8,7 @@
   import { api, type Currency, type Quota } from "../../lib/api";
   import { QUOTA_UPDATED } from "../../lib/events";
   import QuotaCard from "../common/QuotaCard.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
 
   let {
     currency = "cny" as Currency,
@@ -88,17 +89,13 @@
 
 <div class="seg-body">
   {#if visibleQuotas === null}
-    <p class="loading">{t("projects.loading")}</p>
+    <EmptyState title={t("common.loading")} icon="loading" />
   {:else if visibleQuotas.length === 0}
-    <div class="empty">
-      {#if quotas && quotas.length > 0}
-        <p>{t("limits.allDisabled")}</p>
-        <p class="hint">{t("limits.allDisabledHint1")}<button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「{t("limits.settingsHint")}」</button>{t("limits.allDisabledHint2")}</p>
-      {:else}
-        <p>{t("limits.noBinding")}</p>
-        <p class="hint">{t("limits.noBindingHint1")}<button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>「{t("limits.settingsHint")}」</button>{t("limits.noBindingHint2")}</p>
-      {/if}
-    </div>
+    <EmptyState
+      title={quotas && quotas.length > 0 ? t("limits.allDisabled") : t("limits.noBinding")}
+      hint={quotas && quotas.length > 0 ? t("limits.allDisabledHint") : t("limits.noBindingHint")}
+      actionLabel={t("common.goSettings")}
+      onAction={() => openSettingsTo("account")} />
   {:else}
     {@const progressMode = config?.quota_progress_mode ?? "剩余"}
     {#each visibleQuotas as q (q.vendor)}
@@ -114,38 +111,4 @@
     flex-direction: column;
     gap: 10px;
   }
-  .loading {
-    color: var(--text-faint);
-    font-size: 12px;
-    padding: 24px 0;
-    text-align: center;
-  }
-  .empty {
-    text-align: center;
-    padding: 32px 16px;
-  }
-  .empty p {
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 13px;
-  }
-  .empty .hint {
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--text-faint);
-  }
-  .hint-link {
-    display: inline;
-    background: none;
-    border: none;
-    color: var(--amber);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: inherit;
-    padding: 0;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    transition: opacity 0.15s;
-  }
-  .hint-link:hover { opacity: 0.75; }
 </style>

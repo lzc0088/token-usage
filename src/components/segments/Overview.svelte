@@ -9,6 +9,7 @@
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
   import QuotaCard from "../common/QuotaCard.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
   import { periodValue } from "../../stores/period.svelte";
   import { setSegment } from "../../stores/segment.svelte";
 
@@ -148,9 +149,10 @@
 </script>
 <div class="ov-body">
   {#if !summary && !toolB && !modelB && quotas.length === 0}
-    <p class="muted">{t("overview.loading")}</p>
-  {/if}
-
+    <EmptyState title={t("overview.loading")} icon="loading" />
+  {:else if subOrder.length === 0}
+    <EmptyState title={t("overview.noModules")} hint={t("overview.noModulesHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("mainview")} />
+  {:else}
   {#each subOrder as sectionKey (sectionKey)}
     {#if sectionKey === "overview_io"}
       <section class="module">
@@ -167,7 +169,7 @@
               <div class="scell"><div class="k">{cell.k}</div><div class="v {cell.cls}">{s.value}<span class="u">{s.unit}</span></div></div>
             {/each}
           {:else}
-            <p class="empty">{t("overview.noData")}</p>
+            <EmptyState title={t("overview.noData")} compact />
           {/if}
         </div>
       </section>
@@ -189,7 +191,7 @@
             </button>
           {/each}
         {:else}
-          <p class="empty">{t("overview.noToolData")}</p>
+          <EmptyState title={t("overview.noToolData")} compact />
         {/if}
       </section>
     {/if}
@@ -211,7 +213,7 @@
             </button>
           {/each}
         {:else}
-          <p class="empty">{t("overview.noModelData")}</p>
+          <EmptyState title={t("overview.noModelData")} compact />
         {/if}
       </section>
     {/if}
@@ -226,22 +228,18 @@
             {/each}
           </div>
         {:else}
-          <div class="q-empty">
-            {#if quotas.length === 0}
-              <p>{t("overview.emptyQuotaNoBinding")}</p>
-              <p class="hint">{t("overview.emptyQuotaNoBindingHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>{t("limits.settingsHint")}</button></p>
-            {:else if overviewQuotaVendors !== null && overviewQuotaVendors.length === 0}
-              <p>{t("overview.emptyNoneSelected")}</p>
-              <p class="hint">{t("overview.emptyNoneSelectedHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("mainview")}>{t("mainview.settingsHint")}</button></p>
-            {:else}
-              <p>{t("overview.emptyAllDisabled")}</p>
-              <p class="hint">{t("overview.emptyAllDisabledHint")} <button type="button" class="hint-link" onclick={() => openSettingsTo("account")}>{t("limits.settingsHint")}</button></p>
-            {/if}
-          </div>
+          {#if quotas.length === 0}
+            <EmptyState title={t("overview.emptyQuotaNoBinding")} hint={t("overview.emptyQuotaNoBindingHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("account")} compact />
+          {:else if overviewQuotaVendors !== null && overviewQuotaVendors.length === 0}
+            <EmptyState title={t("overview.emptyNoneSelected")} hint={t("overview.emptyNoneSelectedHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("mainview")} compact />
+          {:else}
+            <EmptyState title={t("overview.emptyAllDisabled")} hint={t("overview.emptyAllDisabledHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("account")} compact />
+          {/if}
         {/if}
       </section>
     {/if}
   {/each}
+  {/if}
 </div>
 
 <style>
@@ -327,34 +325,4 @@
     flex-direction: column;
     gap: 10px;
   }
-  .empty { margin: 0; font-size: 12px; color: var(--text-faint); }
-  .muted { margin: 0; color: var(--text-dim); font-size: 13px; }
-  .q-empty {
-    text-align: center;
-    padding: 20px 16px;
-  }
-  .q-empty p {
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 13px;
-  }
-  .q-empty .hint {
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--text-faint);
-  }
-  .hint-link {
-    display: inline;
-    background: none;
-    border: none;
-    color: var(--amber);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: inherit;
-    padding: 0;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    transition: opacity 0.15s;
-  }
-  .hint-link:hover { opacity: 0.75; }
 </style>

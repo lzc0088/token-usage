@@ -6,6 +6,7 @@
   import { toolMeta } from "../../lib/meta/tools";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
 
   const DETAIL_CAPABLE_TOOLS = ["claude", "codex", "opencode"] as const;
 
@@ -129,9 +130,9 @@
     <!-- round list (one row per user input) -->
     <div class="view-body">
       {#if viewRounds === null}
-        <p class="det-loading">{t("projects.loading")}</p>
+        <EmptyState title={t("common.loading")} icon="loading" />
       {:else if viewRounds.length === 0}
-        <p class="det-empty">{t("sessions.noRounds")}</p>
+        <EmptyState title={t("sessions.noRounds")} />
       {:else}
         {#each sortedRounds as r, ri (ri)}
           {@const ts = splitTokens(r.total_tokens)}
@@ -175,9 +176,9 @@
     </div>
 
     {#if sessions === null}
-      <p class="loading">{t("projects.loading")}</p>
+      <EmptyState title={t("common.loading")} icon="loading" />
     {:else if sessions.length === 0}
-      <p class="empty">{t("sessions.empty")}</p>
+      <EmptyState title={t("sessions.empty")} />
     {:else}
       {#each sorted as s (s.tool + s.session_id)}
         {@const st = splitTokens(s.tokens)}
@@ -226,9 +227,9 @@
         {#if open}
           <div class="s-detail">
             {#if detail === null}
-              <p class="det-loading">{t("projects.loading")}</p>
+              <EmptyState title={t("common.loading")} icon="loading" compact />
             {:else if detail.length === 0}
-              <p class="det-empty">暂无详情</p>
+              <EmptyState title={t("sessions.noDetail")} compact />
             {:else}
               {#each detail as dr (dr.model)}
                 {@const dm = toolMeta(dr.model)}
@@ -260,7 +261,6 @@
 
 <style>
   .seg-body { display: flex; flex-direction: column; }
-  .loading, .empty, .det-loading, .det-empty { padding: 16px 24px; color: var(--text-faint); font-size: 11px; }
 
   .bd-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 12px; }
   .bd-title { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }

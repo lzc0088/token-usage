@@ -1,6 +1,7 @@
 <script lang="ts">
   // 趋势 segment (T4.4). Line chart with an average line and per-node hover.
   // DAY = last 7 days, MONTH = current month, TOTAL = all history by month.
+  import EmptyState from "../common/EmptyState.svelte";
   import { api, type Trends } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { formatTokens, splitTokens } from "../../lib/format";
@@ -101,9 +102,9 @@
 
 <div class="seg-body">
   {#if data === null}
-    <p class="loading">{t("projects.loading")}</p>
+    <EmptyState title={t("common.loading")} icon="loading" />
   {:else if points.length === 0}
-    <p class="empty">{t("trends.noData")}</p>
+    <EmptyState title={t("trends.noData")} />
   {:else}
     <!-- period title (first row, larger font) -->
     <div class="range-label">{rangeLabel}</div>
@@ -182,14 +183,6 @@
     flex-direction: column;
     gap: 10px;
   }
-  .loading,
-  .empty {
-    color: var(--text-faint);
-    font-size: 12px;
-    text-align: center;
-    padding: 24px 0;
-  }
-
   /* stats — mirrors Overview .scell (k=11px, v=20px, u=11px) */
   .stats {
     display: grid;

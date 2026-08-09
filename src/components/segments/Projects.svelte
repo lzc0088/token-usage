@@ -5,6 +5,7 @@
   import { toolMeta } from "../../lib/meta/tools";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
   import { periodValue } from "../../stores/period.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
@@ -147,9 +148,9 @@
       {/each}
     </div>
   {:else if projects === null}
-    <p class="empty">{t("projects.fail")}</p>
+    <EmptyState title={t("common.loadFailed")} />
   {:else if projects.length === 0}
-    <p class="empty">{t("projects.empty")}</p>
+    <EmptyState title={t("projects.empty")} />
   {:else}
     {#each visible as p, i (p.full_path ?? `${p.name}#${i}`)}
       {@const rowKey = p.full_path ?? `${p.name}#${i}`}
@@ -254,13 +255,6 @@
     flex-direction: column;
     width: 100%;
   }
-  .empty {
-    padding: 24px 16px;
-    color: var(--text-faint);
-    font-size: 12px;
-    text-align: center;
-  }
-
   /* ── Skeleton loading (matches BreakdownList .bd-row) ── */
   .skel-list {
     display: flex;

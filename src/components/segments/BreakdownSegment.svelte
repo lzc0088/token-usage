@@ -1,6 +1,7 @@
 <script lang="ts">
   // 用量细分 segment (T4.2). 泛型组件：dim="tool" | "model"
   import BreakdownList from "../common/BreakdownList.svelte";
+  import EmptyState from "../common/EmptyState.svelte";
   import { api, type Breakdown, type Currency } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
   import { t } from "../../lib/i18n.svelte";
@@ -37,10 +38,12 @@
 </script>
 
 <div class="seg-body">
-  {#if data}
-    <BreakdownList entries={data.entries} {currency} {cnyRate} {title} {dim} />
+  {#if !data}
+    <EmptyState title={t("common.loading")} icon="loading" />
+  {:else if data.entries.length === 0}
+    <EmptyState title={t("breakdown.noData")} />
   {:else}
-    <p class="loading">{t("projects.loading")}</p>
+    <BreakdownList entries={data.entries} {currency} {cnyRate} {title} {dim} />
   {/if}
 </div>
 
@@ -48,10 +51,5 @@
   .seg-body {
     display: flex;
     flex-direction: column;
-  }
-  .loading {
-    padding: 18px 16px;
-    color: var(--text-faint);
-    font-size: 11px;
   }
 </style>
