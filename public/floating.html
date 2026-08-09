@@ -11,7 +11,11 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: transparent;
+      /* OPAQUE background: the OS window is transparent:false, so an alpha/transparent
+         body would let Windows apply its translucent (glass) backdrop. A solid fill
+         makes the window fully opaque — no glass. The window's corners are rounded by
+         the OS (DWM on Windows 11). */
+      background: var(--glass);
       user-select: none;
       -webkit-user-select: none;
     }
