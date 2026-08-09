@@ -60,7 +60,6 @@ fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 /// change so the region matches the current geometry. No-op on non-Windows.
 #[cfg(windows)]
 fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
-    use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
         AngleArc, BeginPath, CloseFigure, CreateRoundRectRgn, EndPath, GetDC, GetStockObject,
         LineTo, MoveToEx, PathToRegion, ReleaseDC, SelectObject, SetWindowRgn, NULL_PEN,
@@ -73,7 +72,10 @@ fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
         .unwrap_or(COLLAPSED_W);
     let h = WIN_H;
     let r = h / 2.0; // semicircle radius
-    let hwnd = HWND(win.hwnd().unwrap_or(0) as _);
+                     // `win.hwnd()` already returns the windows-crate `HWND` on Windows.
+    let Ok(hwnd) = win.hwnd() else {
+        return;
+    };
     let hdc = unsafe { GetDC(Some(hwnd)) };
     if hdc.is_invalid() {
         return;
@@ -153,13 +155,17 @@ fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
 
         CloseFigure(hdc);
         let _ = EndPath(hdc);
-        if let Some(rgn) = PathToRegion(hdc) {
-            let _ = SetWindowRgn(Some(hwnd), Some(rgn), false);
-            // rgn is consumed by SetWindowRgn — do NOT DeleteObject(rgn).
+        // PathToRegion returns an HRGN (an invalid handle if the path is empty);
+        // fall back to a uniform rounded rect (edge-side rounding hidden by flush).
+        let path_rgn = PathToRegion(hdc);
+        let rgn = if path_rgn.is_invalid() {
+            CreateRoundRectRgn(0, 0, w as i32 + 1, h as i32 + 1, r as i32, r as i32)
         } else {
-            // Fallback: uniform rounding (edge-side rounding is hidden by flush).
-            let rgn = CreateRoundRectRgn(0, 0, w as i32 + 1, h as i32 + 1, r as i32, r as i32);
-            let _ = SetWindowRgn(Some(hwnd), Some(rgn), false);
+            path_rgn
+        };
+        if !rgn.is_invalid() {
+            // rgn ownership transfers to the system — do NOT DeleteObject(rgn).
+            let _ = SetWindowRgn(hwnd, Some(rgn), false);
         }
         ReleaseDC(Some(hwnd), hdc);
     }
