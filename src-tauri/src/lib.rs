@@ -38,6 +38,7 @@ fn mark_menu_close() {
     MENU_CLOSE_MS.store(now_ms(), Ordering::SeqCst);
 }
 
+#[cfg(target_os = "macos")]
 fn menu_just_closed() -> bool {
     let last = MENU_CLOSE_MS.load(Ordering::SeqCst);
     if last == 0 {
@@ -538,33 +539,25 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // ── auto-hide popover on blur ──────────────────────────────────
-            // Hide when the popover loses focus — standard menu bar behaviour.
-            // We defer a tick so that, if focus moved to the floating widget
-            // (the user clicked it to toggle the popover closed), we DON'T yank
-            // the popover away — the widget's toggle owns that case. If focus
-            // went to the desktop / another app, hide on blur as usual.
+            // ── auto-hide popover on blur (macOS only) ────────────────────
+            // macOS: menu-bar popover auto-hides on blur (click-away-to-close).
+            // Windows/Linux: the main window is a NORMAL window (draggable +
+            // resizable). It must NOT auto-hide on blur — drag/resize fire
+            // Focused(false), which would yank the window away mid-interaction.
+            // It closes via the floating widget (toggle) or the tray instead.
+            #[cfg(target_os = "macos")]
             {
                 let w = window.clone();
                 window.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Focused(false) = ev {
                         if !menu_just_closed() {
-                            let w2 = w.clone();
-                            let app = w.app_handle().clone();
-                            tauri::async_runtime::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                let floating_focused = app
-                                    .get_webview_window("floating")
-                                    .map(|f| f.is_focused().unwrap_or(false))
-                                    .unwrap_or(false);
-                                if !floating_focused {
-                                    let _ = w2.hide();
-                                }
-                            });
+                            let _ = w.hide();
                         }
                     }
                 });
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = window; // main window persists until explicitly closed
 
             // ── make settings window drag-movable by background ──────────
             #[cfg(target_os = "macos")]
