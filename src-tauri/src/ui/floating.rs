@@ -62,13 +62,15 @@ fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
-        BeginPath, CloseFigure, EndPath, AngleArc, LineTo, MoveToEx,
-        PathToRegion, CreateRoundRectRgn, SetWindowRgn,
-        SelectObject, GetStockObject, GetDC, ReleaseDC, NULL_PEN,
+        AngleArc, BeginPath, CloseFigure, CreateRoundRectRgn, EndPath, GetDC, GetStockObject,
+        LineTo, MoveToEx, PathToRegion, ReleaseDC, SelectObject, SetWindowRgn, NULL_PEN,
     };
 
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-    let w = win.outer_size().map(|s| s.width as f64 / scale).unwrap_or(COLLAPSED_W);
+    let w = win
+        .outer_size()
+        .map(|s| s.width as f64 / scale)
+        .unwrap_or(COLLAPSED_W);
     let h = WIN_H;
     let r = h / 2.0; // semicircle radius
     let hwnd = HWND(win.hwnd().unwrap_or(0) as _);
@@ -96,21 +98,56 @@ fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
             let _ = AngleArc(hdc, (rpx - r) as i32, (lpy + r) as i32, r as u32, 0.0, 90.0);
             let _ = LineTo(hdc, rpx as i32, (rpy - r) as i32);
             // Top-right arc: center (rpx − r, rpy − r), 270° → 360°
-            let _ = AngleArc(hdc, (rpx - r) as i32, (rpy - r) as i32, r as u32, 270.0, 90.0);
+            let _ = AngleArc(
+                hdc,
+                (rpx - r) as i32,
+                (rpy - r) as i32,
+                r as u32,
+                270.0,
+                90.0,
+            );
             let _ = LineTo(hdc, lpx as i32, rpy as i32);
             // Bottom-left arc: center (lpx + r, rpy − r), 90° → 180°
-            let _ = AngleArc(hdc, (lpx + r) as i32, (rpy - r) as i32, r as u32, 90.0, 90.0);
+            let _ = AngleArc(
+                hdc,
+                (lpx + r) as i32,
+                (rpy - r) as i32,
+                r as u32,
+                90.0,
+                90.0,
+            );
             let _ = LineTo(hdc, lpx as i32, (lpy + r) as i32);
         } else {
             // ── right edge: round the LEFT side (away from edge) ──────────
             // Bottom-left arc: center (lpx + r, lpy + r), 90° → 180°
-            let _ = AngleArc(hdc, (lpx + r) as i32, (lpy + r) as i32, r as u32, 90.0, 90.0);
+            let _ = AngleArc(
+                hdc,
+                (lpx + r) as i32,
+                (lpy + r) as i32,
+                r as u32,
+                90.0,
+                90.0,
+            );
             let _ = LineTo(hdc, lpx as i32, (rpy - r) as i32);
             // Top-left arc: center (lpx + r, rpy − r), 180° → 270°
-            let _ = AngleArc(hdc, (lpx + r) as i32, (rpy - r) as i32, r as u32, 180.0, 90.0);
+            let _ = AngleArc(
+                hdc,
+                (lpx + r) as i32,
+                (rpy - r) as i32,
+                r as u32,
+                180.0,
+                90.0,
+            );
             let _ = LineTo(hdc, rpx as i32, rpy as i32);
             // Top-right arc: center (rpx − r, rpy − r), 270° → 360°
-            let _ = AngleArc(hdc, (rpx - r) as i32, (rpy - r) as i32, r as u32, 270.0, 90.0);
+            let _ = AngleArc(
+                hdc,
+                (rpx - r) as i32,
+                (rpy - r) as i32,
+                r as u32,
+                270.0,
+                90.0,
+            );
             let _ = LineTo(hdc, rpx as i32, (lpy + r) as i32);
         }
 
