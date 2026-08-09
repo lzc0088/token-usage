@@ -90,7 +90,7 @@ fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
     unsafe {
         // Begin a smooth curve path, then trace a rounded-rect outline using
         // AngleArc (quarter-circle at each corner) + line segments.
-        BeginPath(hdc);
+        let _ = BeginPath(hdc);
         SelectObject(hdc, GetStockObject(NULL_PEN));
         let _ = MoveToEx(hdc, lpx as i32, (lpy + r) as i32, None);
 
@@ -153,7 +153,7 @@ fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
             let _ = LineTo(hdc, rpx as i32, (lpy + r) as i32);
         }
 
-        CloseFigure(hdc);
+        let _ = CloseFigure(hdc);
         let _ = EndPath(hdc);
         // PathToRegion returns an HRGN (an invalid handle if the path is empty);
         // fall back to a uniform rounded rect (edge-side rounding hidden by flush).
