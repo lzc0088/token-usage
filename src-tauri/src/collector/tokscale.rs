@@ -118,7 +118,7 @@ pub fn app_bin_dir() -> Option<PathBuf> {
 /// tokscale version used for install fallback. Automatically bumped by
 /// `scripts/fetch-tokscale.mjs --latest` at build time (reads npm registry
 /// for the latest published @tokscale/cli-{triple} and writes back here).
-pub const TOKSCALE_VERSION: &str = "4.11.0";
+pub const TOKSCALE_VERSION: &str = "4.12.0";
 
 /// tokscale platform package suffix for the current compile target, matching
 /// `@tokscale/cli-<suffix>` optionalDependencies.
