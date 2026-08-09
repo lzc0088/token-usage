@@ -46,136 +46,29 @@ const HIDE_GRACE_MS: i64 = 220;
 /// overwrites; a fired timer only hides if its deadline is still the latest.
 static HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
 
-/// No-op: shape is controlled by `apply_edge_rounding` (GDI region clipping).
-/// Windows default ~8px rounding is irrelevant since the region fully controls
-/// the window's visible shape.
+/// Force SQUARE window corners on Windows 11 (DWMWCP_DONOTROUND) so the widget
+/// has crisp 直角 corners instead of the system's default ~8px rounding. No-op
+/// elsewhere (macOS is hidden; Linux has no such default).
 #[cfg(windows)]
-fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
-#[cfg(not(windows))]
-fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
-
-/// Clip the floating window to a half-pill shape: the side touching the screen
-/// edge stays flat (flush), the opposite side gets rounded corners (radius =
-/// half the window height → semicircle). Applied after every resize/position
-/// change so the region matches the current geometry. No-op on non-Windows.
-#[cfg(windows)]
-fn apply_edge_rounding(win: &tauri::WebviewWindow, position: &str) {
-    use windows::Win32::Graphics::Gdi::{
-        AngleArc, BeginPath, CloseFigure, CreateRoundRectRgn, EndPath, GetDC, GetStockObject,
-        LineTo, MoveToEx, PathToRegion, ReleaseDC, SelectObject, SetWindowRgn, NULL_PEN,
-    };
-
-    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-    let w = win
-        .outer_size()
-        .map(|s| s.width as f64 / scale)
-        .unwrap_or(COLLAPSED_W);
-    let h = WIN_H;
-    let r = h / 2.0; // semicircle radius
-                     // `win.hwnd()` already returns the windows-crate `HWND` on Windows.
-    let Ok(hwnd) = win.hwnd() else {
-        return;
-    };
-    let hdc = unsafe { GetDC(Some(hwnd)) };
-    if hdc.is_invalid() {
-        return;
-    }
-
-    // GDI logical units (1 px at window DPI).
-    let lpx = 0.0_f64;
-    let lpy = 0.0_f64;
-    let rpx = w;
-    let rpy = h;
-
-    unsafe {
-        // Begin a smooth curve path, then trace a rounded-rect outline using
-        // AngleArc (quarter-circle at each corner) + line segments.
-        let _ = BeginPath(hdc);
-        SelectObject(hdc, GetStockObject(NULL_PEN));
-        let _ = MoveToEx(hdc, lpx as i32, (lpy + r) as i32, None);
-
-        if position == "left" {
-            // ── left edge: round the RIGHT side (away from edge) ──────────
-            // Bottom-right arc: center (rpx − r, lpy + r), 0° → 90°
-            let _ = AngleArc(hdc, (rpx - r) as i32, (lpy + r) as i32, r as u32, 0.0, 90.0);
-            let _ = LineTo(hdc, rpx as i32, (rpy - r) as i32);
-            // Top-right arc: center (rpx − r, rpy − r), 270° → 360°
-            let _ = AngleArc(
-                hdc,
-                (rpx - r) as i32,
-                (rpy - r) as i32,
-                r as u32,
-                270.0,
-                90.0,
+fn ensure_square_corners(win: &tauri::WebviewWindow) {
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+    // DWMWA_WINDOW_CORNER_PREFERENCE = 33; DWMWCP_DONOTROUND = 1.
+    const DWMWCP_DONOTROUND: i32 = 1;
+    if let Ok(hwnd) = win.hwnd() {
+        let pref = DWMWCP_DONOTROUND;
+        // Safety: standard DWM attribute call with a valid HWND + i32 value.
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWINDOWATTRIBUTE(33),
+                &pref as *const i32 as *const _,
+                std::mem::size_of::<i32>() as u32,
             );
-            let _ = LineTo(hdc, lpx as i32, rpy as i32);
-            // Bottom-left arc: center (lpx + r, rpy − r), 90° → 180°
-            let _ = AngleArc(
-                hdc,
-                (lpx + r) as i32,
-                (rpy - r) as i32,
-                r as u32,
-                90.0,
-                90.0,
-            );
-            let _ = LineTo(hdc, lpx as i32, (lpy + r) as i32);
-        } else {
-            // ── right edge: round the LEFT side (away from edge) ──────────
-            // Bottom-left arc: center (lpx + r, lpy + r), 90° → 180°
-            let _ = AngleArc(
-                hdc,
-                (lpx + r) as i32,
-                (lpy + r) as i32,
-                r as u32,
-                90.0,
-                90.0,
-            );
-            let _ = LineTo(hdc, lpx as i32, (rpy - r) as i32);
-            // Top-left arc: center (lpx + r, rpy − r), 180° → 270°
-            let _ = AngleArc(
-                hdc,
-                (lpx + r) as i32,
-                (rpy - r) as i32,
-                r as u32,
-                180.0,
-                90.0,
-            );
-            let _ = LineTo(hdc, rpx as i32, rpy as i32);
-            // Top-right arc: center (rpx − r, rpy − r), 270° → 360°
-            let _ = AngleArc(
-                hdc,
-                (rpx - r) as i32,
-                (rpy - r) as i32,
-                r as u32,
-                270.0,
-                90.0,
-            );
-            let _ = LineTo(hdc, rpx as i32, (lpy + r) as i32);
         }
-
-        let _ = CloseFigure(hdc);
-        let _ = EndPath(hdc);
-        // PathToRegion returns an HRGN (an invalid handle if the path is empty);
-        // fall back to a uniform rounded rect (edge-side rounding hidden by flush).
-        let path_rgn = PathToRegion(hdc);
-        let rgn = if path_rgn.is_invalid() {
-            CreateRoundRectRgn(0, 0, w as i32 + 1, h as i32 + 1, r as i32, r as i32)
-        } else {
-            path_rgn
-        };
-        if !rgn.is_invalid() {
-            // rgn ownership transfers to the system — do NOT DeleteObject(rgn).
-            let _ = SetWindowRgn(hwnd, Some(rgn), false);
-        }
-        ReleaseDC(Some(hwnd), hdc);
     }
 }
-
-/// Fallback when path-based clipping fails: uniform rounding on all corners.
-/// Edge-side rounding is acceptable as a degraded fallback — the window sits
-/// flush so the rounding is largely hidden.
 #[cfg(not(windows))]
-fn apply_edge_rounding(_win: &tauri::WebviewWindow, _position: &str) {}
+fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 
 /// Sync widget visibility + handle position with config (startup + on change).
 pub fn sync_floating(app: &AppHandle, conn: &Connection) {
@@ -347,7 +240,6 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
             };
             let _ = win.set_size(LogicalSize::new(COLLAPSED_W, WIN_H));
             let _ = win.set_position(LogicalPosition::new(window_left, wy));
-            apply_edge_rounding(&win, &saved_edge);
             return;
         }
     }
@@ -421,7 +313,6 @@ pub fn resize_expanded(app: &AppHandle, expanded: bool) {
     };
     let _ = win.set_position(LogicalPosition::new(new_x, py));
     let _ = win.set_size(LogicalSize::new(visible, WIN_H));
-    apply_edge_rounding(&win, &edge);
 }
 
 /// Read the persisted window position ("edge,x,y" logical px), if any.
