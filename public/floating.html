@@ -175,7 +175,11 @@
         });
         capsule.addEventListener("pointermove", (e) => {
           if (!down || down.moved) return;
-          if (Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
+          const dx = Math.abs(e.screenX - down.x);
+          const dy = Math.abs(e.screenY - down.y);
+          // Only allow vertical drag (along the screen edge). Horizontal
+          // movement stays locked — the widget is flush against the edge.
+          if (dy > dx && dy > 4) {
             down.moved = true;
             win.startDragging().catch(() => {});
           }

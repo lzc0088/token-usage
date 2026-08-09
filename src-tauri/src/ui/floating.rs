@@ -223,10 +223,23 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
         return;
     };
     let cfg = config::load(conn).unwrap_or_default();
-    if let Some((saved_edge, wx, wy)) = load_pos(conn) {
+    if let Some((saved_edge, _wx, wy)) = load_pos(conn) {
         if saved_edge == cfg.floating_position {
+            // Recalculate X from the monitor edge (not from saved X) — the saved
+            // X may have drifted due to physical pixel rounding across sessions.
+            let Ok(Some(mon)) = win.primary_monitor() else {
+                return;
+            };
+            let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+            let mw = mon.size().width as f64 / scale;
+            let mx = mon.position().x as f64 / scale;
+            let window_left = if saved_edge == "left" {
+                mx
+            } else {
+                mx + mw - COLLAPSED_W
+            };
             let _ = win.set_size(LogicalSize::new(COLLAPSED_W, WIN_H));
-            let _ = win.set_position(LogicalPosition::new(wx, wy));
+            let _ = win.set_position(LogicalPosition::new(window_left, wy));
             return;
         }
     }
