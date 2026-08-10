@@ -964,6 +964,7 @@
     box-sizing: border-box;
   }
   .fsel:focus { outline: none; border-color: var(--amber); }
+  .sel { min-width: 150px; }
 
   .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
