@@ -406,8 +406,7 @@ pub fn run() {
             let filter = "token_usage=info";
             let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(filter));
-            let stdout_layer =
-                tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
+            let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
 
             // Resolve the log dir with multiple fallbacks so a failure in the
             // Tauri path API never silently disables file logging.
@@ -419,9 +418,9 @@ pub fn run() {
                 .ok()
                 .or_else(|| dirs::data_dir().map(|d| d.join("token-usage").join("logs")));
             let file_layer = if let Some(ref dir) = log_dir {
-                match std::fs::create_dir_all(&dir) {
+                match std::fs::create_dir_all(dir) {
                     Ok(()) => {
-                        let appender = tracing_appender::rolling::daily(&dir, "app.log");
+                        let appender = tracing_appender::rolling::daily(dir, "app.log");
                         let (non_blocking, guard) = tracing_appender::non_blocking(appender);
                         // Leak the guard so the background writer keeps flushing
                         // for the whole process lifetime.
@@ -432,9 +431,9 @@ pub fn run() {
                                 // Exclude frontend diagnostics — they may carry
                                 // OAuth codes / credential field names. They still
                                 // go to stdout in dev.
-                                .with_filter(tracing_subscriber::filter::filter_fn(
-                                    |metadata| metadata.target() != "frontend",
-                                )),
+                                .with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                                    metadata.target() != "frontend"
+                                })),
                         )
                     }
                     Err(e) => {
