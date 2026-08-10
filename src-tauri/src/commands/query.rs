@@ -103,6 +103,7 @@ pub fn get_detail_breakdown(
 
 #[tauri::command]
 pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, String> {
+    tracing::info!(?period, "get_trends: entry");
     let p = parse_period(&period);
     let today = today();
     let conn = db(&state);
@@ -111,21 +112,37 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
     let res = match p {
         query::Period::Day => {
             let range = query::last_n_days(&today, 7);
+            tracing::debug!(?range, "get_trends: day range");
             query::trends::query(&conn, &range)
         }
         query::Period::Month => {
             let range = query::range_for_period(query::Period::Month, &today);
+            tracing::debug!(?range, "get_trends: month range");
             query::trends::query(&conn, &range)
         }
-        query::Period::Total => query::trends::query_monthly(&conn, &query::DateRange::default()),
+        query::Period::Total => {
+            tracing::debug!("get_trends: total monthly");
+            query::trends::query_monthly(&conn, &query::DateRange::default())
+        }
     };
+    match &res {
+        Ok(t) => tracing::info!(points = t.points.len(), "get_trends: success"),
+        Err(e) => tracing::warn!(err = %e, "get_trends: error"),
+    }
     res.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_sessions(limit: Option<i64>, state: State<AppState>) -> Result<Vec<SessionVm>, String> {
+    tracing::info!(?limit, "get_sessions: entry");
     let claude_dir = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
-    query::sessions::query(&db(&state), claude_dir.as_deref(), limit).map_err(|e| e.to_string())
+    let res = query::sessions::query(&db(&state), claude_dir.as_deref(), limit)
+        .map_err(|e| e.to_string());
+    match &res {
+        Ok(v) => tracing::info!(count = v.len(), "get_sessions: success"),
+        Err(e) => tracing::warn!(err = %e, "get_sessions: error"),
+    }
+    res
 }
 
 #[tauri::command]

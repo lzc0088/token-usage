@@ -16,39 +16,59 @@
 
   $effect(() => {
     const p = periodValue();
+    console.info("[Trend] $effect fired, period:", p);
     let cancelled = false;
     const fetch = async () => {
       try {
+        console.info("[Trend] fetch() start, period:", p);
         // Safety net: if the invoke promise hangs (known WebView2 issue on
         // Windows where AbortController.abort() doesn't reject the underlying
         // promise), force the error state after 15 s so the user sees something
         // instead of an eternal skeleton.
         const safety = window.setTimeout(() => {
           if (!cancelled) {
-            console.warn("[Trend] fetch safety timeout fired — forcing error state");
+            console.error("[Trend] fetch safety timeout — invoke never resolved after 15s. Forcing error state. points:", points.length, "data:", !!data);
             loadAttempted = true;
           }
         }, 15000);
         const controller = new AbortController();
-        const tid = window.setTimeout(() => controller.abort(), 8000);
+        const tid = window.setTimeout(() => {
+          console.warn("[Trend] 8s abort timer firing — invoking may be hung, aborting");
+          controller.abort();
+        }, 8000);
         const t = await api.getTrends(p, { signal: controller.signal });
         window.clearTimeout(tid);
         window.clearTimeout(safety);
-        if (!cancelled) { data = t; loadAttempted = true; }
+        if (!cancelled) {
+          console.info("[Trend] fetch() success, points:", t.points.length, "loadAttempted=true");
+          data = t;
+          loadAttempted = true;
+        } else {
+          console.warn("[Trend] fetch() resolved after cancel — discarding");
+        }
       } catch (e) {
-        console.warn("[Trend] fetch failed:", e);
+        console.error("[Trend] fetch() rejected:", e, "name:", e?.constructor?.name);
         if (!cancelled) loadAttempted = true;
       }
     };
     fetch();
     const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
     return () => {
+      console.info("[Trend] $effect cleanup, cancelled=true");
       cancelled = true;
       un.then(fn => fn());
     };
   });
 
   const points = $derived(data?.points ?? []);
+  // Debug: track data/points mutations (helps diagnose Windows hang)
+  $effect(() => {
+    console.info("[Trend] data/points reactive update:", {
+      data_is_null: data === null,
+      points_len: points.length,
+      first_point: points[0] ?? null,
+    });
+  });
   const period = $derived(periodValue());
   const maxTokens = $derived(Math.max(1, ...points.map((p) => p.tokens)));
   const totalTokens = $derived(points.reduce((s, p) => s + p.tokens, 0));
