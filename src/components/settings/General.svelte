@@ -108,48 +108,41 @@
   });
 
   function checkUpdate(): void {
-    if (checking) return;
     checking = true;
     updateStatus = null;
     showLatestAlert = false;
-    const t0 = Date.now();
-
-    const finish = (info?: UpdateInfo) => {
-      // Guarantee the "checking" state is visible for at least 400 ms so the
-      // user can perceive the button state change.
-      const elapsed = Date.now() - t0;
-      const remaining = Math.max(0, 400 - elapsed);
-      sTimeout(() => {
-        if (info) updateStatus = info;
-        checking = false;
-      }, remaining);
-    };
 
     if (!UPDATE_REPO) {
-      finish({
+      updateStatus = {
         has_update: false, version: "", name: "", changelog: "",
         url: "", published_at: null,
         error: "未配置更新仓库地址（VITE_UPDATE_REPO）",
         error_kind: "api_error",
         download_url: null,
-      });
+      };
+      checking = false;
       return;
     }
 
     api.checkUpdate(UPDATE_REPO, appVersion, true).then((info) => {
-      if (!info.error && !info.has_update) {
+      updateStatus = info;
+      checking = false;
+      if (info.error) {
+        return;
+      }
+      if (!info.has_update) {
         showLatestAlert = true;
         sTimeout(() => { showLatestAlert = false; }, 3000);
       }
-      finish(info);
     }).catch((e) => {
-      finish({
+      updateStatus = {
         has_update: false, version: "", name: "", changelog: "",
         url: "", published_at: null,
         error: "调用失败：" + (e instanceof Error ? e.message : String(e)),
         error_kind: "network",
         download_url: null,
-      });
+      };
+      checking = false;
     });
   }
 
