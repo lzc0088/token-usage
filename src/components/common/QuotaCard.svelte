@@ -11,6 +11,7 @@
   import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
   import { formatCost } from "../../lib/format";
   import { getLang } from "../../lib/i18n.svelte";
+  import Dropdown from "../common/Dropdown.svelte";
   import type { Quota } from "../../lib/api";
 
   type ProgressMode = "用量" | "剩余";
@@ -177,13 +178,10 @@
       {#if regionFields.length > 0}
         <div class="qcookie-regions">
           {#each regionFields as f (f.key)}
+            {@const rv = regionValues[f.key] ?? ""}
             <label class="qregion-field">
               <span class="qregion-label">{f.label}</span>
-              <select class="qregion-select" value={regionValues[f.key] ?? ""} disabled={cookieSaving} onchange={(e) => { regionValues = { ...regionValues, [f.key]: (e.target as HTMLSelectElement).value }; }}>
-                {#each (f.options ?? []) as opt (opt)}
-                  <option value={opt}>{opt}</option>
-                {/each}
-              </select>
+              <Dropdown class="qregion-select" disabled={cookieSaving} value={rv} options={(f.options ?? []).map(o => ({value: o, label: o}))} onChange={(val) => { regionValues = { ...regionValues, [f.key]: val }; }} />
             </label>
           {/each}
         </div>

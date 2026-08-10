@@ -5,6 +5,7 @@
   import { api, type ClientStatus, type TokscaleStatus } from "../../lib/api";
   import { COLLECTION_UPDATED } from "../../lib/events";
   import { t as tt } from "../../lib/i18n.svelte";
+  import Dropdown from "../../components/common/Dropdown.svelte";
   import { moveTo } from "../../lib/util/reorder";
   import { rowDrag } from "../../lib/actions/rowDrag";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
@@ -109,8 +110,7 @@
     if (mode === "interval" || interval !== "manual") return interval;
     return "live";
   });
-  function onCadenceChange(e: Event): void {
-    const val = (e.target as HTMLSelectElement).value;
+  function onCadenceChangeStr(val: string): void {
     if (val === "live" || val === "smart") {
       onUpdate({ refresh_interval: "manual", collection_mode: val as Config["collection_mode"] });
     } else {
@@ -161,14 +161,13 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{tt("collection.frequency")}<div class="hint">{tt("collection.freqHint")}</div></div>
-      <select class="sel" value={displayCadence}
-        onchange={onCadenceChange}>
-        <option value="live">{tt("collection.liveMode")}</option>
-        <option value="smart">{tt("collection.smartMode")}</option>
-        <option value="30s">{tt("collection.every30s")}</option>
-        <option value="60s">{tt("collection.every1m")}</option>
-        <option value="300s">{tt("collection.every5m")}</option>
-      </select>
+      <Dropdown class="sel" value={displayCadence} options={[
+        {value: "live", label: tt("collection.liveMode")},
+        {value: "smart", label: tt("collection.smartMode")},
+        {value: "30s", label: tt("collection.every30s")},
+        {value: "60s", label: tt("collection.every1m")},
+        {value: "300s", label: tt("collection.every5m")},
+      ]} onChange={onCadenceChangeStr} />
     </div>
 
     <div class="box-row">

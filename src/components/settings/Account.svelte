@@ -7,6 +7,7 @@
   import { VENDOR_PANEL,panelHint,panelLabel } from "../../lib/meta/panels";
   import { VENDORS, fieldsFor, CAT_ORDER, GROUPS, type VendorDef, type FieldDef, tv,vl } from "../../lib/meta/vendors";
   import { t,getLang } from "../../lib/i18n.svelte";
+  import Dropdown from "../../components/common/Dropdown.svelte";
   import { moveTo } from "../../lib/util/reorder";
   import { rowDrag } from "../../lib/actions/rowDrag";
   import DeviceFlow, { type OAuthState } from "./DeviceFlow.svelte";
@@ -647,11 +648,7 @@
                     <label class="field">
                       <span class="flabel">{fl(f)}</span>
                       {#if f.type === "select"}
-                        <select class="fsel" class:field-invalid={hasErr} value={getField(v.id, f.key)} onchange={(e) => setField(v.id, f.key, (e.target as HTMLSelectElement).value)}>
-                          {#each f.options ?? [] as opt (opt)}
-                            <option value={opt}>{opt}</option>
-                          {/each}
-                        </select>
+                        <Dropdown class="fsel" invalid={hasErr} value={getField(v.id, f.key)} options={(f.options ?? []).map(o => ({value: o, label: o}))} onChange={(val) => setField(v.id, f.key, val)} />
                       {:else if f.type === "textarea"}
                         <textarea class="finp finp-textarea" class:field-invalid={hasErr} placeholder={fp(f)} rows="4" oninput={(e) => setField(v.id, f.key, (e.target as HTMLTextAreaElement).value)}>{getField(v.id, f.key)}</textarea>
                       {:else}
@@ -690,22 +687,20 @@
     <div class="group-head">{t("account.globalSettings")}</div>
     <div class="box-row">
       <div class="lab">{t("account.refreshFreq")}<div class="hint">{t("account.refreshFreqHint")}</div></div>
-      <select class="sel" value={config?.quota_refresh_interval ?? "5m"}
-        onchange={(e) => updateConfig({ quota_refresh_interval: (e.target as HTMLSelectElement).value as Config["quota_refresh_interval"] })}>
-        <option value="1m">{t("account.1m")}</option>
-        <option value="3m">{t("account.3m")}</option>
-        <option value="5m">{t("account.5m")}</option>
-        <option value="10m">{t("account.10m")}</option>
-        <option value="15m">{t("account.15m")}</option>
-      </select>
+      <Dropdown class="sel" value={config?.quota_refresh_interval ?? "5m"} options={[
+        {value: "1m", label: t("account.1m")},
+        {value: "3m", label: t("account.3m")},
+        {value: "5m", label: t("account.5m")},
+        {value: "10m", label: t("account.10m")},
+        {value: "15m", label: t("account.15m")},
+      ]} onChange={(v) => updateConfig({ quota_refresh_interval: v as Config["quota_refresh_interval"] })} />
     </div>
     <div class="box-row">
       <div class="lab">{t("account.progressMode")}<div class="hint">{t("account.progressModeHint")}</div></div>
-      <select class="sel" value={config?.quota_progress_mode ?? "剩余"}
-        onchange={(e) => updateConfig({ quota_progress_mode: (e.target as HTMLSelectElement).value as Config["quota_progress_mode"] })}>
-        <option value="用量">{t("account.usage")}</option>
-        <option value="剩余">{t("account.remaining")}</option>
-      </select>
+      <Dropdown class="sel" value={config?.quota_progress_mode ?? "剩余"} options={[
+        {value: "用量", label: t("account.usage")},
+        {value: "剩余", label: t("account.remaining")},
+      ]} onChange={(v) => updateConfig({ quota_progress_mode: v as Config["quota_progress_mode"] })} />
     </div>
   </div>
 
