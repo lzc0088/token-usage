@@ -32,11 +32,6 @@ const COLLAPSED_W: f64 = 44.0;
 const EXPANDED_W: f64 = 148.0;
 /// Window/capsule height in logical px.
 const WIN_H: f64 = 44.0;
-/// Estimated taskbar/panel height (logical px). The widget sits above it so
-/// it isn't covered by the taskbar.
-const TASKBAR_H: f64 = 48.0;
-/// Gap between the floating widget and the taskbar (logical px).
-const FLOAT_GAP: f64 = 50.0;
 /// kv key persisting the handle's on-screen position ("x,y" logical px).
 const POS_KEY: &str = "floating_pos";
 /// Hide grace period: lets the cursor hover the panel without it collapsing.
@@ -247,8 +242,7 @@ fn position_handle(app: &AppHandle, conn: &Connection) {
 }
 
 /// Default resting spot: the collapsed widget (44 wide) flush against the
-/// configured screen edge of the primary monitor, above the taskbar. Square
-/// corners (DWM rounding disabled) sit flush with no gap.
+/// configured screen edge of the primary monitor, at ~30 % from the top.
 fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
@@ -258,13 +252,9 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    set_collapsed_geometry(
-        win,
-        position,
-        mx,
-        mw,
-        my + mh - TASKBAR_H - FLOAT_GAP - WIN_H,
-    );
+    // 30 % from the top of the monitor, centred vertically around that line.
+    let top = (my + mh * 0.30).max(my) - WIN_H / 2.0;
+    set_collapsed_geometry(win, position, mx, mw, top);
 }
 
 /// Set the collapsed window geometry: size = COLLAPSED_W, flush against the
