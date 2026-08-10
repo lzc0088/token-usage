@@ -310,9 +310,11 @@ export const api = {
   getDetailBreakdown: (period: Period, dimension: Dimension, filter: string) =>
     invoke<Breakdown>("get_detail_breakdown", { period, dimension, filter }),
 
-  getTrends: (period: Period) => invoke<Trends>("get_trends", { period }),
+  getTrends: (period: Period, opts?: { signal?: AbortSignal }) =>
+    invoke<Trends>("get_trends", { period }, opts ? { ...opts, headers: {} } : undefined),
 
-  getSessions: (limit?: number) => invoke<SessionVm[]>("get_sessions", { limit: limit ?? null }),
+  getSessions: (limit?: number, opts?: { signal?: AbortSignal }) =>
+    invoke<SessionVm[]>("get_sessions", { limit: limit ?? null }, opts ? { ...opts, headers: {} } : undefined),
 
   getSessionDetail: (tool: string, sessionId: string) =>
     invoke<SessionDetailRow[]>("get_session_detail", { tool, sessionId }),

@@ -575,6 +575,9 @@ pub fn run() {
                             ))
                             .await;
                             if MAIN_HIDE_DEADLINE.load(Ordering::SeqCst) == deadline {
+                                // Restore always-on-top before hiding so the floating
+                                // widget regains its Z-priority above the main window.
+                                let _ = w2.set_always_on_top(false);
                                 let _ = w2.hide();
                             }
                         });

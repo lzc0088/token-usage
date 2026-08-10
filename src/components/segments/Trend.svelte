@@ -19,7 +19,10 @@
     let cancelled = false;
     const fetch = async () => {
       try {
-        const t = await api.getTrends(p);
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 8000);
+        const t = await api.getTrends(p, { signal: controller.signal });
+        clearTimeout(tid);
         if (!cancelled) { data = t; loadAttempted = true; }
       } catch {
         /* Trends query may fail on first launch before daily_usage is

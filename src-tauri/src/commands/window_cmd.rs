@@ -210,6 +210,10 @@ pub fn toggle_main_window(app: AppHandle) -> Result<(), String> {
                 .unwrap_or_else(|_| "right".into());
             crate::ui::window::position_main_at_edge(&app, &edge);
             let _ = w.show();
+            // Ensure main appears above the floating widget (which is always-on-top
+            // in tauri.conf.json). Without this, the floating widget can occlude
+            // the main window on Windows where Z-order follows creation order.
+            let _ = w.set_always_on_top(true);
             let _ = w.set_focus();
         }
     }

@@ -262,7 +262,7 @@ pub fn position_main_at_edge(app: &AppHandle, edge: &str) {
     };
     let ww = size.width as f64 / scale;
     let wh = size.height as f64 / scale;
-    let margin = 16.0;
+    let margin = if cfg!(windows) { 28.0 } else { 14.0 };
     let x = if edge == "left" {
         mx + margin
     } else {
