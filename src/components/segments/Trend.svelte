@@ -16,57 +16,24 @@
 
   $effect(() => {
     const p = periodValue();
-    console.info("[Trend] $effect fired, period:", p);
     let cancelled = false;
-    // Fallback: if nothing resolves in 12 s, force-show the error state.
-    // Covers the WebView2 invoke hang (AbortController doesn't reject).
-    const fallback_tid = window.setTimeout(() => {
-      if (!cancelled && !loadAttempted) {
-        console.error("[Trend] 12s fallback — no data, forcing error state");
-        loadAttempted = true;
-      }
-    }, 12000);
     const fetch = async () => {
       try {
-        console.info("[Trend] fetch() start, period:", p);
-        const controller = new AbortController();
-        const tid = window.setTimeout(() => {
-          console.warn("[Trend] 8s abort timer — invoking hung, aborting");
-          controller.abort();
-        }, 8000);
-        const t = await api.getTrends(p, { signal: controller.signal });
-        window.clearTimeout(tid);
-        window.clearTimeout(fallback_tid);
-        if (!cancelled) {
-          console.info("[Trend] fetch() success, points:", t.points.length);
-          data = t;
-          loadAttempted = true;
-        }
-      } catch (e) {
-        console.error("[Trend] fetch() rejected:", e);
-        window.clearTimeout(fallback_tid);
+        const t = await api.getTrends(p);
+        if (!cancelled) { data = t; loadAttempted = true; }
+      } catch {
         if (!cancelled) loadAttempted = true;
       }
     };
     fetch();
     const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
     return () => {
-      console.info("[Trend] $effect cleanup");
       cancelled = true;
-      window.clearTimeout(fallback_tid);
       un.then(fn => fn());
     };
   });
 
   const points = $derived(data?.points ?? []);
-  // Debug: track data/points mutations (helps diagnose Windows hang)
-  $effect(() => {
-    console.info("[Trend] data/points reactive update:", {
-      data_is_null: data === null,
-      points_len: points.length,
-      first_point: points[0] ?? null,
-    });
-  });
   const period = $derived(periodValue());
   const maxTokens = $derived(Math.max(1, ...points.map((p) => p.tokens)));
   const totalTokens = $derived(points.reduce((s, p) => s + p.tokens, 0));

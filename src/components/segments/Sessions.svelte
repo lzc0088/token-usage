@@ -72,10 +72,7 @@
     let cancelled = false;
     const fetch = async () => {
       try {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 8000);
-        const s = await api.getSessions(undefined, { signal: controller.signal });
-        clearTimeout(tid);
+        const s = await api.getSessions();
         if (!cancelled) { sessions = s; loadAttempted = true; }
       } catch { if (!cancelled) loadAttempted = true; }
     };
