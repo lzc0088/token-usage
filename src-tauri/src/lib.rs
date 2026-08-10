@@ -398,8 +398,8 @@ pub fn run() {
         .manage(state)
         .setup(|app| {
             // Initialize structured logging inside setup (after tao init).
-            // Writes to BOTH stdout and a daily-rotating file in the OS log
-            // dir so installed (no-terminal) builds leave a diagnosable trail.
+            // Writes to BOTH stdout and a daily-rotating file so installed
+            // (no-terminal) builds leave a diagnosable trail.
             #[cfg(debug_assertions)]
             let filter = "token_usage=debug";
             #[cfg(not(debug_assertions))]
@@ -408,35 +408,45 @@ pub fn run() {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(filter));
             let stdout_layer =
                 tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
-            // File layer: <app_log_dir>/app.log (daily rotation). On Windows this
-            // is %APPDATA%\com.tokenusage.desktop\logs\app.log.
-            let file_layer = match app.path().app_log_dir() {
-                Ok(dir) => {
-                    let _ = std::fs::create_dir_all(&dir);
-                    let appender = tracing_appender::rolling::daily(&dir, "app.log");
-                    let (non_blocking, guard) = tracing_appender::non_blocking(appender);
-                    // Leak the guard so the background writer keeps flushing for
-                    // the whole process lifetime (app owns logging until exit).
-                    std::mem::forget(guard);
-                    Some(
-                        tracing_subscriber::fmt::layer()
-                            .with_writer(non_blocking)
-                            // Exclude frontend diagnostics — they may carry OAuth
-                            // codes / credential field names (see frontend_log).
-                            // Frontend logs still go to stdout in dev.
-                            .with_filter(tracing_subscriber::filter::filter_fn(
-                                |metadata| metadata.target() != "frontend",
-                            )),
-                    )
+
+            // Resolve the log dir with multiple fallbacks so a failure in the
+            // Tauri path API never silently disables file logging.
+            //   primary: app_log_dir()  → %APPDATA%\com.tokenusage.desktop\logs
+            //   fallback: dirs data_dir → %APPDATA%\token-usage\logs
+            let log_dir = app
+                .path()
+                .app_log_dir()
+                .ok()
+                .or_else(|| dirs::data_dir().map(|d| d.join("token-usage").join("logs")));
+            let file_layer = if let Some(ref dir) = log_dir {
+                match std::fs::create_dir_all(&dir) {
+                    Ok(()) => {
+                        let appender = tracing_appender::rolling::daily(&dir, "app.log");
+                        let (non_blocking, guard) = tracing_appender::non_blocking(appender);
+                        // Leak the guard so the background writer keeps flushing
+                        // for the whole process lifetime.
+                        std::mem::forget(guard);
+                        Some(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(non_blocking)
+                                // Exclude frontend diagnostics — they may carry
+                                // OAuth codes / credential field names. They still
+                                // go to stdout in dev.
+                                .with_filter(tracing_subscriber::filter::filter_fn(
+                                    |metadata| metadata.target() != "frontend",
+                                )),
+                        )
+                    }
+                    Err(e) => {
+                        eprintln!("file logging disabled: create_dir_all({dir:?}) failed: {e}");
+                        None
+                    }
                 }
-                Err(e) => {
-                    let _ = tracing_subscriber::fmt()
-                        .with_env_filter(env_filter.clone())
-                        .try_init();
-                    tracing::warn!("app_log_dir unavailable ({e}); file logging disabled");
-                    None
-                }
+            } else {
+                eprintln!("file logging disabled: could not resolve a log dir");
+                None
             };
+
             use tracing_subscriber::layer::SubscriberExt;
             use tracing_subscriber::util::SubscriberInitExt;
             use tracing_subscriber::Layer;
@@ -445,6 +455,13 @@ pub fn run() {
                 .with(stdout_layer)
                 .with(file_layer)
                 .try_init();
+            // Record where logs are being written so users (and we) can find
+            // the file on installed builds.
+            if let Some(dir) = &log_dir {
+                tracing::info!("file logging enabled → {}", dir.display());
+            } else {
+                tracing::warn!("file logging disabled (stdout only)");
+            }
 
             // Mirror the OS system proxy into HTTPS_PROXY/HTTP_PROXY so every
             // HTTP client (reqwest updater, ureq check-update/rate/quota) routes
