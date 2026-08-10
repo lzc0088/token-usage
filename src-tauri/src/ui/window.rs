@@ -243,10 +243,7 @@ pub fn schedule_hover_hide(app: AppHandle) {
 /// NOT included here — it must be set before window creation (see
 /// `apply_dock_visibility`), so it is applied separately early in setup.
 /// Place the main popover anchored at the bottom-right corner of the primary
-/// monitor: right edge inset 30 px, bottom edge inset 10 px.  This keeps the
-/// popover directly above the floating widget (which sits near the screen
-/// bottom-right), so clicking the widget reveals content in the same visual
-/// region rather than mid-screen.
+/// monitor: right edge inset 30 px, bottom edge inset 16 px (taskbar gap).
 pub fn position_main_at_edge(app: &AppHandle, _edge: &str) {
     let Some(win) = app.get_webview_window("main") else {
         return;
@@ -264,9 +261,8 @@ pub fn position_main_at_edge(app: &AppHandle, _edge: &str) {
     };
     let ww = size.width as f64 / scale;
     let wh = size.height as f64 / scale;
-    // Bottom-right anchor: 30 px from right edge, 10 px from bottom edge.
     const RIGHT_MARGIN: f64 = 30.0;
-    const BOTTOM_MARGIN: f64 = 10.0;
+    const BOTTOM_MARGIN: f64 = 16.0;
     let x = mx + mw - ww - RIGHT_MARGIN;
     let y = my + mh - wh - BOTTOM_MARGIN;
     let _ = win.set_position(LogicalPosition::new(x, y));

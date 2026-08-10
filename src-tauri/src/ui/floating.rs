@@ -210,31 +210,37 @@ pub fn persist_handle_pos(app: &AppHandle) {
     let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{edge},{wx},{wy}"));
 }
 
+/// Compute the collapsed-widget top coordinate: 30 % from the monitor top,
+/// centred vertically around that line.
+fn default_top(my: f64, mh: f64) -> f64 {
+    (my + mh * 0.30).max(my) - WIN_H / 2.0
+}
+
 /// Position the floating window at its saved spot — but only if the saved edge
-/// still matches the configured edge. Otherwise (first run, or the user just
-/// switched edges) fall back to the default corner for the current edge.
+/// still matches the configured edge. The Y is always recalculated (30 % from
+/// top) so a prior bottom-anchor doesn't persist across code changes.
 fn position_handle(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("floating") else {
         return;
     };
     let cfg = config::load(conn).unwrap_or_default();
-    if let Some((saved_edge, _wx, wy)) = load_pos(conn) {
+    if let Some((saved_edge, _wx, _wy)) = load_pos(conn) {
         if saved_edge == cfg.floating_position {
-            // Recalculate X from the monitor edge (not from saved X) — the saved
-            // X may have drifted due to physical pixel rounding across sessions.
             let Ok(Some(mon)) = win.primary_monitor() else {
                 return;
             };
             let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
             let mw = mon.size().width as f64 / scale;
+            let mh = mon.size().height as f64 / scale;
             let mx = mon.position().x as f64 / scale;
+            let my = mon.position().y as f64 / scale;
             let window_left = if saved_edge == "left" {
                 mx
             } else {
                 mx + mw - COLLAPSED_W
             };
             let _ = win.set_size(LogicalSize::new(COLLAPSED_W, WIN_H));
-            let _ = win.set_position(LogicalPosition::new(window_left, wy));
+            let _ = win.set_position(LogicalPosition::new(window_left, default_top(my, mh)));
             return;
         }
     }
@@ -252,8 +258,7 @@ fn place_default_corner(win: &tauri::WebviewWindow, position: &str) {
     let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    // 30 % from the top of the monitor, centred vertically around that line.
-    let top = (my + mh * 0.30).max(my) - WIN_H / 2.0;
+    let top = default_top(my, mh);
     set_collapsed_geometry(win, position, mx, mw, top);
 }
 
