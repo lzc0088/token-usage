@@ -18,44 +18,42 @@
     const p = periodValue();
     console.info("[Trend] $effect fired, period:", p);
     let cancelled = false;
+    // Fallback: if nothing resolves in 12 s, force-show the error state.
+    // Covers the WebView2 invoke hang (AbortController doesn't reject).
+    const fallback_tid = window.setTimeout(() => {
+      if (!cancelled && !loadAttempted) {
+        console.error("[Trend] 12s fallback — no data, forcing error state");
+        loadAttempted = true;
+      }
+    }, 12000);
     const fetch = async () => {
       try {
         console.info("[Trend] fetch() start, period:", p);
-        // Safety net: if the invoke promise hangs (known WebView2 issue on
-        // Windows where AbortController.abort() doesn't reject the underlying
-        // promise), force the error state after 15 s so the user sees something
-        // instead of an eternal skeleton.
-        const safety = window.setTimeout(() => {
-          if (!cancelled) {
-            console.error("[Trend] fetch safety timeout — invoke never resolved after 15s. Forcing error state. points:", points.length, "data:", !!data);
-            loadAttempted = true;
-          }
-        }, 15000);
         const controller = new AbortController();
         const tid = window.setTimeout(() => {
-          console.warn("[Trend] 8s abort timer firing — invoking may be hung, aborting");
+          console.warn("[Trend] 8s abort timer — invoking hung, aborting");
           controller.abort();
         }, 8000);
         const t = await api.getTrends(p, { signal: controller.signal });
         window.clearTimeout(tid);
-        window.clearTimeout(safety);
+        window.clearTimeout(fallback_tid);
         if (!cancelled) {
-          console.info("[Trend] fetch() success, points:", t.points.length, "loadAttempted=true");
+          console.info("[Trend] fetch() success, points:", t.points.length);
           data = t;
           loadAttempted = true;
-        } else {
-          console.warn("[Trend] fetch() resolved after cancel — discarding");
         }
       } catch (e) {
-        console.error("[Trend] fetch() rejected:", e, "name:", e?.constructor?.name);
+        console.error("[Trend] fetch() rejected:", e);
+        window.clearTimeout(fallback_tid);
         if (!cancelled) loadAttempted = true;
       }
     };
     fetch();
     const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
     return () => {
-      console.info("[Trend] $effect cleanup, cancelled=true");
+      console.info("[Trend] $effect cleanup");
       cancelled = true;
+      window.clearTimeout(fallback_tid);
       un.then(fn => fn());
     };
   });
