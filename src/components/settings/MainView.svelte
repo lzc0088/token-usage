@@ -5,7 +5,6 @@
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { rowDrag } from "../../lib/actions/rowDrag";
   import { t, getLang } from "../../lib/i18n.svelte";
-  import Dropdown from "../../components/common/Dropdown.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   interface TreeItem {
@@ -285,11 +284,12 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t("mainview.defaultPeriod")}<div class="hint">{t("mainview.defaultPeriodHint")}</div></div>
-      <Dropdown class="sel" value={config.default_period || "day"} options={[
-        {value: "day", label: t("mainview.periodDay")},
-        {value: "month", label: t("mainview.periodMonth")},
-        {value: "total", label: t("mainview.periodTotal")},
-      ]} onChange={(v) => onUpdate({ default_period: v as Config["default_period"] })} />
+      <select class="sel" value={config.default_period || "day"}
+        onchange={(e) => onUpdate({ default_period: (e.target as HTMLSelectElement).value as Config["default_period"] })}>
+        <option value="day">{t("mainview.periodDay")}</option>
+        <option value="month">{t("mainview.periodMonth")}</option>
+        <option value="total">{t("mainview.periodTotal")}</option>
+      </select>
     </div>
   </div>
 
