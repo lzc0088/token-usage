@@ -161,7 +161,7 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{tt("collection.frequency")}<div class="hint">{tt("collection.freqHint")}</div></div>
-      <select class="sel" value={displayCadence}
+      <select class="sel sel-compact" value={displayCadence}
         onchange={onCadenceChange}>
         <option value="live">{tt("collection.liveMode")}</option>
         <option value="smart">{tt("collection.smartMode")}</option>
@@ -299,6 +299,8 @@
 <style>
 
   .sc { display: flex; flex-direction: column; }
+
+  .sel-compact { width: 72px; min-width: 72px; }
 
   .section-title {
     font-size: 15px;
