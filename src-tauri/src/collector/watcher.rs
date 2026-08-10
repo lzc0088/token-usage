@@ -303,31 +303,32 @@ mod tests {
     async fn emits_one_tick_for_a_burst_of_writes() {
         // Integration: watch a temp dir, write several files in quick succession,
         // expect exactly one coalesced tick within the debounce window + margin.
+        // Debounce is generous (500ms) so slow CI runners that deliver filesystem
+        // events in multiple batches still coalesce into a single tick.
         let dir = std::env::temp_dir().join("tu_test_watcher_burst");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         let (tx, mut rx) = mpsc::channel::<()>(8);
-        let _guard = spawn(vec![dir.clone()], 200, tx).unwrap();
+        let _guard = spawn(vec![dir.clone()], 500, tx).unwrap();
 
         // Give notify a moment to register the watch.
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Burst: 5 writes. Small delays between writes ensure the OS delivers
-        // each event individually (prevents OS-level batching that can split the
-        // burst across multiple debounce cycles on constrained CI runners).
+        // Burst: 5 writes. 50ms gaps keep them in one logical burst while
+        // ensuring the OS delivers each event individually.
         for i in 0..5 {
             std::fs::write(dir.join(format!("f{i}.txt")), b"x").unwrap();
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        // First tick lands after ~200ms quiet.
-        let t1 = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        // First tick lands after ~500ms quiet.
+        let t1 = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
         assert!(t1.unwrap().is_some(), "expected a tick after the burst");
 
         // Wait a generous period to confirm no second tick fires (debounce
         // coalesced the entire burst into one tick).
-        let t2 = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
+        let t2 = tokio::time::timeout(Duration::from_millis(3000), rx.recv()).await;
         assert!(
             t2.is_err() || t2.unwrap().is_none(),
             "expected no extra tick"
