@@ -358,8 +358,12 @@
         {t('general.currVersion')}：
         <span class="ver-num">{appVersion}</span>
       </div>
-      <button type="button" class="btn-outline" onclick={checkUpdate} disabled={checking}>
-        {checking ? t('general.checking') : t('general.checkUpdate')}
+      <button type="button" class="btn-outline" onclick={checkUpdate} disabled={checking} class:checking>
+        {#if checking}
+          <span class="spin"></span>{t('general.checking')}
+        {:else}
+          {t('general.checkUpdate')}
+        {/if}
       </button>
     </div>
 
@@ -552,4 +556,18 @@
   .about-links { display: flex; gap: 20px; }
   .alink { font-size: 12px; color: var(--amber); text-decoration: none; transition: color 0.15s; }
   .alink:hover { text-decoration: underline; color: var(--amber-soft); }
+
+  /* ── check-update button spinner ── */
+  .spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--text-faint);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
