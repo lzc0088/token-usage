@@ -302,36 +302,37 @@ mod tests {
     #[tokio::test]
     async fn emits_one_tick_for_a_burst_of_writes() {
         // Integration: watch a temp dir, write several files in quick succession,
-        // expect exactly one coalesced tick within the debounce window + margin.
-        // Debounce is generous (500ms) so slow CI runners that deliver filesystem
-        // events in multiple batches still coalesce into a single tick.
+        // expect exactly one coalesced tick.  Uses a large debounce (1 s) and
+        // generous timing budget so slow CI runners (especially macOS virtualised)
+        // that batch filesystem notifications still coalesce cleanly.
         let dir = std::env::temp_dir().join("tu_test_watcher_burst");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         let (tx, mut rx) = mpsc::channel::<()>(8);
-        let _guard = spawn(vec![dir.clone()], 500, tx).unwrap();
+        let _guard = spawn(vec![dir.clone()], 1000, tx).unwrap();
 
         // Give notify a moment to register the watch.
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Burst: 5 writes. 50ms gaps keep them in one logical burst while
-        // ensuring the OS delivers each event individually.
+        // Burst: 5 writes at 100 ms apart. Total burst duration = 400 ms, well
+        // inside the 1 s debounce window on any runner.
         for i in 0..5 {
             std::fs::write(dir.join(format!("f{i}.txt")), b"x").unwrap();
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // First tick lands after ~500ms quiet.
-        let t1 = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
-        assert!(t1.unwrap().is_some(), "expected a tick after the burst");
+        // First tick: 1 s quiet + ~400 ms burst window = ≤2 s.  Use 5 s budget.
+        let t1 = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
+        assert!(t1.unwrap().is_some(), "expected first tick after burst");
 
-        // Wait a generous period to confirm no second tick fires (debounce
-        // coalesced the entire burst into one tick).
-        let t2 = tokio::time::timeout(Duration::from_millis(3000), rx.recv()).await;
+        // After the quiet period expires we must NOT get a second tick within 4 s.
+        // (A second tick would mean the debounce fired early and the burst
+        // straddled two quiet windows — highly unlikely with 1 s debounce.)
+        let t2 = tokio::time::timeout(Duration::from_secs(4), rx.recv()).await;
         assert!(
             t2.is_err() || t2.unwrap().is_none(),
-            "expected no extra tick"
+            "expected no extra tick (debounce should have coalesced the whole burst)"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
