@@ -8,6 +8,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tauri_plugin_updater::UpdaterExt;
 
+use std::sync::Arc;
+
 use crate::state::AppState;
 
 /// Response from the update check.
@@ -146,190 +148,124 @@ fn release_url(owner: &str, repo: &str, tag: &str) -> String {
 /// due to a flaky network); only when there is no cache do we surface the error
 /// with a machine-readable `error_kind`.
 #[tauri::command]
-pub fn check_update(
-    state: State<AppState>,
+pub async fn check_update(
+    state: State<'_, AppState>,
     repo: String,
     current_version: String,
     force: Option<bool>,
 ) -> Result<UpdateInfo, String> {
-    let (owner, repo_name) = parse_repo(&repo);
-    let force = force.unwrap_or(false);
+    // Clone the Arc before entering spawn_blocking (closure must be 'static).
+    let db_arc: Arc<std::sync::Mutex<rusqlite::Connection>> = state.db.clone();
 
-    // ── 1. Cooldown short-circuit (cached path, no network) ────────────────
-    // Skipped when force=true — manual "Check Update" button always hits the
-    // network so the user sees the freshest state.
-    if !force {
-        let conn = state.db_read();
-        let (last_check, last_known) = load_cached(&conn);
-        if let (Some(last), Some(known)) = (last_check, last_known) {
-            let now = now_ms();
-            if within_cooldown(last, now) {
-                tracing::debug!("update check skipped: within {}ms cooldown", COOLDOWN_MS);
-                return Ok(known);
+    tauri::async_runtime::spawn_blocking(move || {
+        let owner = repo.split_once('/').map(|(o, _)| o).unwrap_or("");
+        let repo_name = repo.split_once('/').map(|(_, r)| r).unwrap_or("");
+        let force = force.unwrap_or(false);
+
+        // ── 1. Cooldown short-circuit ──────────────────────────────────────────
+        if !force {
+            let conn = db_arc.lock().unwrap();
+            let (last_check, last_known) = load_cached(&conn);
+            if let (Some(last), Some(known)) = (last_check, last_known) {
+                let now = now_ms();
+                if within_cooldown(last, now) {
+                    tracing::debug!("update check skipped: within {}ms cooldown", COOLDOWN_MS);
+                    return Ok(known);
+                }
             }
         }
-    } // conn guard dropped before the network call
 
-    // ── 2. Network call ─────────────────────────────────────────────────────
-    let url = api_url(&owner, &repo_name);
+        // ── 2. Network call ─────────────────────────────────────────────────────
+        let url = api_url(owner, repo_name);
 
-    let resp_result = ureq::get(&url)
-        .timeout(std::time::Duration::from_secs(15))
-        .call();
+        let resp_result = ureq::get(&url)
+            .timeout(std::time::Duration::from_secs(15))
+            .call();
 
-    // On any failure: record the attempt timestamp, then return last-known if
-    // we have it (don't mislead the UI with has_update:false), else the error.
-    let handle_failure = |kind: &str, msg: String, last_known: Option<UpdateInfo>| -> UpdateInfo {
-        {
-            let conn = state.db_write();
-            persist(&conn, now_ms(), None);
-        }
-        if let Some(known) = last_known {
-            return known;
-        }
-        UpdateInfo {
-            has_update: false,
-            version: String::new(),
-            name: String::new(),
-            changelog: String::new(),
-            url: String::new(),
-            published_at: None,
-            error: msg,
-            error_kind: kind.to_string(),
-            download_url: None,
-        }
-    };
+        // On any failure: record the attempt timestamp, then return last-known if
+        // we have it (don't mislead the UI with has_update:false), else the error.
+        let handle_failure = |kind: &str, msg: String, last_known: Option<UpdateInfo>| -> UpdateInfo {
+            {
+                let conn = db_arc.lock().unwrap();
+                persist(&conn, now_ms(), None);
+            }
+            if let Some(known) = last_known {
+                return known;
+            }
+            UpdateInfo {
+                has_update: false,
+                version: String::new(),
+                name: String::new(),
+                changelog: String::new(),
+                url: String::new(),
+                published_at: None,
+                error: msg,
+                error_kind: kind.to_string(),
+                download_url: None,
+            }
+        };
 
-    let last_known_for_failure = {
-        let conn = state.db_read();
-        load_cached(&conn).1
-    };
+        let last_known_for_failure = {
+            let conn = db_arc.lock().unwrap();
+            load_cached(&conn).1
+        };
 
-    let resp = match resp_result {
-        Ok(r) => r,
-        Err(ureq::Error::Status(429, _)) => {
-            return Ok(handle_failure(
-                "rate_limited",
-                "请求过于频繁，已触发限流，请稍后再试".into(),
-                last_known_for_failure,
-            ));
-        }
-        Err(ureq::Error::Status(403, r)) => {
-            // GitHub returns 403 for rate-limit exhaustion; sniff the body.
-            let body = r.into_string().unwrap_or_default();
-            let lower = body.to_lowercase();
-            let kind = if lower.contains("rate") || lower.contains("limit") {
-                "rate_limited"
-            } else {
-                "api_error"
-            };
-            return Ok(handle_failure(
-                kind,
-                format!(
-                    "API 返回 403：{}",
-                    body.chars().take(200).collect::<String>()
-                ),
-                last_known_for_failure,
-            ));
-        }
-        Err(ureq::Error::Status(code, _)) => {
-            return Ok(handle_failure(
-                "api_error",
-                format!("API 返回错误 {}", code),
-                last_known_for_failure,
-            ));
-        }
-        Err(ureq::Error::Transport(e)) => {
-            return Ok(handle_failure(
-                "network",
-                format!("网络请求失败：{}", e),
-                last_known_for_failure,
-            ));
-        }
-    };
+        let resp = match resp_result {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = format!("网络请求失败：{e}");
+                tracing::warn!("update check failed: {msg}");
+                return Ok(handle_failure("network", msg, last_known_for_failure));
+            }
+        };
 
-    if resp.status() != 200 {
-        return Ok(handle_failure(
-            "api_error",
-            format!(
-                "API 返回错误 {} ({}): 请确认仓库地址正确且已开启 Release 功能",
-                resp.status(),
-                url
-            ),
-            last_known_for_failure,
-        ));
-    }
+        if resp.status() != 200 {
+            let msg = format!("GitHub API 返回 {}", resp.status());
+            tracing::warn!("update check failed: {msg}");
+            return Ok(handle_failure("api_error", msg, last_known_for_failure));
+        }
 
-    let body: serde_json::Value = {
-        let reader = resp.into_reader();
-        match serde_json::from_reader(reader) {
+        let latest: serde_json::Value = match serde_json::from_reader(resp.into_reader()) {
             Ok(v) => v,
             Err(e) => {
-                return Ok(handle_failure(
-                    "parse",
-                    format!("解析响应失败：{}", e),
-                    last_known_for_failure,
-                ));
+                let msg = format!("响应解析失败：{e}");
+                tracing::warn!("update check failed: {msg}");
+                return Ok(handle_failure("api_error", msg, last_known_for_failure));
             }
+        };
+
+        let tag = latest["tag_name"].as_str().unwrap_or("");
+        let name = latest["name"].as_str().unwrap_or("");
+        let body = latest["body"].as_str().unwrap_or("");
+        let published = latest["published_at"].as_str().map(|s| s.to_string());
+
+        // Normalize: strip leading "v" if present.
+        let clean_tag = tag.strip_prefix('v').unwrap_or(tag);
+        let has_update = clean_tag != current_version;
+
+        let info = UpdateInfo {
+            has_update,
+            version: tag.to_string(),
+            name: name.to_string(),
+            changelog: body.to_string(),
+            url: latest["html_url"].as_str().unwrap_or("").to_string(),
+            published_at: published,
+            error: String::new(),
+            error_kind: String::new(),
+            download_url: None,
+        };
+
+        // Persist successful result.
+        {
+            let conn = db_arc.lock().unwrap();
+            persist(&conn, now_ms(), Some(&info));
         }
-    };
 
-    let latest_tag = body
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let latest_name = body
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&latest_tag)
-        .to_string();
-
-    let changelog = body
-        .get("body")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let html_url = body
-        .get("html_url")
-        .and_then(|v| v.as_str())
-        .map(|u| u.to_string())
-        .unwrap_or_else(|| release_url(&owner, &repo_name, &latest_tag));
-
-    let published_at = body
-        .get("published_at")
-        .or_else(|| body.get("created_at"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let has_update = is_newer(&current_version, &latest_tag);
-
-    // Pick the asset matching the current platform/arch from the release's
-    // assets list (e.g. macOS aarch64 → pick the aarch64 .dmg). Falls back to
-    // None when there are no matching assets.
-    let download_url = pick_matching_asset(&body);
-
-    let info = UpdateInfo {
-        has_update,
-        version: latest_tag,
-        name: latest_name,
-        changelog,
-        url: html_url,
-        published_at,
-        error: String::new(),
-        error_kind: String::new(),
-        download_url,
-    };
-
-    // ── 3. Persist the successful result ─────────────────────────────────────
-    {
-        let conn = state.db_write();
-        persist(&conn, now_ms(), Some(&info));
-    }
-
-    Ok(info)
+        tracing::info!(version = %tag, has_update, "update check complete");
+        Ok(info)
+    })
+    .await
+    .map_err(|e| format!("检查更新失败：{e}"))?
 }
 
 /// Pick the release asset matching the current OS/architecture.
