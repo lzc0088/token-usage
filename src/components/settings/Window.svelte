@@ -4,17 +4,17 @@
   import { t } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
-  const THEME_OPTIONS: Array<{ value: NonNullable<Config["theme"]>; label: string }> = [
+  const THEME_OPTIONS: Array<{ value: NonNullable<Config["theme"]>; label: string }> = $derived(Array.from([
     { value: "dark", label: t("window.themeDark") },
     { value: "light", label: t("window.themeLight") },
     { value: "system", label: t("window.themeSystem") },
-  ];
+  ]));
 
-  const ANIMATION_OPTIONS: Array<{ value: NonNullable<Config["animation"]>; label: string }> = [
+  const ANIMATION_OPTIONS: Array<{ value: NonNullable<Config["animation"]>; label: string }> = $derived(Array.from([
     { value: "on", label: t("window.animOn") },
     { value: "off", label: t("window.animOff") },
     { value: "system", label: t("window.themeSystem") },
-  ];
+  ]));
 
   const activeTheme = $derived(config.theme || "system");
   const activeAnimation = $derived(config.animation || "system");
