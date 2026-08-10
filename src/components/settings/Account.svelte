@@ -690,7 +690,7 @@
     <div class="group-head">{t("account.globalSettings")}</div>
     <div class="box-row">
       <div class="lab">{t("account.refreshFreq")}<div class="hint">{t("account.refreshFreqHint")}</div></div>
-      <select class="sel" value={config?.quota_refresh_interval ?? "5m"}
+      <select class="sel sel-narrow" value={config?.quota_refresh_interval ?? "5m"}
         onchange={(e) => updateConfig({ quota_refresh_interval: (e.target as HTMLSelectElement).value as Config["quota_refresh_interval"] })}>
         <option value="1m">{t("account.1m")}</option>
         <option value="3m">{t("account.3m")}</option>
@@ -701,7 +701,7 @@
     </div>
     <div class="box-row">
       <div class="lab">{t("account.progressMode")}<div class="hint">{t("account.progressModeHint")}</div></div>
-      <select class="sel" value={config?.quota_progress_mode ?? "剩余"}
+      <select class="sel sel-narrow" value={config?.quota_progress_mode ?? "剩余"}
         onchange={(e) => updateConfig({ quota_progress_mode: (e.target as HTMLSelectElement).value as Config["quota_progress_mode"] })}>
         <option value="用量">{t("account.usage")}</option>
         <option value="剩余">{t("account.remaining")}</option>
@@ -965,6 +965,7 @@
   }
   .fsel:focus { outline: none; border-color: var(--amber); }
   .sel { min-width: 150px; }
+  .sel-narrow { width: 65px; min-width: 65px; }
 
   .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
