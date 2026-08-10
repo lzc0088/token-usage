@@ -8,11 +8,13 @@
   }: {
     /** Layout shape matching the segment that's loading. */
     type?: "list" | "cards" | "chart" | "overview";
-    /** Row count for list/cards layouts. */
+    /** Row count for list/cards/overview layouts. */
     rows?: number;
   } = $props();
 
   const rowIndices = $derived(Array.from({ length: rows }, (_, i) => i));
+  const overviewGridN = $derived(Math.min(2, rows));  // max 2 cells per row
+  const overviewMiniN = $derived(rows >= 2 ? 2 : 0);
 </script>
 
 {#if type === "list"}
@@ -48,32 +50,34 @@
     {/each}
   </div>
 {:else if type === "chart"}
-  <!-- Trend: range label + 3 stat cells + chart area -->
+  <!-- Trend: range label + 2 stat cells + chart area -->
   <div class="sk skel-chart">
     <div class="skel-line w20"></div>
     <div class="skel-stats">
-      {#each [0, 1, 2] as i (i)}
+      {#each [0, 1] as i (i)}
         <div class="skel-stat"><div class="skel-line w40"></div><div class="skel-big"></div></div>
       {/each}
     </div>
     <div class="skel-graph"></div>
   </div>
 {:else if type === "overview"}
-  <!-- Overview: IO 2×2 grid + a list module + a quota card module -->
+  <!-- Overview: IO 2-row grid + a list module + a quota card module -->
   <div class="sk skel-overview">
     <div class="skel-module">
       <div class="skel-grid2">
-        {#each [0, 1, 2, 3] as i (i)}<div class="skel-cell"></div>{/each}
+        {#each Array.from({ length: overviewGridN * 2 }, (_, i) => i) as i (i)}<div class="skel-cell"></div>{/each}
       </div>
     </div>
+    {#if overviewMiniN > 0}
     <div class="skel-module">
       <div class="skel-line w25"></div>
       <div class="skel-mini-list">
-        {#each [0, 1, 2] as i (i)}
+        {#each Array.from({ length: overviewMiniN }, (_, i) => i) as i (i)}
           <div class="skel-row"><div class="skel-icon"></div><div class="skel-main"><div class="skel-line w60"></div></div><div class="skel-right"><div class="skel-line w25"></div></div></div>
         {/each}
       </div>
     </div>
+    {/if}
     <div class="skel-module">
       <div class="skel-line w25"></div>
       <div class="skel-card"><div class="skel-card-head"><div class="skel-icon"></div><div class="skel-line w40"></div></div><div class="skel-bar"></div></div>

@@ -140,7 +140,7 @@
   </div>
 
   {#if loading}
-    <Skeleton type="list" />
+    <Skeleton type="list" rows={2} />
   {:else if projects === null}
     <EmptyState title={t("common.loadFailed")} />
   {:else if projects.length === 0}

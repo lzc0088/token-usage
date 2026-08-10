@@ -46,7 +46,7 @@
 
 <div class="seg-body">
   {#if !data && !loadAttempted}
-    <Skeleton type="list" />
+    <Skeleton type="list" rows={2} />
   {:else if !data}
     <EmptyState title={t("common.loadFailed")} />
   {:else if data.entries.length === 0}

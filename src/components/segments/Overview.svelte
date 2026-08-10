@@ -150,7 +150,7 @@
 </script>
 <div class="ov-body">
   {#if !summary && !toolB && !modelB && quotas.length === 0}
-    <Skeleton type="overview" />
+    <Skeleton type="overview" rows={2} />
   {:else if subOrder.length === 0}
     <EmptyState title={t("overview.noModules")} hint={t("overview.noModulesHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("mainview")} />
   {:else}

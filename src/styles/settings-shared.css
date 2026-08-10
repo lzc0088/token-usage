@@ -57,6 +57,7 @@
   font-family: inherit;
   min-width: 130px;
   height: 32px;
+  accent-color: var(--amber);
 }
 .sel:hover { border-color: var(--amber); }
 .sel:focus { outline: none; border-color: var(--amber); }

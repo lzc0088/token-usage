@@ -90,7 +90,7 @@
 
 <div class="seg-body">
   {#if visibleQuotas === null}
-    <Skeleton type="cards" />
+    <Skeleton type="cards" rows={2} />
   {:else if visibleQuotas.length === 0}
     <EmptyState
       title={quotas && quotas.length > 0 ? t("limits.allDisabled") : t("limits.noBinding")}

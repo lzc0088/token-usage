@@ -185,7 +185,7 @@
     </div>
 
     {#if sessions === null && !loadAttempted}
-      <Skeleton type="list" />
+      <Skeleton type="list" rows={2} />
     {:else if sessions === null}
       <EmptyState title={t("common.loadFailed")} />
     {:else if sessions.length === 0}
