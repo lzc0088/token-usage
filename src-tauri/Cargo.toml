@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 dotenvy = "0.15"
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon", "test"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "test", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }

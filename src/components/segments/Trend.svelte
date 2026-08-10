@@ -18,10 +18,24 @@
     const p = periodValue();
     let cancelled = false;
     const fetch = async () => {
+      const t0 = performance.now();
+      let done = false;
+      // Plain watchdog — does NOT touch invoke (no AbortSignal → no CORS issue).
+      // If get_trends never resolves/rejects, this is the only clue.
+      const wd = window.setTimeout(() => {
+        if (!done) console.error("[Trend] get_trends HUNG > 10s (no resolve/reject)");
+      }, 10000);
+      console.info("[Trend] invoke get_trends, period:", p);
       try {
         const t = await api.getTrends(p);
+        done = true;
+        window.clearTimeout(wd);
+        console.info("[Trend] get_trends OK in", Math.round(performance.now() - t0), "ms, points:", t.points.length);
         if (!cancelled) { data = t; loadAttempted = true; }
-      } catch {
+      } catch (e) {
+        done = true;
+        window.clearTimeout(wd);
+        console.error("[Trend] get_trends FAILED:", e);
         if (!cancelled) loadAttempted = true;
       }
     };
