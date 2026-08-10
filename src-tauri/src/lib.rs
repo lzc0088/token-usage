@@ -418,7 +418,16 @@ pub fn run() {
                     // Leak the guard so the background writer keeps flushing for
                     // the whole process lifetime (app owns logging until exit).
                     std::mem::forget(guard);
-                    Some(tracing_subscriber::fmt::layer().with_writer(non_blocking))
+                    Some(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(non_blocking)
+                            // Exclude frontend diagnostics — they may carry OAuth
+                            // codes / credential field names (see frontend_log).
+                            // Frontend logs still go to stdout in dev.
+                            .with_filter(tracing_subscriber::filter::filter_fn(
+                                |metadata| metadata.target() != "frontend",
+                            )),
+                    )
                 }
                 Err(e) => {
                     let _ = tracing_subscriber::fmt()
@@ -430,6 +439,7 @@ pub fn run() {
             };
             use tracing_subscriber::layer::SubscriberExt;
             use tracing_subscriber::util::SubscriberInitExt;
+            use tracing_subscriber::Layer;
             let _ = tracing_subscriber::registry()
                 .with(env_filter)
                 .with(stdout_layer)

@@ -92,7 +92,10 @@ pub fn consume_settings_target(state: tauri::State<AppState>) -> Result<Option<S
 /// can call this to surface a log line in `npm run tauri dev`'s terminal.
 #[tauri::command]
 pub fn frontend_log(msg: String) {
-    tracing::info!("[FE] {msg}");
+    // Dedicated `frontend` target so the file-log layer can exclude it:
+    // frontend diagnostics may carry OAuth codes / credential field names that
+    // must NOT be persisted to disk. They still print to stdout in dev.
+    tracing::info!(target: "frontend", "[FE] {msg}");
 }
 #[tauri::command]
 pub fn close_settings(app: AppHandle) -> Result<(), String> {
