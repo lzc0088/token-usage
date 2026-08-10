@@ -10,6 +10,7 @@
   import { toolMeta } from "../../lib/meta/tools";
   import QuotaCard from "../common/QuotaCard.svelte";
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
   import { periodValue } from "../../stores/period.svelte";
   import { setSegment } from "../../stores/segment.svelte";
 
@@ -149,7 +150,7 @@
 </script>
 <div class="ov-body">
   {#if !summary && !toolB && !modelB && quotas.length === 0}
-    <EmptyState title={t("overview.loading")} icon="loading" />
+    <Skeleton type="overview" />
   {:else if subOrder.length === 0}
     <EmptyState title={t("overview.noModules")} hint={t("overview.noModulesHint")} actionLabel={t("common.goSettings")} onAction={() => openSettingsTo("mainview")} />
   {:else}

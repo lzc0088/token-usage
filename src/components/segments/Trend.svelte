@@ -2,6 +2,7 @@
   // 趋势 segment (T4.4). Line chart with an average line and per-node hover.
   // DAY = last 7 days, MONTH = current month, TOTAL = all history by month.
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
   import { api, type Trends } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { formatTokens, splitTokens } from "../../lib/format";
@@ -102,7 +103,7 @@
 
 <div class="seg-body">
   {#if data === null}
-    <EmptyState title={t("common.loading")} icon="loading" />
+    <Skeleton type="chart" />
   {:else if points.length === 0}
     <EmptyState title={t("trends.noData")} />
   {:else}

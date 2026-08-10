@@ -6,6 +6,7 @@
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
   import { periodValue } from "../../stores/period.svelte";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
@@ -132,21 +133,7 @@
   </div>
 
   {#if loading}
-    <div class="skel-list">
-      {#each [1,2,3] as _}
-        <div class="skel-row">
-          <div class="skel-icon"></div>
-          <div class="skel-main">
-            <div class="skel-line skel-w60"></div>
-            <div class="skel-line skel-w40"></div>
-          </div>
-          <div class="skel-right">
-            <div class="skel-line skel-w30"></div>
-            <div class="skel-line skel-w20"></div>
-          </div>
-        </div>
-      {/each}
-    </div>
+    <Skeleton type="list" />
   {:else if projects === null}
     <EmptyState title={t("common.loadFailed")} />
   {:else if projects.length === 0}
@@ -255,52 +242,6 @@
     flex-direction: column;
     width: 100%;
   }
-  /* ── Skeleton loading (matches BreakdownList .bd-row) ── */
-  .skel-list {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-  }
-  .skel-row {
-    display: grid;
-    grid-template-columns: 28px 1fr auto;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 16px;
-    border-bottom: 1px dashed var(--border-dim);
-    width: 100%;
-  }
-  .skel-row:last-child { border-bottom: none; }
-  .skel-icon {
-    width: 28px; height: 28px; border-radius: 6px;
-    background: var(--surface-tint-strong);
-    flex-shrink: 0;
-  }
-  .skel-main {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
-  }
-  .skel-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    min-width: 70px;
-    justify-content: flex-end;
-  }
-  .skel-line {
-    height: 10px;
-    border-radius: 4px;
-    background: var(--surface-tint-strong);
-  }
-  .skel-w60 { width: 60%; }
-  .skel-w40 { width: 40%; }
-  .skel-w30 { width: 30%; }
-  .skel-w20 { width: 20%; }
-  .skel-icon, .skel-line { animation: skel-pulse 1.4s ease-in-out infinite; }
-  @keyframes skel-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 
   .bd-header {
     display: flex;

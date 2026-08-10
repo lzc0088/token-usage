@@ -2,6 +2,7 @@
   // 用量细分 segment (T4.2). 泛型组件：dim="tool" | "model"
   import BreakdownList from "../common/BreakdownList.svelte";
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
   import { api, type Breakdown, type Currency } from "../../lib/api";
   import { periodValue } from "../../stores/period.svelte";
   import { t } from "../../lib/i18n.svelte";
@@ -39,7 +40,7 @@
 
 <div class="seg-body">
   {#if !data}
-    <EmptyState title={t("common.loading")} icon="loading" />
+    <Skeleton type="list" />
   {:else if data.entries.length === 0}
     <EmptyState title={t("breakdown.noData")} />
   {:else}

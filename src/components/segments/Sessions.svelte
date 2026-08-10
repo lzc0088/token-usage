@@ -7,6 +7,7 @@
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
 
   const DETAIL_CAPABLE_TOOLS = ["claude", "codex", "opencode"] as const;
 
@@ -130,7 +131,7 @@
     <!-- round list (one row per user input) -->
     <div class="view-body">
       {#if viewRounds === null}
-        <EmptyState title={t("common.loading")} icon="loading" />
+        <Skeleton type="list" rows={2} />
       {:else if viewRounds.length === 0}
         <EmptyState title={t("sessions.noRounds")} />
       {:else}
@@ -176,7 +177,7 @@
     </div>
 
     {#if sessions === null}
-      <EmptyState title={t("common.loading")} icon="loading" />
+      <Skeleton type="list" />
     {:else if sessions.length === 0}
       <EmptyState title={t("sessions.empty")} />
     {:else}
@@ -227,7 +228,7 @@
         {#if open}
           <div class="s-detail">
             {#if detail === null}
-              <EmptyState title={t("common.loading")} icon="loading" compact />
+              <Skeleton type="list" rows={2} />
             {:else if detail.length === 0}
               <EmptyState title={t("sessions.noDetail")} compact />
             {:else}

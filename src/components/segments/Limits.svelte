@@ -9,6 +9,7 @@
   import { QUOTA_UPDATED } from "../../lib/events";
   import QuotaCard from "../common/QuotaCard.svelte";
   import EmptyState from "../common/EmptyState.svelte";
+  import Skeleton from "../common/Skeleton.svelte";
 
   let {
     currency = "cny" as Currency,
@@ -89,7 +90,7 @@
 
 <div class="seg-body">
   {#if visibleQuotas === null}
-    <EmptyState title={t("common.loading")} icon="loading" />
+    <Skeleton type="cards" />
   {:else if visibleQuotas.length === 0}
     <EmptyState
       title={quotas && quotas.length > 0 ? t("limits.allDisabled") : t("limits.noBinding")}
