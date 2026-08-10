@@ -163,9 +163,10 @@
   cursor: pointer;
   font-family: inherit;
   height: 32px;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s;
 }
 .btn-outline:hover { border-color: var(--amber); color: var(--amber); }
-.btn-outline:disabled { opacity: 0.5; cursor: default; }
+.btn-outline:disabled { opacity: 0.45; cursor: not-allowed; color: var(--text-faint); border-color: var(--border-dim); }
 
 /* ── rate input ── */
 .rate-input {
