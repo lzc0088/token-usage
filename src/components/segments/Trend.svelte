@@ -19,16 +19,24 @@
     let cancelled = false;
     const fetch = async () => {
       try {
+        // Safety net: if the invoke promise hangs (known WebView2 issue on
+        // Windows where AbortController.abort() doesn't reject the underlying
+        // promise), force the error state after 15 s so the user sees something
+        // instead of an eternal skeleton.
+        const safety = window.setTimeout(() => {
+          if (!cancelled) {
+            console.warn("[Trend] fetch safety timeout fired — forcing error state");
+            loadAttempted = true;
+          }
+        }, 15000);
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 8000);
+        const tid = window.setTimeout(() => controller.abort(), 8000);
         const t = await api.getTrends(p, { signal: controller.signal });
-        clearTimeout(tid);
+        window.clearTimeout(tid);
+        window.clearTimeout(safety);
         if (!cancelled) { data = t; loadAttempted = true; }
-      } catch {
-        /* Trends query may fail on first launch before daily_usage is
-         * populated, or if the DB is temporarily locked. Don't leave the
-         * user staring at a skeleton — show an error state so they know
-         * a retry (period switch / refresh) will pick up new data. */
+      } catch (e) {
+        console.warn("[Trend] fetch failed:", e);
         if (!cancelled) loadAttempted = true;
       }
     };
@@ -198,7 +206,6 @@
     flex-direction: column;
     gap: 10px;
   }
-  /* stats — mirrors Overview .scell (k=11px, v=20px, u=11px) */
   .stats {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -230,14 +237,12 @@
     color: var(--text-faint);
     font-weight: 600;
   }
-
   .range-label {
     font-size: 13px;
     color: var(--text);
     font-weight: 400;
     padding: 0 2px;
   }
-
   .chart-grid {
     display: flex;
     flex-direction: column;
@@ -250,12 +255,6 @@
     width: 100%;
     height: 100%;
     display: block;
-  }
-  .axis-line {
-    stroke: var(--text-faint);
-    stroke-width: 1;
-    vector-effect: non-scaling-stroke;
-    opacity: 0.5;
   }
   .avg-label {
     position: absolute;
@@ -277,35 +276,15 @@
     margin-left: 1px;
     font-weight: 600;
   }
-  .trend-area {
-    fill: rgba(232, 176, 75, 0.1);
-  }
-  .trend-line {
-    fill: none;
-    stroke: var(--amber);
-    stroke-width: 1.5;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-    vector-effect: non-scaling-stroke;
-  }
-  .avg-line {
-    stroke: var(--cyan);
-    stroke-width: 1;
-    stroke-dasharray: 4 3;
-    vector-effect: non-scaling-stroke;
-    opacity: 0.7;
-  }
-  .node {
-    fill: var(--amber);
-    stroke: var(--bg);
-    stroke-width: 1;
-    vector-effect: non-scaling-stroke;
-    transition: r 0.12s;
-    cursor: pointer;
-  }
-  .node.active {
-    fill: var(--lime);
-  }
+  /* Chart colors as direct values — CSS vars may not resolve inside SVG on
+   * Windows WebView2 (transparent window). Hardcoded dark-theme palette; both
+   * themes remain readable. */
+  .trend-area { fill: rgba(232, 176, 75, 0.1); }
+  .trend-line { fill: none; stroke: #e8b04b; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .avg-line   { stroke: #7fd1d3; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.7; }
+  .axis-line  { stroke: #6b6453; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5; }
+  .node       { fill: #e8b04b; stroke: #0f0e0b; stroke-width: 1; vector-effect: non-scaling-stroke; transition: r 0.12s; cursor: pointer; }
+  .node.active{ fill: #b4e34c; }
   .x-axis {
     position: relative;
     height: 16px;
@@ -319,7 +298,6 @@
     color: var(--text-faint);
     white-space: nowrap;
   }
-
   .tip {
     position: absolute;
     top: 2px;
