@@ -1,6 +1,6 @@
 <script module>
   /** Shared OAuth state used by both DeviceFlow display and Account login fns. */
-  export type OAuthPhase = "idle" | "requesting" | "authorize" | "polling" | "success" | "error";
+  type OAuthPhase = "idle" | "requesting" | "authorize" | "polling" | "success" | "error";
 
   export interface OAuthState {
     phase: OAuthPhase;
