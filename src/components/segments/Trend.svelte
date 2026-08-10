@@ -108,6 +108,7 @@
   const xTicks = $derived.by(() => {
     const n = points.length;
     if (n === 0) return [] as number[];
+    if (n === 1) return [0];
     if (n <= 4) return [0, n - 1];
     return [0, Math.floor(n / 2), n - 1];
   });
