@@ -320,6 +320,7 @@
     gap: 1px;
     height: 32px;
     box-sizing: border-box;
+    min-width: 150px;
   }
   .seg-btn {
     background: transparent;
