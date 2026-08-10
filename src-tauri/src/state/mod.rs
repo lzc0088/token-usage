@@ -17,6 +17,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
+use tokio::sync::mpsc;
 
 use crate::config::Config;
 use crate::storage;
@@ -45,6 +46,13 @@ pub struct AppState {
     /// tray menu title, avoiding a ~15-minute staleness gap between the
     /// tray (live events) and the popover (DB-backed daily_usage query).
     pub(crate) last_today: Mutex<Option<crate::query::summary::Summary>>,
+    /// Senders to trigger an immediate collector scan: `collector_tick` forces
+    /// a `tokscale --today` scan, `collector_history` forces graph+sessions.
+    /// Populated by `collector::runtime::start` once the channels exist; `None`
+    /// until then. The `collect_now` command uses these so the refresh button
+    /// can force a scan instead of waiting on the watcher / history timer.
+    pub(crate) collector_tick: Mutex<Option<mpsc::Sender<()>>>,
+    pub(crate) collector_history: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 impl AppState {
@@ -62,6 +70,8 @@ impl AppState {
             settings_target: Mutex::new(None),
             drag_suspended: Mutex::new(HashSet::new()),
             last_today: Mutex::new(None),
+            collector_tick: Mutex::new(None),
+            collector_history: Mutex::new(None),
         })
     }
 
@@ -132,6 +142,8 @@ impl AppState {
             settings_target: Mutex::new(None),
             drag_suspended: Mutex::new(HashSet::new()),
             last_today: Mutex::new(None),
+            collector_tick: Mutex::new(None),
+            collector_history: Mutex::new(None),
         }
     }
 }

@@ -151,6 +151,15 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
 
     // 3. watcher (debounced ticks) → scheduler → events.
     let (tick_tx, tick_rx) = mpsc::channel::<()>(64);
+    // History (graph+sessions) can also be triggered on demand by the
+    // `collect_now` command via a second channel.
+    let (history_tx, history_rx) = mpsc::channel::<()>(8);
+    {
+        // Expose senders so commands can force an immediate scan.
+        let state = app.state::<crate::state::AppState>();
+        *state.collector_tick.lock().unwrap() = Some(tick_tx.clone());
+        *state.collector_history.lock().unwrap() = Some(history_tx.clone());
+    }
     let watch_guard = match watcher::spawn(dirs, watcher::DEFAULT_DEBOUNCE_MS, tick_tx) {
         Ok(g) => g,
         Err(_) => return,
@@ -181,6 +190,7 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
         scanner,
         cfg,
         tick_rx,
+        history_rx,
         ev_tx,
         Some(db.clone()),
     ));
@@ -192,10 +202,15 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
             match ev {
                 scheduler::CollectionEvent::Graph(v) => {
                     if let Ok(mut conn) = db.lock() {
-                        if let Err(e) = storage::daily_usage::ingest_graph(&mut conn, &v) {
-                            tracing::warn!(error = %e, "ingest_graph failed");
-                            let _ =
-                                app.emit("collection:error", format!("graph ingest failed: {e}"));
+                        match storage::daily_usage::ingest_graph(&mut conn, &v) {
+                            Ok(_) => {
+                                let _ = app.emit("collection:updated", ());
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "ingest_graph failed");
+                                let _ = app
+                                    .emit("collection:error", format!("graph ingest failed: {e}"));
+                            }
                         }
                     }
                 }
@@ -203,10 +218,17 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     // Phase 1: ingest sessions batch (fast upsert) — keep the
                     // lock as short as possible.
                     if let Ok(mut conn) = db.lock() {
-                        if let Err(e) = storage::sessions::ingest_sessions(&mut conn, &v) {
-                            tracing::warn!(error = %e, "ingest_sessions failed");
-                            let _ = app
-                                .emit("collection:error", format!("sessions ingest failed: {e}"));
+                        match storage::sessions::ingest_sessions(&mut conn, &v) {
+                            Ok(_) => {
+                                let _ = app.emit("collection:updated", ());
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "ingest_sessions failed");
+                                let _ = app.emit(
+                                    "collection:error",
+                                    format!("sessions ingest failed: {e}"),
+                                );
+                            }
                         }
                     }
 

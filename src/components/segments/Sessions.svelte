@@ -4,16 +4,19 @@
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
+  import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
+  import { COLLECTION_UPDATED } from "../../lib/events";
 
   const DETAIL_CAPABLE_TOOLS = ["claude", "codex", "opencode"] as const;
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
   let sessions = $state<SessionVm[] | null>(null);
+  let loadAttempted = $state(false);
   let expanded = $state<string | null>(null);
   let detail = $state<SessionDetailRow[] | null>(null);
 
@@ -67,13 +70,18 @@
 
   $effect(() => {
     let cancelled = false;
-    (async () => {
+    const fetch = async () => {
       try {
         const s = await api.getSessions();
-        if (!cancelled) sessions = s;
-      } catch { if (!cancelled) sessions = null; }
-    })();
-    return () => { cancelled = true; };
+        if (!cancelled) { sessions = s; loadAttempted = true; }
+      } catch { if (!cancelled) loadAttempted = true; }
+    };
+    fetch();
+    const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
+    return () => {
+      cancelled = true;
+      un.then(fn => fn());
+    };
   });
 
   const sorted = $derived.by(() => {
@@ -176,8 +184,10 @@
       </div>
     </div>
 
-    {#if sessions === null}
+    {#if sessions === null && !loadAttempted}
       <Skeleton type="list" />
+    {:else if sessions === null}
+      <EmptyState title={t("common.loadFailed")} />
     {:else if sessions.length === 0}
       <EmptyState title={t("sessions.empty")} />
     {:else}

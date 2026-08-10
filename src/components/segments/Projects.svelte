@@ -3,11 +3,13 @@
   import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { toolMeta } from "../../lib/meta/tools";
+  import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
   import { periodValue } from "../../stores/period.svelte";
+  import { COLLECTION_UPDATED } from "../../lib/events";
 
   let { currency, cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
@@ -67,19 +69,24 @@
     renderCount = RENDER_PAGE;
     expanded = null;
     let active = true;
-    api.getProjects(p, 0, MAX_PROJECTS)
-      .then((data) => {
+    const fetch = async () => {
+      try {
+        const data = await api.getProjects(p, 0, MAX_PROJECTS);
         if (!active) return;
         projects = data;
-      })
-      .catch(() => {
+        loading = false;
+      } catch {
         if (!active) return;
         projects = null;
-      })
-      .finally(() => {
-        if (active) loading = false;
-      });
-    return () => { active = false; };
+        loading = false;
+      }
+    };
+    fetch();
+    const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
+    return () => {
+      active = false;
+      un.then(fn => fn());
+    };
   });
 
   const sorted = $derived.by(() => {

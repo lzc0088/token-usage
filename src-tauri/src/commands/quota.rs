@@ -116,8 +116,14 @@ pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
 /// Manually trigger a full refresh for all bound vendors. Updates `quota_cache`
 /// in the background. Call this from "刷新" buttons.
 #[tauri::command]
-pub async fn refresh_quotas(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn refresh_quotas(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
     scheduler::refresh_all(&state.db).await;
+    // `refresh_all` has no AppHandle so it can't emit; notify the frontend here
+    // so Overview/Limits re-fetch the updated quota cache right away.
+    let _ = app.emit("quota:updated", ());
     Ok(())
 }
 

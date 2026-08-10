@@ -652,6 +652,7 @@ pub fn run() {
             commands::status::get_tokscale_status,
             commands::collection::get_archived_session_count,
             commands::collection::clear_archived_sessions,
+            commands::collection::collect_now,
             commands::quota::get_quotas,
             commands::quota::refresh_quotas,
             commands::quota::refresh_quotas_if_stale,

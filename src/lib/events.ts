@@ -11,7 +11,7 @@ export const TODAY_UPDATED = "today:updated";
 export const RATE_UPDATED = "rate:updated";
 /** Emitted when the user clicks "立即刷新" in the tray context menu. */
 export const TRAY_REFRESH = "tray:refresh";
-/** Emitted after archived sessions are cleared or the installed-client list changes. */
+/** Emitted when collection data is refreshed (history ingest, archive clear, client list change). */
 export const COLLECTION_UPDATED = "collection:updated";
 /** Emitted when a collection scan or data-ingest step fails so the UI can
  *  show a degraded-state warning instead of silently stale data. */

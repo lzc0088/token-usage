@@ -319,8 +319,13 @@
     refreshMsg = "";
     const gen = ++refreshGen;
     try {
-      // Refresh usage data + quota data in parallel.
-      const [s, c] = await Promise.all([api.getSummary(periodValue()), api.getConfig(), api.refreshQuotas()]);
+      // Refresh usage data + quota data + trigger an immediate collector scan.
+      const [s, c] = await Promise.all([
+        api.getSummary(periodValue()),
+        api.getConfig(),
+        api.refreshQuotas(),
+        api.collectNow(),
+      ]);
       if (gen !== refreshGen) return; // stale — a newer refresh was triggered
       summary = s;
       config = c;

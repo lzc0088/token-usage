@@ -1,30 +1,39 @@
 <script lang="ts">
   // 趋势 segment (T4.4). Line chart with an average line and per-node hover.
   // DAY = last 7 days, MONTH = current month, TOTAL = all history by month.
+  import { listen } from "@tauri-apps/api/event";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
   import { api, type Trends } from "../../lib/api";
+  import { COLLECTION_UPDATED } from "../../lib/events";
   import { t } from "../../lib/i18n.svelte";
   import { formatTokens, splitTokens } from "../../lib/format";
   import { periodValue } from "../../stores/period.svelte";
 
   let data = $state<Trends | null>(null);
+  let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
 
   $effect(() => {
     const p = periodValue();
     let cancelled = false;
-    (async () => {
+    const fetch = async () => {
       try {
         const t = await api.getTrends(p);
-        if (!cancelled) data = t;
-      } catch (e) {
-        /* trends failed */
-        if (!cancelled) data = null;
+        if (!cancelled) { data = t; loadAttempted = true; }
+      } catch {
+        /* Trends query may fail on first launch before daily_usage is
+         * populated, or if the DB is temporarily locked. Don't leave the
+         * user staring at a skeleton — show an error state so they know
+         * a retry (period switch / refresh) will pick up new data. */
+        if (!cancelled) loadAttempted = true;
       }
-    })();
+    };
+    fetch();
+    const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
     return () => {
       cancelled = true;
+      un.then(fn => fn());
     };
   });
 
@@ -102,8 +111,10 @@
 </script>
 
 <div class="seg-body">
-  {#if data === null}
+  {#if data === null && !loadAttempted}
     <Skeleton type="chart" />
+  {:else if data === null}
+    <EmptyState title={t("common.loadFailed")} />
   {:else if points.length === 0}
     <EmptyState title={t("trends.noData")} />
   {:else}

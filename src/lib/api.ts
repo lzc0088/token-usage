@@ -332,6 +332,9 @@ export const api = {
   /** Refresh quotas only if cache is older than `quota_refresh_interval`. Returns true if a refresh ran. */
   refreshQuotasIfStale: () => invoke<boolean>("refresh_quotas_if_stale"),
 
+  /** Force an immediate collector scan (today + history). Fire-and-forget. */
+  collectNow: () => invoke<void>("collect_now"),
+
   refreshQuota: (vendor: string) => invoke<void>("refresh_quota", { vendor }),
 
   testCredential: (vendor: string, credential: string) => invoke<string>("test_credential", { vendor, credential }),

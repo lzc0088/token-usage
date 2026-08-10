@@ -261,6 +261,7 @@ pub async fn run<S: Scanner>(
     scanner: S,
     cfg: SchedulerConfig,
     mut tick_rx: mpsc::Receiver<()>,
+    mut history_rx: mpsc::Receiver<()>,
     event_tx: mpsc::Sender<CollectionEvent>,
     db: Option<Arc<Mutex<Connection>>>,
 ) {
@@ -306,6 +307,18 @@ pub async fn run<S: Scanner>(
                             break; // watcher stopped → exit
                         }
                     }
+                    _ = history_rx.recv() => {
+                        // Manual history trigger (collect_now). Drain any burst.
+                        while history_rx.try_recv().is_ok() {}
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        next_graph_at = tokio::time::Instant::now()
+                            + next_history_interval(&cfg, cfg.history_interval);
+                    }
                     _ = tokio::time::sleep_until(next_graph_at) => {
                         let current_activity = db.as_ref()
                             .and_then(|d| d.lock().ok())
@@ -343,6 +356,18 @@ pub async fn run<S: Scanner>(
             "interval" => {
                 // ── Interval mode: fixed timer, no file watch ─────────────
                 tokio::select! {
+                    _ = history_rx.recv() => {
+                        // Manual history trigger (collect_now).
+                        while history_rx.try_recv().is_ok() {}
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        next_graph_at = tokio::time::Instant::now()
+                            + next_history_interval(&cfg, cfg.history_interval);
+                    }
                     _ = tokio::time::sleep_until(next_graph_at) => {
                         if emit_today(&scanner, &event_tx).await.is_err() {
                             break;
@@ -378,6 +403,18 @@ pub async fn run<S: Scanner>(
                         }
                         None => break, // watcher stopped → exit
                     },
+                    _ = history_rx.recv() => {
+                        // Manual history trigger (collect_now).
+                        while history_rx.try_recv().is_ok() {}
+                        if emit_graph(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        if emit_sessions(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
+                        let interval = next_history_interval(&cfg, cfg.history_interval);
+                        next_graph_at = tokio::time::Instant::now() + interval;
+                    }
                     _ = tokio::time::sleep_until(next_graph_at) => {
                         if emit_graph(&scanner, &event_tx).await.is_err() {
                             break;
@@ -469,6 +506,7 @@ mod tests {
     async fn burst_of_ticks_coalesces_to_one_scan() {
         let (mock, today_c, _graph_c) = Mock::new();
         let (tick_tx, tick_rx) = mpsc::channel::<()>(64);
+        let (_h_tx, history_rx) = mpsc::channel::<()>(8);
         let (ev_tx, mut ev_rx) = mpsc::channel::<CollectionEvent>(64);
 
         // huge history interval so the graph timer never fires during the test
@@ -478,7 +516,7 @@ mod tests {
             cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
-            run(mock, cfg, tick_rx, ev_tx, None).await;
+            run(mock, cfg, tick_rx, history_rx, ev_tx, None).await;
         });
 
         // Burst of 5 ticks in quick succession.
@@ -510,6 +548,7 @@ mod tests {
     async fn graph_runs_on_history_timer() {
         let (mock, _today_c, graph_c) = Mock::new();
         let (tick_tx, tick_rx) = mpsc::channel::<()>(8);
+        let (_h_tx, history_rx) = mpsc::channel::<()>(8);
         let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
         let cfg = SchedulerConfig {
             history_interval: Duration::from_millis(150),
@@ -517,7 +556,7 @@ mod tests {
             cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
-            run(mock, cfg, tick_rx, ev_tx, None).await;
+            run(mock, cfg, tick_rx, history_rx, ev_tx, None).await;
         });
 
         // Wait past the first history interval.
@@ -556,6 +595,7 @@ mod tests {
                 mock,
                 cfg,
                 tick_rx2,
+                mpsc::channel::<()>(1).1,
                 mpsc::channel::<CollectionEvent>(1).0,
                 None,
             )

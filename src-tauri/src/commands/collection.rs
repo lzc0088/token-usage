@@ -42,6 +42,27 @@ pub fn clear_archived_sessions(app: AppHandle, state: State<AppState>) -> Result
     Ok(deleted)
 }
 
+/// Force an immediate collector scan: a `today` tick (tokscale --today) plus a
+/// `history` scan (graph + sessions). Fire-and-forget — the scan runs on the
+/// scheduler task; the frontend refreshes via `today:updated` /
+/// `collection:updated` events once ingestion completes. Used by the refresh
+/// button so users get fresh data without waiting on the watcher / 15-min
+/// history timer.
+#[tauri::command]
+pub async fn collect_now(state: State<'_, AppState>) -> Result<(), String> {
+    // Clone the senders inside a short-lived lock, then drop the guard before
+    // .await so the future stays `Send`.  Sender<()> is cheap to clone (Arc).
+    let tick_sender = { state.collector_tick.lock().unwrap().clone() };
+    let history_sender = { state.collector_history.lock().unwrap().clone() };
+    if let Some(tx) = tick_sender {
+        let _ = tx.send(()).await;
+    }
+    if let Some(tx) = history_sender {
+        let _ = tx.send(()).await;
+    }
+    Ok(())
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
