@@ -262,7 +262,7 @@ pub fn position_main_at_edge(app: &AppHandle, _edge: &str) {
     let ww = size.width as f64 / scale;
     let wh = size.height as f64 / scale;
     const RIGHT_MARGIN: f64 = 30.0;
-    const BOTTOM_MARGIN: f64 = 16.0;
+    const BOTTOM_MARGIN: f64 = 50.0;
     let x = mx + mw - ww - RIGHT_MARGIN;
     let y = my + mh - wh - BOTTOM_MARGIN;
     let _ = win.set_position(LogicalPosition::new(x, y));
