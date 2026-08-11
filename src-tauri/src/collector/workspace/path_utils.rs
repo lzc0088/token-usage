@@ -78,27 +78,32 @@ pub fn decode_workspace(
         return super::types::DecodedWorkspace::default();
     }
 
+    // Expand leading "~" to the user's home directory so that paths like
+    // "~/.claude-mem/observer-sessions" are recognised as absolute paths
+    // and filtered by is_internal_claude_path below.
+    let key = expand_tilde(key);
+
     let name: String;
     let mut full_path: Option<String> = None;
     let mut latest_date: Option<String> = None;
 
     // Absolute paths (Unix `/...` or Windows `C:\...`) carry their own full
     // path; no need to look up session files.
-    if Path::new(key).is_absolute() {
+    if Path::new(&key).is_absolute() {
         // Filter out Claude's internal memory/observation paths so they don't
         // appear as user projects.
-        if is_internal_claude_path(key) {
+        if is_internal_claude_path(&key) {
             return super::types::DecodedWorkspace::default();
         }
         name = if label.is_empty() {
-            last_segment(key)
+            last_segment(&key)
         } else {
             label.to_string()
         };
-        full_path = Some(tilde_prefix(key));
-        latest_date = path_mtime_date(Path::new(key));
+        full_path = Some(tilde_prefix(&key));
+        latest_date = path_mtime_date(Path::new(&key));
     } else if let Some(dir) = claude_projects_dir {
-        let proj_dir = dir.join(key);
+        let proj_dir = dir.join(&key);
         if let Some((root, date)) = read_project_root(&proj_dir) {
             if is_internal_claude_path(&root) {
                 return super::types::DecodedWorkspace::default();
@@ -126,6 +131,18 @@ pub fn decode_workspace(
         full_path,
         latest_date,
     }
+}
+
+/// Expand a leading `~` in a path to the user's home directory.
+/// Returns the original string unchanged when there's no leading `~` or when
+/// the home directory cannot be determined.
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return format!("{}/{}", home.display(), rest);
+        }
+    }
+    path.to_string()
 }
 
 /// Last segment of a path string (`/a/b/c` → `c`, `C:\a\b\c` → `c`).

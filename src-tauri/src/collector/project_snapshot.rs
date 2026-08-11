@@ -207,10 +207,18 @@ struct SnapshotAnchor {
 
 /// Load a precomputed project snapshot for the given period. Returns None if
 /// no snapshot has been built yet (first run) or it's corrupted.
+/// Filters out any stale internal Claude paths (e.g. ~/.claude-mem/observer-sessions)
+/// that may have been captured before the decode_workspace filter was added.
 pub fn load_snapshot(conn: &Connection, period: &str) -> Option<Vec<ProjectAgg>> {
-    config::get_json::<Vec<ProjectAgg>>(conn, &snapshot_key(period))
+    let mut projects: Vec<ProjectAgg> = config::get_json(conn, &snapshot_key(period))
         .ok()
-        .flatten()
+        .flatten()?;
+    projects.retain(|p| {
+        !p.full_path.as_deref().is_some_and(|fp| {
+            fp.contains(".claude-mem") || fp.contains("/observer-") || fp.contains("\\observer-")
+        })
+    });
+    Some(projects)
 }
 
 #[cfg(test)]
