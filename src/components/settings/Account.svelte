@@ -975,7 +975,7 @@
   }
   .fsel:focus { outline: none; border-color: var(--amber); }
   .sel { min-width: 150px; }
-  .sel-narrow { width: 76px; min-width: 76px; }
+  .sel-narrow { width: 51px; min-width: 51px; }
 
   .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
