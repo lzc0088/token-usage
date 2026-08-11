@@ -320,8 +320,8 @@
   .sc { display: flex; flex-direction: column; }
 
 
-  .hk { width: 150px; min-width: 150px; }
-  .tg-placeholder { width: 150px; display: flex; justify-content: flex-end; }
+  .hk { width: 130px; min-width: 130px; }
+  .tg-placeholder { width: 130px; display: flex; justify-content: flex-end; }
 
   /* ── segmented control ── */
   .seg {
