@@ -4,6 +4,7 @@
   import type { Config, UpdateInfo, InstallEvent } from "../../lib/api";
   import { api } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
+  import Select from "../../components/common/Select.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   // Git hosting repo from Vite env (full string, e.g. "gitee.com/owner/repo").
@@ -295,25 +296,31 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t('general.costDisplay')}<div class="hint">{t('general.costDisplayHint')}</div></div>
-      <select class="sel" onchange={(e) => {
-        const target = e.target as HTMLSelectElement;
-        onUpdate({ currency: target.value as 'cny' | 'usd' | 'both' });
-      }}>
-        <option value="cny" selected={config.currency === 'cny'}>{t('general.cnyLabel')}</option>
-        <option value="usd" selected={config.currency === 'usd'}>{t('general.usdLabel')}</option>
-        <option value="both" selected={config.currency === 'both'}>{t('general.bothLabel')}</option>
-      </select>
+      <Select
+        class="sel"
+        value={config.currency ?? "cny"}
+        options={[
+          { value: "cny", label: t("general.cnyLabel") },
+          { value: "usd", label: t("general.usdLabel") },
+          { value: "both", label: t("general.bothLabel") },
+        ]}
+        onchange={(v) => onUpdate({ currency: v as "cny" | "usd" | "both" })}
+      />
     </div>
     <div class="box-row">
       <div class="lab">{t('general.rateMode')}<div class="hint">{t('general.rateModeHint')}</div></div>
-      <select class="sel" onchange={(e) => {
-        const target = e.target as HTMLSelectElement;
-        rateMode = target.value as 'auto' | 'manual';
-        onUpdate({ rate_mode: target.value as "auto" | "manual" });
-      }}>
-        <option value="auto" selected={rateMode === 'auto'}>{t('general.rateAuto')}</option>
-        <option value="manual" selected={rateMode === 'manual'}>{t('general.rateManual')}</option>
-      </select>
+      <Select
+        class="sel"
+        value={rateMode}
+        options={[
+          { value: "auto", label: t("general.rateAuto") },
+          { value: "manual", label: t("general.rateManual") },
+        ]}
+        onchange={(v) => {
+          rateMode = v as "auto" | "manual";
+          onUpdate({ rate_mode: v as "auto" | "manual" });
+        }}
+      />
     </div>
     {#if rateMode === 'auto'}
       <div class="box-row" style="padding-top: 4px">
@@ -470,7 +477,7 @@
   }
 
   /* ── select (override shared min-width) ── */
-  .sel { min-width: 150px; }
+
 
   /* ── rate display ── */
   .rate-display { font-family: var(--font-mono); font-size: 12px; color: var(--lime); font-weight: 500; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 3px 8px; border-radius: 5px; }

@@ -2,6 +2,7 @@
   // 窗口外观: 主题 / 动画 / 弹窗触发 / 窗口显示 / 菜单栏托盘.
   import type { Config } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
+  import Select from "../../components/common/Select.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
   const THEME_OPTIONS: Array<{ value: NonNullable<Config["theme"]>; label: string }> = $derived(Array.from([
@@ -18,6 +19,20 @@
 
   const activeTheme = $derived(config.theme || "system");
   const activeAnimation = $derived(config.animation || "system");
+
+  // Display-mode options: "fixed" is macOS/Linux only.
+  const DISPLAY_MODE_OPTIONS = $derived.by(() => {
+    const base = [
+      { value: "normal", label: t("window.displayNormal") },
+      { value: "always_on_top", label: t("window.displayTop") },
+    ];
+    if (platform === "windows") return base;
+    return [
+      { value: "normal", label: t("window.displayNormal") },
+      { value: "fixed", label: t("window.displayFixed") },
+      { value: "always_on_top", label: t("window.displayTop") },
+    ];
+  });
   let cfg_lang = $state("zh");
 
   // 菜单栏托盘显示方式的可选项（与 Rust default_tray_display 取值对齐）。
@@ -164,10 +179,15 @@
     </div>
     <div class="box-row">
       <div class="lab">{t('window.language')}<div class="hint">{t('window.langHint')}</div></div>
-      <select class="sel" value={config.language || "zh"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ language: target.value as Config["language"] }); }}>
-        <option value="zh">中文</option>
-        <option value="en">English</option>
-      </select>
+      <Select
+        class="sel"
+        value={config.language || "zh"}
+        options={[
+          { value: "zh", label: "中文" },
+          { value: "en", label: "English" },
+        ]}
+        onchange={(v) => onUpdate({ language: v as Config["language"] })}
+      />
     </div>
   </div>
 
@@ -176,17 +196,15 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t('window.trigger')}<div class="hint">{t('window.triggerHint')}</div></div>
-      <select
+      <Select
         class="sel"
         value={config.trigger_mode || "click"}
-        onchange={(e) => {
-          const target = e.target as HTMLSelectElement;
-          onSelect("trigger_mode", target.value as Config["trigger_mode"]);
-        }}
-      >
-        <option value="click">{t('window.triggerClick')}</option>
-        <option value="hover">{t('window.triggerHover')}</option>
-      </select>
+        options={[
+          { value: "click", label: t("window.triggerClick") },
+          { value: "hover", label: t("window.triggerHover") },
+        ]}
+        onchange={(v) => onSelect("trigger_mode", v as Config["trigger_mode"])}
+      />
     </div>
 
     <div class="box-row">
@@ -212,36 +230,22 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t('window.displayMode')}<div class="hint">{platform === 'windows' ? t('window.displayHintWin') : t('window.displayHint')}</div></div>
-      <select
+      <Select
         class="sel"
-        value={config.window_display_mode || (platform === 'windows' ? 'always_on_top' : 'normal')}
-        onchange={(e) => {
-          const target = e.target as HTMLSelectElement;
-          onSelect("window_display_mode", target.value as Config["window_display_mode"]);
-        }}
-      >
-        <option value="normal">{t('window.displayNormal')}</option>
-        {#if platform !== 'windows'}
-          <option value="fixed">{t('window.displayFixed')}</option>
-        {/if}
-        <option value="always_on_top">{t('window.displayTop')}</option>
-      </select>
+        value={config.window_display_mode || (platform === "windows" ? "always_on_top" : "normal")}
+        options={DISPLAY_MODE_OPTIONS}
+        onchange={(v) => onSelect("window_display_mode", v as Config["window_display_mode"])}
+      />
     </div>
 
     <div class="box-row">
       <div class="lab">{t('window.tray')}<div class="hint">{t('window.trayHint')}</div></div>
-      <select
+      <Select
         class="sel"
         value={config.tray_display || "icon_only"}
-        onchange={(e) => {
-          const target = e.target as HTMLSelectElement;
-          onSelect("tray_display", target.value as Config["tray_display"]);
-        }}
-      >
-        {#each TRAY_OPTIONS as opt (opt.value)}
-          <option value={opt.value}>{opt.label}</option>
-        {/each}
-      </select>
+        options={TRAY_OPTIONS}
+        onchange={(v) => onSelect("tray_display", v as Config["tray_display"])}
+      />
     </div>
 
     {#if platform === "macos"}
@@ -281,19 +285,29 @@
     {#if config.floating_enabled}
     <div class="box-row">
       <div class="lab">{t('window.floatingPosition')}</div>
-      <select class="sel" value={config.floating_position || "right"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ floating_position: target.value as Config["floating_position"] }); }}>
-        <option value="right">{t('window.floatingPosRight')}</option>
-        <option value="left">{t('window.floatingPosLeft')}</option>
-      </select>
+      <Select
+        class="sel"
+        value={config.floating_position || "right"}
+        options={[
+          { value: "right", label: t("window.floatingPosRight") },
+          { value: "left", label: t("window.floatingPosLeft") },
+        ]}
+        onchange={(v) => onUpdate({ floating_position: v as Config["floating_position"] })}
+      />
     </div>
     <div class="box-row">
       <div class="lab">{t('window.floatingDisplay')}</div>
-      <select class="sel" value={config.floating_display || "today_tokens"} onchange={(e) => { const target = e.target as HTMLSelectElement; onUpdate({ floating_display: target.value as Config["floating_display"] }); }}>
-        <option value="today_tokens">{t('window.floatingTodayTokens')}</option>
-        <option value="today_cost">{t('window.floatingTodayCost')}</option>
-        <option value="total_tokens">{t('window.floatingTotalTokens')}</option>
-        <option value="total_cost">{t('window.floatingTotalCost')}</option>
-      </select>
+      <Select
+        class="sel"
+        value={config.floating_display || "today_tokens"}
+        options={[
+          { value: "today_tokens", label: t("window.floatingTodayTokens") },
+          { value: "today_cost", label: t("window.floatingTodayCost") },
+          { value: "total_tokens", label: t("window.floatingTotalTokens") },
+          { value: "total_cost", label: t("window.floatingTotalCost") },
+        ]}
+        onchange={(v) => onUpdate({ floating_display: v as Config["floating_display"] })}
+      />
     </div>
     {/if}
   </div>
@@ -305,7 +319,7 @@
 
   .sc { display: flex; flex-direction: column; }
 
-  .sel { width: 150px; min-width: 150px; }
+
   .hk { width: 150px; min-width: 150px; }
   .tg-placeholder { width: 150px; display: flex; justify-content: flex-end; }
 

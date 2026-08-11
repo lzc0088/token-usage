@@ -3,6 +3,7 @@
   // All visibility/ordering is persisted to config (matching Collection/Account pattern).
   import { api, type Config } from "../../lib/api";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import Select from "../../components/common/Select.svelte";
   import { rowDrag } from "../../lib/actions/rowDrag";
   import { t, getLang } from "../../lib/i18n.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
@@ -284,12 +285,16 @@
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t("mainview.defaultPeriod")}<div class="hint">{t("mainview.defaultPeriodHint")}</div></div>
-      <select class="sel" value={config.default_period || "day"}
-        onchange={(e) => onUpdate({ default_period: (e.target as HTMLSelectElement).value as Config["default_period"] })}>
-        <option value="day">{t("mainview.periodDay")}</option>
-        <option value="month">{t("mainview.periodMonth")}</option>
-        <option value="total">{t("mainview.periodTotal")}</option>
-      </select>
+      <Select
+        class="sel"
+        value={config.default_period || "day"}
+        options={[
+          { value: "day", label: t("mainview.periodDay") },
+          { value: "month", label: t("mainview.periodMonth") },
+          { value: "total", label: t("mainview.periodTotal") },
+        ]}
+        onchange={(v) => onUpdate({ default_period: v as Config["default_period"] })}
+      />
     </div>
   </div>
 

@@ -8,6 +8,7 @@
   import ToolIcon from "../ui/ToolIcon.svelte";
   import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
+  import Select from "./Select.svelte";
   import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
   import { formatCost } from "../../lib/format";
   import { getLang } from "../../lib/i18n.svelte";
@@ -179,11 +180,13 @@
           {#each regionFields as f (f.key)}
             <label class="qregion-field">
               <span class="qregion-label">{f.label}</span>
-              <select class="qregion-select" value={regionValues[f.key] ?? ""} disabled={cookieSaving} onchange={(e) => { regionValues = { ...regionValues, [f.key]: (e.target as HTMLSelectElement).value }; }}>
-                {#each (f.options ?? []) as opt (opt)}
-                  <option value={opt}>{opt}</option>
-                {/each}
-              </select>
+              <Select
+                class="qregion-select"
+                value={regionValues[f.key] ?? ""}
+                options={(f.options ?? []).map((o) => ({ value: o, label: o }))}
+                disabled={cookieSaving}
+                onchange={(v) => { regionValues = { ...regionValues, [f.key]: v }; }}
+              />
             </label>
           {/each}
         </div>
