@@ -62,6 +62,39 @@
 .sel:hover { border-color: var(--amber); }
 .sel:focus { outline: none; border-color: var(--amber); }
 
+/* ── form field select (vendor credential panels) ── */
+.fsel {
+  background: var(--surface-tint);
+  border: 1px solid var(--border-dim);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 12px;
+  height: 32px;
+  box-sizing: border-box;
+}
+.fsel:focus { outline: none; border-color: var(--amber); }
+
+/* ── narrow selects ── */
+.sel-narrow { width: 40px; min-width: 40px; }
+
+/* ── quota cookie region select ── */
+.qregion-select {
+  font-size: 10.5px;
+  font-family: inherit;
+  background: var(--glass-2);
+  border: 1px solid var(--border-dim);
+  color: var(--text);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.qregion-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── toggle switch ── */
 .tg {
   width: 38px;

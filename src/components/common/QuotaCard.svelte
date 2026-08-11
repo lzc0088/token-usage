@@ -683,20 +683,6 @@
     font-size: 10px;
     color: var(--text-faint);
   }
-  .qregion-select {
-    font-size: 10.5px;
-    font-family: inherit;
-    background: var(--glass-2);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 3px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .qregion-select:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 
   /* ── Sub-items (individual quota_detail entries) ── */
   .qiw-sub {

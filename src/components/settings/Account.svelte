@@ -962,21 +962,6 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
-  .fsel {
-    background: var(--surface-tint);
-    border: 1px solid var(--border-dim);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 7px;
-    font-family: inherit;
-    font-size: 12px;
-    height: 32px;
-    box-sizing: border-box;
-  }
-  .fsel:focus { outline: none; border-color: var(--amber); }
-  .sel { min-width: 150px; }
-  .sel-narrow { width: 40px; min-width: 40px; }
-
   .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
   .ok-text { font-size: 11px; color: var(--lime); }
 
