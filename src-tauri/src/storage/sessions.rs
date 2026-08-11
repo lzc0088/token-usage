@@ -24,6 +24,7 @@ pub struct SessionRow {
     pub cache_write: i64,
     pub cost_usd: f64,
     pub message_count: i64,
+    pub rounds: i64,
     pub last_used_at: i64,
 }
 
@@ -70,6 +71,7 @@ pub fn rows_from_report(r: &SessionsReport) -> Vec<SessionRow> {
             cache_write: e.cache_write,
             cost_usd: e.cost,
             message_count: e.message_count,
+            rounds: 0,
             last_used_at: now,
         })
         .collect()
@@ -87,18 +89,21 @@ pub fn upsert_rows(conn: &mut Connection, rows: &[SessionRow]) -> Result<usize, 
             "INSERT INTO sessions
                (tool, session_id, model, input_tokens, output_tokens,
                 cache_read_tokens, cache_write_tokens, cost_usd,
-                message_count, last_used_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                message_count, rounds, last_used_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(tool, session_id, model) DO UPDATE SET
                input_tokens       = excluded.input_tokens,
                output_tokens      = excluded.output_tokens,
                cache_read_tokens  = excluded.cache_read_tokens,
                cache_write_tokens = excluded.cache_write_tokens,
                cost_usd           = excluded.cost_usd,
-               message_count      = excluded.message_count",
+               message_count      = excluded.message_count,
+               rounds             = CASE WHEN sessions.rounds = 0 THEN excluded.rounds ELSE sessions.rounds END",
             // NOTE: last_used_at is deliberately NOT updated on conflict —
             // it records first-seen time; real last-interaction time comes from
             // the session file mtime (see workspace::session_project_map).
+            // rounds: only fill in on first insert (0 → non-zero); never
+            // overwrite a backfilled value with 0 from a re-ingest.
         )?;
         for r in rows {
             stmt.execute(params![
@@ -111,6 +116,7 @@ pub fn upsert_rows(conn: &mut Connection, rows: &[SessionRow]) -> Result<usize, 
                 r.cache_write,
                 r.cost_usd,
                 r.message_count,
+                r.rounds,
                 r.last_used_at,
             ])?;
             n += 1;

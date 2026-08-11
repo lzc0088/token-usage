@@ -255,6 +255,17 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                             }
                         }
 
+                        // Backfill rounds from session JSONL files.
+                        if let Ok(mut conn) = db2.lock() {
+                            if let Err(e) = backfill_rounds(&mut conn) {
+                                tracing::warn!(error = %e, "rounds backfill failed");
+                                let _ = app2.emit(
+                                    "collection:error",
+                                    format!("rounds backfill failed: {e}"),
+                                );
+                            }
+                        }
+
                         // 会话保留 OFF → prune sessions whose tool is no longer
                         // installed (auto-cleanup). ON (default) keeps everything.
                         if let Ok(conn) = db2.lock() {
@@ -387,6 +398,64 @@ fn backfill_claude_project_paths(
             updated += rows;
         }
         // `upd` dropped here (before tx.commit), releasing the borrow on `tx`.
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(updated)
+}
+
+/// Backfill `rounds` (user-input round count) for sessions that still have 0.
+///
+/// Queries distinct `(tool, session_id)` pairs where `rounds = 0`, reads each
+/// session's JSONL file to count valid user rounds (same filter as the detail
+/// view), and batch-updates the DB. Skips sessions whose JSONL file is
+/// missing (they'll be retried on a future backfill run if the file appears).
+///
+/// Capped at 500 sessions per run to keep the watcher consumer responsive.
+#[allow(clippy::items_after_test_module, dead_code)]
+fn backfill_rounds(conn: &mut Connection) -> Result<usize, String> {
+    // Find sessions that still need round counts.
+    let session_ids: Vec<(String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT tool, session_id FROM sessions WHERE rounds = 0 LIMIT 500")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?;
+        let collected: Vec<(String, String)> = rows.filter_map(Result::ok).collect();
+        collected
+    };
+
+    if session_ids.is_empty() {
+        return Ok(0);
+    }
+
+    // Compute round counts from JSONL (no DB writes yet).
+    let mut updates: Vec<(i64, String, String)> = Vec::with_capacity(session_ids.len());
+    for (tool, sid) in &session_ids {
+        let count =
+            crate::query::sessions::count_valid_rounds(dirs::home_dir().as_deref(), tool, sid);
+        if count > 0 {
+            updates.push((count, tool.clone(), sid.clone()));
+        }
+    }
+
+    if updates.is_empty() {
+        return Ok(0);
+    }
+
+    // Batch UPDATE in a single transaction.
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut updated = 0;
+    {
+        let mut upd = tx
+            .prepare("UPDATE sessions SET rounds = ?1 WHERE tool = ?2 AND session_id = ?3 AND rounds = 0")
+            .map_err(|e| e.to_string())?;
+        for (count, tool, sid) in &updates {
+            let rows = upd
+                .execute(rusqlite::params![count, tool, sid])
+                .map_err(|e| e.to_string())?;
+            updated += rows;
+        }
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(updated)

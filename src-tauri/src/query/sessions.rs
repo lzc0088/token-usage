@@ -18,6 +18,7 @@ pub struct SessionVm {
     pub tokens: i64,
     pub cost_usd: f64,
     pub messages: i64,
+    pub rounds: i64,
     pub model_count: i64,
     pub models: String,
     pub last_used_at: Option<String>,
@@ -35,6 +36,7 @@ pub struct SessionDetailRow {
     pub tokens: i64,
     pub cost_usd: f64,
     pub messages: i64,
+    pub rounds: i64,
 }
 
 /// Grouped session list ordered by tokens desc. `claude_projects_dir` is
@@ -57,6 +59,7 @@ pub fn query(
                 COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
                 COALESCE(SUM(cost_usd), 0) AS cost,
                 COALESCE(SUM(message_count), 0) AS messages,
+                COALESCE(SUM(rounds), 0) AS rounds,
                 COUNT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END) AS model_count,
                 COALESCE(GROUP_CONCAT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END), '') AS models,
                 MAX(last_used_at) AS last_used_at
@@ -70,15 +73,16 @@ pub fn query(
             let sid: String = r.get::<_, String>(1)?;
             let (proj_name, proj_path, file_mtime) =
                 proj_map.get(&sid).cloned().unwrap_or_default();
-            let db_time = format_last_used(r.get::<_, Option<i64>>(7)?);
+            let db_time = format_last_used(r.get::<_, Option<i64>>(8)?);
             Ok(SessionVm {
                 tool: r.get::<_, String>(0)?,
                 session_id: sid,
                 tokens: r.get::<_, i64>(2)?,
                 cost_usd: r.get::<_, f64>(3)?,
                 messages: r.get::<_, i64>(4)?,
-                model_count: r.get::<_, i64>(5)?,
-                models: r.get::<_, String>(6)?,
+                rounds: r.get::<_, i64>(5)?,
+                model_count: r.get::<_, i64>(6)?,
+                models: r.get::<_, String>(7)?,
                 last_used_at: file_mtime.or(db_time),
                 project_name: (!proj_name.is_empty()).then_some(proj_name),
                 project_path: (!proj_path.is_empty()).then_some(proj_path),
@@ -100,7 +104,8 @@ pub fn query_detail(
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                 COALESCE(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens, 0) AS tokens,
                 cost_usd,
-                message_count
+                message_count,
+                rounds
          FROM sessions
          WHERE tool = ? AND session_id = ? AND model NOT IN ('<synthetic>')
          ORDER BY tokens DESC",
@@ -116,6 +121,7 @@ pub fn query_detail(
                 tokens: r.get::<_, i64>(5)?,
                 cost_usd: r.get::<_, f64>(6)?,
                 messages: r.get::<_, i64>(7)?,
+                rounds: r.get::<_, i64>(8)?,
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -164,6 +170,27 @@ pub fn query_rounds(
 ) -> Result<Vec<SessionRoundVm>, QueryError> {
     let model_totals = session_model_totals_public(conn, tool, session_id)?;
     Ok(build_rounds(home_dir, tool, session_id, model_totals))
+}
+
+/// Count valid user-input rounds for a session (same filter as `build_rounds`
+/// but without cost apportioning). Returns 0 when the JSONL file is missing
+/// or unreadable.
+pub fn count_valid_rounds(home_dir: Option<&Path>, tool: &str, session_id: &str) -> i64 {
+    let acc = parse_rounds(home_dir, tool, session_id);
+    acc.into_iter()
+        .filter(|r| {
+            !r.is_command
+                && !is_filler_prompt(&r.user_text)
+                && r.turns > 0
+                && (tool != "claude" || {
+                    let total = r.input_tokens
+                        + r.output_tokens
+                        + r.cache_read_tokens
+                        + r.cache_write_tokens;
+                    total > 0
+                })
+        })
+        .count() as i64
 }
 
 /// `(model_total_tokens, model_total_cost)` per model for one session.
@@ -759,10 +786,10 @@ mod tests {
         schema::migrate(&conn).unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
-             VALUES ('claude','s1','glm-5.2',1000,200,300,0,1.5,10,{now}),
-                    ('claude','s1','gpt-5',500,0,0,0,0.5,3,{now}),
-                    ('codex','s2','gpt-5-plus',200,80,0,0,0.42,5,{now})"
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s1','glm-5.2',1000,200,300,0,1.5,10,5,{now}),
+                    ('claude','s1','gpt-5',500,0,0,0,0.5,3,3,{now}),
+                    ('codex','s2','gpt-5-plus',200,80,0,0,0.42,5,2,{now})"
         ))
         .unwrap();
         conn
@@ -779,6 +806,7 @@ mod tests {
         assert_eq!(s1.tokens, 2000);
         assert!((s1.cost_usd - 2.0).abs() < 1e-9);
         assert_eq!(s1.messages, 13);
+        assert_eq!(s1.rounds, 8);
         assert_eq!(s1.model_count, 2);
         assert!(s1.last_used_at.is_some());
         assert!(s1.project_name.is_none());
@@ -792,8 +820,8 @@ mod tests {
         // Insert a session from yesterday — should still appear since there's
         // no period filter (sessions table stores all-time aggregates).
         conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
-             VALUES ('claude','s_old','gpt-4',100,50,0,0,0.1,1,{yesterday})"
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_old','gpt-4',100,50,0,0,0.1,1,1,{yesterday})"
         )).unwrap();
         let v = query(&conn, None, None).unwrap();
         assert_eq!(v.len(), 3); // all 3 sessions, no filtering
@@ -806,8 +834,8 @@ mod tests {
         let now = chrono::Utc::now().timestamp_millis();
         // Insert a <synthetic> model row alongside real models.
         conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
-             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,{now})"
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,0,{now})"
         ))
         .unwrap();
         let rows = query_detail(&conn, "claude", "s_syn").unwrap();
@@ -823,15 +851,15 @@ mod tests {
         let now = chrono::Utc::now().timestamp_millis();
         // s_syn has only a <synthetic> model — should not appear in model list.
         conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
-             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,{now})"
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,0,{now})"
         ))
         .unwrap();
         // s_mix has a real model and a <synthetic> one — only real should show.
         conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,last_used_at)
-             VALUES ('claude','s_mix','<synthetic>',0,0,0,0,0.0,0,{now}),
-                    ('claude','s_mix','gpt-4',100,0,0,0,0.2,3,{now})"
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_mix','<synthetic>',0,0,0,0,0.0,0,0,{now}),
+                    ('claude','s_mix','gpt-4',100,0,0,0,0.2,3,1,{now})"
         ))
         .unwrap();
         let v = query(&conn, None, None).unwrap();

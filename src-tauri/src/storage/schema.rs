@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use super::StorageError;
 
 /// Current schema version. Bump + add a migration step on schema change.
-pub const CURRENT_VERSION: u32 = 5;
+pub const CURRENT_VERSION: u32 = 6;
 
 /// v1: initial tables + indexes.
 const V1: &str = r#"
@@ -89,6 +89,12 @@ const V5: &str = r#"
 CREATE INDEX IF NOT EXISTS idx_sessions_tool_sid ON sessions(tool, session_id);
 "#;
 
+/// v6: add `rounds` to sessions (count of user input rounds, computed from
+/// JSONL files during backfill).
+const V6: &str = r#"
+ALTER TABLE sessions ADD COLUMN rounds INTEGER NOT NULL DEFAULT 0;
+"#;
+
 const V3: &str = r#"
 CREATE TABLE IF NOT EXISTS exchange_rate (
   from_currency TEXT NOT NULL,
@@ -128,6 +134,10 @@ pub fn migrate(conn: &Connection) -> Result<(), StorageError> {
     if current < 5 {
         conn.execute_batch(V5)?;
         conn.pragma_update(None, "user_version", 5)?;
+    }
+    if current < 6 {
+        conn.execute_batch(V6)?;
+        conn.pragma_update(None, "user_version", 6)?;
     }
     Ok(())
 }

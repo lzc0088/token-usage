@@ -68,6 +68,7 @@ export interface SessionVm {
   tokens: number;
   cost_usd: number;
   messages: number;
+  rounds: number;
   model_count: number;
   models: string;
   last_used_at: string | null;
@@ -84,6 +85,7 @@ export interface SessionDetailRow {
   tokens: number;
   cost_usd: number;
   messages: number;
+  rounds: number;
 }
 
 export interface SessionRoundVm {

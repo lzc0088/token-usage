@@ -225,7 +225,7 @@
             </div>
             <div class="s-line s-l4">
               <span class="s-time">{s.last_used_at ?? "—"}</span>
-              <span class="s-msgs">{s.messages}{t("breakdown.msgs")}</span>
+              <span class="s-msgs">{s.messages}{t("breakdown.msgs")}{#if s.rounds > 0}<span class="s-sep">/</span>{s.rounds}{t("sessions.rounds")}{/if}</span>
             </div>
           </div>
           <div class="s-right">
@@ -303,6 +303,8 @@
   .s-model-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }
   .s-model-tag.tag-count { color: var(--text-faint); background: var(--glass-3); padding: 0px 5px; border-radius: 3px; line-height: 1.6; }
   .s-l4 { font-size: 10px; color: var(--text-faint); gap: 10px; }
+  .s-msgs { white-space: nowrap; }
+  .s-sep { opacity: 0.5; margin: 0 1px; }
   .s-time { font-family: var(--font-mono); }
 
   /* right side */

@@ -78,7 +78,7 @@ pub fn decode_workspace(
         return super::types::DecodedWorkspace::default();
     }
 
-    let mut name: String;
+    let name: String;
     let mut full_path: Option<String> = None;
     let mut latest_date: Option<String> = None;
 
