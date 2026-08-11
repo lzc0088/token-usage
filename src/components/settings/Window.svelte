@@ -320,13 +320,13 @@
     gap: 1px;
     height: 32px;
     box-sizing: border-box;
-    min-width: 150px;
+    min-width: 130px;
   }
   .seg-btn {
     background: transparent;
     border: none;
     color: var(--text-faint);
-    padding: 0 12px;
+    padding: 0 10px;
     height: 26px;
     border-radius: 6px;
     font-family: inherit;
