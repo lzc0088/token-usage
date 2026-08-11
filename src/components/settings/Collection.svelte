@@ -304,7 +304,7 @@
 
   .sc { display: flex; flex-direction: column; }
 
-  .btn-w { min-width: 130px; }
+  .btn-w { min-width: 150px; }
   .section-title {
     font-size: 15px;
     margin-top: 20px;
