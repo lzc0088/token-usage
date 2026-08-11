@@ -181,7 +181,7 @@
         <div class="lab">{tt("collection.archivedSessions")}</div>
         <div class="hint" style="margin-top:2px">{tt("collection.archivedCountHint").replace("{n}", "")} <strong>{archivedCount ?? "…"}</strong> {tt("collection.archivedCountSuffix")}</div>
       </div>
-      <button type="button" class="btn-outline" onclick={clearArchived} disabled={clearing || !archivedCount}>
+      <button type="button" class="btn-outline btn-w" onclick={clearArchived} disabled={clearing || !archivedCount}>
         {clearing ? tt("collection.clearing") : tt("collection.clearArchived")}
       </button>
     </div>
@@ -300,6 +300,7 @@
 
   .sc { display: flex; flex-direction: column; }
 
+  .btn-w { min-width: 130px; }
   .section-title {
     font-size: 15px;
     margin-top: 20px;
