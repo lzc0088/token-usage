@@ -24,7 +24,8 @@
         "decorations": false,
         "transparent": true,
         "shadow": true,
-        "center": false
+        "center": false,
+        "devtools": false
       },
       {
         "label": "settings",
@@ -40,7 +41,8 @@
         "transparent": true,
         "shadow": true,
         "center": true,
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "devtools": false
       },
       {
         "label": "floating",
@@ -53,7 +55,8 @@
         "transparent": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "center": false
+        "center": false,
+        "devtools": false
       }
     ],
     "security": {
