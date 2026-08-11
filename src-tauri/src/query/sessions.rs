@@ -50,6 +50,7 @@ pub fn query(
     limit: Option<i64>,
 ) -> Result<Vec<SessionVm>, QueryError> {
     let cap = limit.unwrap_or(100).clamp(1, 500);
+    let min_messages: i64 = 3;
     let proj_map = claude_projects_dir
         .map(crate::collector::workspace::session_project_map)
         .unwrap_or_default();
@@ -65,11 +66,12 @@ pub fn query(
                 MAX(last_used_at) AS last_used_at
          FROM sessions
          GROUP BY tool, session_id
+         HAVING COALESCE(SUM(message_count), 0) >= ?2
          ORDER BY tokens DESC
          LIMIT ?1",
     )?;
     let out = stmt
-        .query_map(rusqlite::params![cap], |r| {
+        .query_map(rusqlite::params![cap, min_messages], |r| {
             let sid: String = r.get::<_, String>(1)?;
             let (proj_name, proj_path, file_mtime) =
                 proj_map.get(&sid).cloned().unwrap_or_default();
@@ -819,13 +821,43 @@ mod tests {
         let yesterday = now - 86_400_000;
         // Insert a session from yesterday — should still appear since there's
         // no period filter (sessions table stores all-time aggregates).
+        // message_count=3 meets the min-messages threshold.
         conn.execute_batch(&format!(
             "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
-             VALUES ('claude','s_old','gpt-4',100,50,0,0,0.1,1,1,{yesterday})"
+             VALUES ('claude','s_old','gpt-4',100,50,0,0,0.1,3,1,{yesterday})"
         )).unwrap();
         let v = query(&conn, None, None).unwrap();
-        assert_eq!(v.len(), 3); // all 3 sessions, no filtering
+        assert_eq!(v.len(), 3); // all 3 sessions, no period filtering
         assert!(v.iter().any(|s| s.session_id == "s_old"));
+    }
+
+    #[test]
+    fn query_filters_low_message_sessions() {
+        let conn = seeded();
+        let now = chrono::Utc::now().timestamp_millis();
+        // s_low has only 2 messages — below the min-messages=3 threshold.
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_low','gpt-4',10,5,0,0,0.01,2,1,{now})"
+        )).unwrap();
+        // s_ok has exactly 3 messages — meets the threshold.
+        conn.execute_batch(&format!(
+            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
+             VALUES ('claude','s_ok','gpt-4',50,20,0,0,0.05,3,2,{now})"
+        )).unwrap();
+        let v = query(&conn, None, None).unwrap();
+        assert!(
+            v.iter().all(|s| s.messages >= 3),
+            "all returned sessions should have >= 3 messages"
+        );
+        assert!(
+            !v.iter().any(|s| s.session_id == "s_low"),
+            "s_low (2 messages) should be filtered out"
+        );
+        assert!(
+            v.iter().any(|s| s.session_id == "s_ok"),
+            "s_ok (3 messages) should be included"
+        );
     }
 
     #[test]
@@ -849,13 +881,9 @@ mod tests {
     fn query_list_excludes_synthetic_from_models() {
         let conn = seeded();
         let now = chrono::Utc::now().timestamp_millis();
-        // s_syn has only a <synthetic> model — should not appear in model list.
-        conn.execute_batch(&format!(
-            "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
-             VALUES ('claude','s_syn','<synthetic>',0,0,0,0,0.0,0,0,{now})"
-        ))
-        .unwrap();
         // s_mix has a real model and a <synthetic> one — only real should show.
+        // message_count=3 on the real model ensures the session passes the
+        // min-messages HAVING filter even after <synthetic> is excluded.
         conn.execute_batch(&format!(
             "INSERT INTO sessions (tool,session_id,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,message_count,rounds,last_used_at)
              VALUES ('claude','s_mix','<synthetic>',0,0,0,0,0.0,0,0,{now}),
@@ -863,19 +891,8 @@ mod tests {
         ))
         .unwrap();
         let v = query(&conn, None, None).unwrap();
-        let s_syn = v.iter().find(|s| s.session_id == "s_syn");
-        // s_syn still appears (it has real tool/session_id), but with zero
-        // models and zero tokens since <synthetic> is filtered from aggregation.
-        assert!(
-            s_syn.is_some(),
-            "<synthetic>-only session stays in list (with zero model info)"
-        );
-        let syn = s_syn.unwrap();
-        assert_eq!(syn.model_count, 0);
-        assert_eq!(syn.models, "");
-        assert_eq!(syn.tokens, 0);
         let s_mix = v.iter().find(|s| s.session_id == "s_mix");
-        assert!(s_mix.is_some());
+        assert!(s_mix.is_some(), "s_mix session should appear in list");
         let mix = s_mix.unwrap();
         assert!(
             !mix.models.contains("<synthetic>"),
@@ -888,6 +905,10 @@ mod tests {
         assert_eq!(
             mix.model_count, 1,
             "model_count should count only real models"
+        );
+        assert_eq!(
+            mix.tokens, 100,
+            "tokens should only count non-synthetic models"
         );
     }
 
