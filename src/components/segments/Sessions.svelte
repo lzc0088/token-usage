@@ -128,8 +128,16 @@
   {#if viewing}
     <!-- ── session detail page ── -->
     <div class="view-header">
-      <button type="button" class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
-      <span class="view-title">{t("sessions.detail")}<span class="rounds-count">{viewing?.messages ?? 0}</span></span>
+      <button type="button" class="back-btn" onclick={closeDetail} aria-label={t("common.back")}>←</button>
+      <span class="view-title">{t("sessions.detail")}</span>
+      {#if viewing}
+        <span class="rounds-count">
+          {viewing.messages}{t("sessions.messages")}
+          {#if viewRounds !== null}
+            <span class="sep">/</span>{viewRounds.length}{t("sessions.rounds")}
+          {/if}
+        </span>
+      {/if}
       <div class="rd-sort">
         {#each [["time", t("sessions.sortTime")], ["token", t("sessions.sortToken")]] as [k, label] (k)}
           <button class:on={roundSort === (k as RoundSort)} aria-pressed={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
@@ -331,6 +339,7 @@
   .view-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-dim); }
   .view-title { font-size: 13px; color: var(--text-dim); flex: 1; display: flex; align-items: center; gap: 7px; }
   .rounds-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-bg); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
+  .rounds-count .sep { opacity: 0.5; margin: 0 2px; }
   .rd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
   .rd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
   .rd-sort button:hover { color: var(--text-dim); }

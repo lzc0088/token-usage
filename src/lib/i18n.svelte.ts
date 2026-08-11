@@ -7,6 +7,7 @@ const DICT: Record<string, Record<string, string>> = {
   "common.loading": { zh: "加载中…", en: "Loading…" },
   "common.loadFailed": { zh: "加载失败，请重试", en: "Failed to load, please retry" },
   "common.goSettings": { zh: "去设置", en: "Open settings" },
+  "common.back": { zh: "返回", en: "Back" },
 
   // ── Popover shell ──
   "hero.todayTokens": { zh: "今日 Token", en: "Today Tokens" },
@@ -323,7 +324,8 @@ const DICT: Record<string, Record<string, string>> = {
   "sessions.tool": { zh: "工具", en: "Tool" },
   "sessions.tokens": { zh: "Token", en: "Tokens" },
   "sessions.cost": { zh: "成本", en: "Cost" },
-  "sessions.messages": { zh: "条", en: "msgs" },
+  "sessions.messages": { zh: " 条", en: " msgs" },
+  "sessions.rounds": { zh: " 轮", en: " rounds" },
 
   // ── Segments / Trends ──
   "trends.tokens": { zh: "Token", en: "Tokens" },
