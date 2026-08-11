@@ -163,6 +163,7 @@
       <div class="lab">{tt("collection.frequency")}<div class="hint">{tt("collection.freqHint")}</div></div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={displayCadence}
         options={[
           { value: "live", label: tt("collection.liveMode") },
