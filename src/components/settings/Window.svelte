@@ -181,6 +181,7 @@
       <div class="lab">{t('window.language')}<div class="hint">{t('window.langHint')}</div></div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.language || "zh"}
         options={[
           { value: "zh", label: "中文" },
@@ -198,6 +199,7 @@
       <div class="lab">{t('window.trigger')}<div class="hint">{t('window.triggerHint')}</div></div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.trigger_mode || "click"}
         options={[
           { value: "click", label: t("window.triggerClick") },
@@ -232,6 +234,7 @@
       <div class="lab">{t('window.displayMode')}<div class="hint">{platform === 'windows' ? t('window.displayHintWin') : t('window.displayHint')}</div></div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.window_display_mode || (platform === "windows" ? "always_on_top" : "normal")}
         options={DISPLAY_MODE_OPTIONS}
         onchange={(v) => onSelect("window_display_mode", v as Config["window_display_mode"])}
@@ -242,6 +245,7 @@
       <div class="lab">{t('window.tray')}<div class="hint">{t('window.trayHint')}</div></div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.tray_display || "icon_only"}
         options={TRAY_OPTIONS}
         onchange={(v) => onSelect("tray_display", v as Config["tray_display"])}
@@ -287,6 +291,7 @@
       <div class="lab">{t('window.floatingPosition')}</div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.floating_position || "right"}
         options={[
           { value: "right", label: t("window.floatingPosRight") },
@@ -299,6 +304,7 @@
       <div class="lab">{t('window.floatingDisplay')}</div>
       <Select
         class="sel"
+        style="min-width:150px"
         value={config.floating_display || "today_tokens"}
         options={[
           { value: "today_tokens", label: t("window.floatingTodayTokens") },
@@ -320,8 +326,8 @@
   .sc { display: flex; flex-direction: column; }
 
 
-  .hk { width: 130px; min-width: 130px; }
-  .tg-placeholder { width: 130px; display: flex; justify-content: flex-end; }
+  .hk { width: 150px; min-width: 150px; }
+  .tg-placeholder { width: 150px; display: flex; justify-content: flex-end; }
 
   /* ── segmented control ── */
   .seg {
@@ -334,7 +340,7 @@
     gap: 1px;
     height: 32px;
     box-sizing: border-box;
-    min-width: 130px;
+    min-width: 150px;
   }
   .seg-btn {
     background: transparent;
