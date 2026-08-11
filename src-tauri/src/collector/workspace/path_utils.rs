@@ -77,41 +77,54 @@ pub fn decode_workspace(
     if !is_safe_workspace_key(key) {
         return super::types::DecodedWorkspace::default();
     }
+
+    let mut name: String;
+    let mut full_path: Option<String> = None;
+    let mut latest_date: Option<String> = None;
+
     // Absolute paths (Unix `/...` or Windows `C:\...`) carry their own full
     // path; no need to look up session files.
     if Path::new(key).is_absolute() {
-        let latest = path_mtime_date(Path::new(key));
-        return super::types::DecodedWorkspace {
-            name: if label.is_empty() {
-                last_segment(key)
-            } else {
-                label.to_string()
-            },
-            full_path: Some(tilde_prefix(key)),
-            latest_date: latest,
+        // Filter out Claude's internal memory/observation paths so they don't
+        // appear as user projects.
+        if is_internal_claude_path(key) {
+            return super::types::DecodedWorkspace::default();
+        }
+        name = if label.is_empty() {
+            last_segment(key)
+        } else {
+            label.to_string()
         };
-    }
-
-    if let Some(dir) = claude_projects_dir {
+        full_path = Some(tilde_prefix(key));
+        latest_date = path_mtime_date(Path::new(key));
+    } else if let Some(dir) = claude_projects_dir {
         let proj_dir = dir.join(key);
         if let Some((root, date)) = read_project_root(&proj_dir) {
-            return super::types::DecodedWorkspace {
-                name: last_segment(&root),
-                full_path: Some(tilde_prefix(&root)),
-                latest_date: date,
+            if is_internal_claude_path(&root) {
+                return super::types::DecodedWorkspace::default();
+            }
+            name = last_segment(&root);
+            full_path = Some(tilde_prefix(&root));
+            latest_date = date;
+        } else {
+            name = if label.is_empty() {
+                key.to_string()
+            } else {
+                label.to_string()
             };
         }
-    }
-
-    // Last-resort fallback: the label (may still be encoded, but consistent).
-    super::types::DecodedWorkspace {
-        name: if label.is_empty() {
+    } else {
+        name = if label.is_empty() {
             key.to_string()
         } else {
             label.to_string()
-        },
-        full_path: None,
-        latest_date: None,
+        };
+    }
+
+    super::types::DecodedWorkspace {
+        name,
+        full_path,
+        latest_date,
     }
 }
 
@@ -228,4 +241,11 @@ pub(crate) fn project_root(cwds: &[String]) -> Option<String> {
         }
     }
     sorted.first().map(|s| (*s).clone())
+}
+
+/// Check whether a decoded project path belongs to Claude's internal
+/// memory/observation system rather than a user coding project.
+/// Paths like `~/.claude-mem/observer-sessions` should be filtered out.
+fn is_internal_claude_path(path: &str) -> bool {
+    path.contains(".claude-mem") || path.contains("/observer-") || path.contains("\\observer-")
 }

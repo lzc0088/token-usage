@@ -55,7 +55,7 @@ pub fn parse_workspace_report(json: &Value, claude_projects_dir: Option<&Path>) 
 
     let mut out: Vec<ProjectAgg> = acc
         .into_values()
-        .map(|a| a.finalize(claude_projects_dir))
+        .filter_map(|a| a.finalize(claude_projects_dir))
         .collect();
     out.sort_by_key(|y| std::cmp::Reverse(y.tokens));
     out
@@ -138,10 +138,15 @@ impl Acc {
         }
     }
 
-    fn finalize(self, claude_projects_dir: Option<&Path>) -> ProjectAgg {
+    fn finalize(self, claude_projects_dir: Option<&Path>) -> Option<ProjectAgg> {
         let decoded = decode_workspace(&self.key, &self.label, claude_projects_dir);
+        // Filter out internal Claude paths (e.g. ~/.claude-mem/observer-sessions)
+        // that decode to an empty name.
+        if decoded.name.is_empty() {
+            return None;
+        }
         let total = self.tokens;
-        ProjectAgg {
+        Some(ProjectAgg {
             name: decoded.name,
             full_path: decoded.full_path,
             latest_date: decoded.latest_date,
@@ -150,6 +155,6 @@ impl Acc {
             messages: self.messages,
             models: detail_rows(self.models, total),
             tools: detail_rows(self.tools, total),
-        }
+        })
     }
 }

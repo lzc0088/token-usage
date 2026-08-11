@@ -129,7 +129,7 @@
     <!-- ── session detail page ── -->
     <div class="view-header">
       <button type="button" class="back-btn" onclick={closeDetail} aria-label="返回">←</button>
-      <span class="view-title">{t("sessions.detail")}<span class="rounds-count">{viewRounds?.length ?? 0}</span></span>
+      <span class="view-title">{t("sessions.detail")}<span class="rounds-count">{viewing?.messages ?? 0}</span></span>
       <div class="rd-sort">
         {#each [["time", t("sessions.sortTime")], ["token", t("sessions.sortToken")]] as [k, label] (k)}
           <button class:on={roundSort === (k as RoundSort)} aria-pressed={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
