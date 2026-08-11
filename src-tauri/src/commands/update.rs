@@ -102,38 +102,12 @@ fn persist(conn: &rusqlite::Connection, last_check_ms: i64, success: Option<&Upd
     }
 }
 
-/// Parse a repo string into (owner, repo_name). Accepts:
-///   "owner/repo", "github.com/owner/repo", "<host>/owner/repo".
-/// Always resolves to owner + repo_name for the GitHub Releases API.
-fn parse_repo(raw: &str) -> (String, String) {
-    let parts: Vec<&str> = raw.split('/').filter(|s| !s.is_empty()).collect();
-    // Strip the host if present (github.com/... → owner/repo)
-    let (owner, repo_name): (&str, String) = if parts.len() >= 3 && parts[0].contains('.') {
-        let o = parts
-            .get(parts.len().saturating_sub(2))
-            .copied()
-            .unwrap_or("");
-        let r = parts.last().copied().unwrap_or("");
-        (o, r.to_string())
-    } else {
-        let o = parts.first().copied().unwrap_or("");
-        let r = parts.get(1..).unwrap_or(&[]).join("/");
-        (o, r)
-    };
-    (owner.to_string(), repo_name)
-}
-
 /// Build the GitHub Releases API URL for the latest release.
 fn api_url(owner: &str, repo: &str) -> String {
     format!(
         "https://api.github.com/repos/{}/{}/releases/latest",
         owner, repo
     )
-}
-
-/// Build the GitHub release web page URL for a given tag.
-fn release_url(owner: &str, repo: &str, tag: &str) -> String {
-    format!("https://github.com/{}/{}/releases/tag/{}", owner, repo, tag)
 }
 
 /// Query the releases API and compare with the current version.
@@ -184,26 +158,27 @@ pub async fn check_update(
 
         // On any failure: record the attempt timestamp, then return last-known if
         // we have it (don't mislead the UI with has_update:false), else the error.
-        let handle_failure = |kind: &str, msg: String, last_known: Option<UpdateInfo>| -> UpdateInfo {
-            {
-                let conn = db_arc.lock().unwrap();
-                persist(&conn, now_ms(), None);
-            }
-            if let Some(known) = last_known {
-                return known;
-            }
-            UpdateInfo {
-                has_update: false,
-                version: String::new(),
-                name: String::new(),
-                changelog: String::new(),
-                url: String::new(),
-                published_at: None,
-                error: msg,
-                error_kind: kind.to_string(),
-                download_url: None,
-            }
-        };
+        let handle_failure =
+            |kind: &str, msg: String, last_known: Option<UpdateInfo>| -> UpdateInfo {
+                {
+                    let conn = db_arc.lock().unwrap();
+                    persist(&conn, now_ms(), None);
+                }
+                if let Some(known) = last_known {
+                    return known;
+                }
+                UpdateInfo {
+                    has_update: false,
+                    version: String::new(),
+                    name: String::new(),
+                    changelog: String::new(),
+                    url: String::new(),
+                    published_at: None,
+                    error: msg,
+                    error_kind: kind.to_string(),
+                    download_url: None,
+                }
+            };
 
         let last_known_for_failure = {
             let conn = db_arc.lock().unwrap();
@@ -266,94 +241,6 @@ pub async fn check_update(
     })
     .await
     .map_err(|e| format!("检查更新失败：{e}"))?
-}
-
-/// Pick the release asset matching the current OS/architecture.
-/// Returns its browser_download_url, or None when no asset matches.
-/// Falls back to the first asset's URL when the platform is unknown.
-fn pick_matching_asset(body: &serde_json::Value) -> Option<String> {
-    let assets = body.get("assets")?.as_array()?;
-    if assets.is_empty() {
-        return None;
-    }
-
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-
-    // Valid extensions + the preferred one per platform.
-    let (valid_exts, prefer_ext): (&[&str], &str) = match os {
-        "macos" => (&[".dmg", ".pkg", ".app"], ".dmg"),
-        "windows" => (&[".msi", ".exe"], ".msi"),
-        "linux" => (&[".appimage", ".deb", ".rpm"], ".appimage"),
-        _ => return asset_url(assets.first()?),
-    };
-
-    // Architecture keywords. A filename containing a "wrong" arch keyword is
-    // disqualified so x86_64 builds aren't offered on Apple Silicon (and vice
-    // versa). Empty arrays mean "no arch keyword to check".
-    let (right_kw, wrong_kw): (&[&str], &[&str]) = match (os, arch) {
-        ("macos", "aarch64") => (
-            &["aarch64", "arm64", "apple-silicon", "apple"],
-            &["x64", "x86_64", "x86", "intel"],
-        ),
-        ("macos", "x86_64") => (
-            &["x64", "x86_64", "intel"],
-            &["aarch64", "arm64", "apple-silicon"],
-        ),
-        ("windows", "x86_64") => (&["x64", "x86_64"], &["aarch64", "arm64"]),
-        ("windows", "aarch64") => (&["aarch64", "arm64"], &["x64", "x86_64"]),
-        ("linux", "x86_64") => (&["x64", "x86_64", "amd64"], &["aarch64", "arm64"]),
-        ("linux", "aarch64") => (&["aarch64", "arm64"], &["x64", "x86_64", "amd64"]),
-        _ => (&[], &[]),
-    };
-
-    let mut best: Option<(i32, String)> = None;
-    for asset in assets {
-        let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let url = match asset_url(asset) {
-            Some(u) => u,
-            None => continue,
-        };
-        let lower = name.to_lowercase();
-
-        // Must be a valid extension for this platform.
-        if !valid_exts
-            .iter()
-            .any(|ext| lower.ends_with(&ext.to_lowercase()))
-        {
-            continue;
-        }
-        // Disqualify assets tagged with the wrong architecture.
-        if !wrong_kw.is_empty() && wrong_kw.iter().any(|kw| lower.contains(kw)) {
-            continue;
-        }
-
-        // Score: preferred extension +5, matching arch keyword +10.
-        let mut score = 0;
-        if lower.ends_with(&prefer_ext.to_lowercase()) {
-            score += 5;
-        }
-        if !right_kw.is_empty() && right_kw.iter().any(|kw| lower.contains(kw)) {
-            score += 10;
-        }
-
-        match &best {
-            Some((bs, _)) if *bs >= score => {}
-            _ => best = Some((score, url)),
-        }
-    }
-
-    best.map(|(_, u)| u)
-}
-
-/// Extract the download URL from a single asset object.
-/// Uses `browser_download_url` (GitHub, Gitee); falls back to `download_url`.
-fn asset_url(asset: &serde_json::Value) -> Option<String> {
-    asset
-        .get("browser_download_url")
-        .or_else(|| asset.get("download_url"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
 }
 
 /// Return the current app version (from Cargo.toml).
@@ -474,188 +361,9 @@ pub fn restart_app(app: AppHandle) {
     app.restart();
 }
 
-/// Simple semver comparison: strips "v" prefix and compares major.minor.patch.
-/// Returns true when `candidate` is strictly greater than `current`.
-///
-/// Handles suffixes like `-test`, `-beta`, `-rc1` by extracting only the leading
-/// digits from each segment (e.g. `1.0.1-test` → `[1, 0, 1]`).
-fn is_newer(current: &str, candidate: &str) -> bool {
-    let cur = strip_version(current);
-    let cand = strip_version(candidate);
-    if cur == cand {
-        return false;
-    }
-    let cur_parts: Vec<u32> = cur
-        .split('.')
-        .filter_map(|s| {
-            s.chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .ok()
-        })
-        .collect();
-    let cand_parts: Vec<u32> = cand
-        .split('.')
-        .filter_map(|s| {
-            s.chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .ok()
-        })
-        .collect();
-    for i in 0..3 {
-        let c = cand_parts.get(i).copied().unwrap_or(0);
-        let p = cur_parts.get(i).copied().unwrap_or(0);
-        if c > p {
-            return true;
-        }
-        if c < p {
-            return false;
-        }
-    }
-    // Same major.minor.patch — not newer.
-    false
-}
-
-fn strip_version(s: &str) -> &str {
-    s.strip_prefix('v').unwrap_or(s)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strip_prefix_v() {
-        assert_eq!(strip_version("v1.2.3"), "1.2.3");
-        assert_eq!(strip_version("1.2.3"), "1.2.3");
-    }
-
-    #[test]
-    fn newer_detected() {
-        assert!(is_newer("0.1.0", "0.2.0"));
-        assert!(is_newer("0.1.0", "1.0.0"));
-        assert!(is_newer("0.1.9", "0.1.10"));
-    }
-
-    #[test]
-    fn not_newer_when_same_or_older() {
-        assert!(!is_newer("0.1.0", "0.1.0"));
-        assert!(!is_newer("0.2.0", "0.1.0"));
-        assert!(!is_newer("1.0.0", "0.9.9"));
-    }
-
-    #[test]
-    fn newer_with_suffix_tags() {
-        // Suffixes like -test, -beta are stripped; only digits matter.
-        assert!(is_newer("1.0.0", "v1.0.1-test"));
-        assert!(is_newer("1.0.0", "v1.0.1-beta"));
-        assert!(is_newer("1.0.1", "v1.0.2-rc1"));
-        assert!(is_newer("0.9.0", "v1.0.0-dev"));
-        // Same numeric version with suffix → not newer.
-        assert!(!is_newer("1.0.1", "v1.0.1-test"));
-    }
-
-    #[test]
-    fn pick_asset_prefers_matching_arch() {
-        // Use platform-valid extensions so assets aren't filtered by ext check.
-        // Architecture keywords differ per OS/arch — wrong-arch assets must be
-        // disqualified and the right-arch asset must win.
-        let (ext, arm_name, x64_name, arm_url, x64_url): (&str, &str, &str, &str, &str) =
-            match (std::env::consts::OS, std::env::consts::ARCH) {
-                ("macos", "aarch64") => (".dmg", "arm64", "x64", "arm64.dmg", "x64.dmg"),
-                ("macos", "x86_64") => (".dmg", "x64", "arm64", "x64.dmg", "arm64.dmg"),
-                ("windows", "x86_64") => (".exe", "x64", "aarch64", "x64.exe", "aarch64.exe"),
-                ("windows", "aarch64") => (".exe", "aarch64", "x64", "aarch64.exe", "x64.exe"),
-                ("linux", "x86_64") => (
-                    ".AppImage",
-                    "x64",
-                    "aarch64",
-                    "x64.AppImage",
-                    "aarch64.AppImage",
-                ),
-                ("linux", "aarch64") => (
-                    ".AppImage",
-                    "aarch64",
-                    "x64",
-                    "aarch64.AppImage",
-                    "x64.AppImage",
-                ),
-                _ => (".bin", "a", "b", "a.bin", "b.bin"),
-            };
-
-        let body = serde_json::json!({
-            "assets": [
-                { "name": format!("Token Usage_1.0.0_{}{}", arm_name, ext), "browser_download_url": format!("https://example.com/{}", arm_url) },
-                { "name": format!("Token Usage_1.0.0_{}{}", x64_name, ext), "browser_download_url": format!("https://example.com/{}", x64_url) },
-            ]
-        });
-
-        let url = pick_matching_asset(&body);
-        assert!(
-            url.is_some(),
-            "expected Some(url), got None for os={} arch={}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        );
-        assert!(url.unwrap().starts_with("https://example.com/"));
-    }
-
-    #[test]
-    fn pick_asset_returns_none_when_no_assets() {
-        let body = serde_json::json!({ "assets": [] });
-        assert_eq!(pick_matching_asset(&body), None);
-    }
-
-    #[test]
-    fn pick_asset_returns_none_when_missing_assets_key() {
-        let body = serde_json::json!({ "tag_name": "v1.0.0" });
-        assert_eq!(pick_matching_asset(&body), None);
-    }
-
-    #[test]
-    fn asset_url_prefers_browser_download_url() {
-        let asset = serde_json::json!({
-            "browser_download_url": "https://example.com/primary",
-            "download_url": "https://example.com/fallback"
-        });
-        assert_eq!(
-            asset_url(&asset),
-            Some("https://example.com/primary".into())
-        );
-    }
-
-    #[test]
-    fn asset_url_falls_back_to_download_url() {
-        let asset = serde_json::json!({ "download_url": "https://example.com/fallback" });
-        assert_eq!(
-            asset_url(&asset),
-            Some("https://example.com/fallback".into())
-        );
-    }
-
-    #[test]
-    fn parse_repo_github_format() {
-        let (o, r) = parse_repo("zechuan/token-usage");
-        assert_eq!(o, "zechuan");
-        assert_eq!(r, "token-usage");
-    }
-
-    #[test]
-    fn parse_repo_full_url_format() {
-        let (o, r) = parse_repo("github.com/lzc0088/token-usage");
-        assert_eq!(o, "lzc0088");
-        assert_eq!(r, "token-usage");
-    }
-
-    #[test]
-    fn parse_repo_owner_repo_format() {
-        let (o, r) = parse_repo("lzc0088/token-usage");
-        assert_eq!(o, "lzc0088");
-        assert_eq!(r, "token-usage");
-    }
 
     #[test]
     fn within_cooldown_1h_window() {
