@@ -326,7 +326,7 @@
     background: transparent;
     border: none;
     color: var(--text-faint);
-    padding: 0 10px;
+    padding: 0 11px;
     height: 26px;
     border-radius: 6px;
     font-family: inherit;
