@@ -25,10 +25,12 @@ mod tests {
     fn scheduler_config_defaults_are_reasonable() {
         let cfg = scheduler::SchedulerConfig {
             history_interval: std::time::Duration::from_secs(15 * 60),
+            smart_keepalive: std::time::Duration::from_secs(10 * 60),
             enabled_clients: vec![],
             cached_config: Arc::new(Mutex::new(None)),
         };
         assert_eq!(cfg.history_interval, std::time::Duration::from_secs(900));
+        assert_eq!(cfg.smart_keepalive, std::time::Duration::from_secs(600));
         assert!(cfg.enabled_clients.is_empty());
     }
 
@@ -183,17 +185,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     let installed_clients = clients.clone();
     let cfg = scheduler::SchedulerConfig {
         history_interval: Duration::from_secs(15 * 60),
+        smart_keepalive: Duration::from_secs(10 * 60),
         enabled_clients: clients,
         cached_config: config_cache,
     };
-    tauri::async_runtime::spawn(scheduler::run(
-        scanner,
-        cfg,
-        tick_rx,
-        history_rx,
-        ev_tx,
-        Some(db.clone()),
-    ));
+    tauri::async_runtime::spawn(scheduler::run(scanner, cfg, tick_rx, history_rx, ev_tx));
 
     // 4. consumer: persist graph, emit today:updated, update tray title.
     tauri::async_runtime::spawn(async move {

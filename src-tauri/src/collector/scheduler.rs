@@ -4,7 +4,9 @@
 //!   - **real-time loop**: a tick → `tokscale --today` (cheap) → [`CollectionEvent::TodaySummary`]
 //!     for the popover hero. Burst-coalesced so a rapid burst = one scan.
 //!   - **history loop**: every `history_interval` (default 15 min) → `tokscale graph`
-//!     → [`CollectionEvent::Graph`] for storage to upsert into `daily_usage`.
+//!     → [`CollectionEvent::Graph`] for storage to upsert into `daily_usage`. The
+//!     history timer also refreshes today so a silent file watcher (macOS FSEvents
+//!     after system sleep, exhausted watch descriptors) can't freeze the tray.
 //!
 //! **Anchor/Delta (P1)**: When a valid anchor exists (today + matching config),
 //! the scheduler can skip `--month` / `--since` scans and derive those windows
@@ -23,7 +25,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -36,6 +37,9 @@ use crate::config::Config;
 pub struct SchedulerConfig {
     /// How often to run `tokscale graph` for history (default 15 min).
     pub history_interval: Duration,
+    /// Smart-mode keepalive cadence: unconditional today+graph+sessions scan
+    /// (default 10 min, matching the settings label "智能采集（10分钟）").
+    pub smart_keepalive: Duration,
     /// Enabled clients (drives the config fingerprint + the `-c` filter).
     pub enabled_clients: Vec<String>,
     /// Cached config — the runtime updates this on startup and on every
@@ -49,6 +53,7 @@ impl Default for SchedulerConfig {
     fn default() -> Self {
         Self {
             history_interval: Duration::from_secs(15 * 60),
+            smart_keepalive: Duration::from_secs(10 * 60),
             enabled_clients: Vec::new(),
             cached_config: Arc::new(Mutex::new(None)),
         }
@@ -243,32 +248,41 @@ async fn emit_sessions<S: Scanner>(
     tx.send(event).await
 }
 
+/// Minimum spacing between activity-driven today scans in smart mode, so a
+/// continuously active session can't spam tokscale (at most one scan per
+/// minute; the keepalive timer covers the gaps).
+const SMART_ACTIVITY_MIN_SPACING: Duration = Duration::from_secs(60);
+
 /// Run the scheduler until `tick_rx` closes. Consumes ticks (file-change events)
 /// and emits [`CollectionEvent`]s on `event_tx`.
 ///
-/// `db` is read on each history-loop iteration to pick up
-/// `config.refresh_interval` changes without a restart (None in tests → the
-/// scheduler uses `cfg.history_interval` verbatim), and to check/save the
-/// collector anchor for incremental month/allTime derivation. A config change of
-/// enabled clients is still handled by the caller **restarting** `run` with a
-/// new `cfg`.
+/// A config change of enabled clients is handled by the caller **restarting**
+/// `run` with a new `cfg` (compare via [`config_fingerprint`]).
 ///
 /// Collection modes:
-/// - **live**: watcher ticks trigger `emit_today` immediately (current behavior)
-/// - **smart**: timer-driven with activity gating (10min fixed, only emit if activity detected)
-/// - **interval**: timer-driven without activity gating (current timer behavior)
+/// - **live**: watcher ticks trigger `emit_today` immediately; the history
+///   timer (default 15 min) also refreshes today so a silent watcher (macOS
+///   FSEvents after system sleep, exhausted watch descriptors) can't freeze
+///   the tray/hero until a manual restart.
+/// - **smart**: activity-driven today scans (rate-limited to one per
+///   [`SMART_ACTIVITY_MIN_SPACING`]) + an unconditional keepalive every
+///   `cfg.smart_keepalive` (default 10 min, matching the settings label)
+///   that refreshes today+graph+sessions regardless of watcher health.
+/// - **interval**: timer-driven at `refresh_interval`, no file watch.
 pub async fn run<S: Scanner>(
     scanner: S,
     cfg: SchedulerConfig,
     mut tick_rx: mpsc::Receiver<()>,
     mut history_rx: mpsc::Receiver<()>,
     event_tx: mpsc::Sender<CollectionEvent>,
-    db: Option<Arc<Mutex<Connection>>>,
 ) {
     // Fire the first history (graph + sessions) scan immediately so the DB is
     // not empty for the first 15 min after startup.
     let mut next_graph_at = tokio::time::Instant::now();
-    let mut last_activity_revision: u64 = 0;
+    // Earliest allowed activity-driven today scan (smart mode). Keepalive
+    // scans don't consume this budget, so a tick right after a keepalive still
+    // scans immediately.
+    let mut next_activity_scan_at = tokio::time::Instant::now();
 
     // Helper: read collection_mode from cached config first (no DB lock),
     // fall back to DB read only if cache is empty.
@@ -287,22 +301,26 @@ pub async fn run<S: Scanner>(
 
         match mode.as_str() {
             "smart" => {
-                // ── Smart mode: 10min timer + activity gating ─────────────
-                // Still listen to ticks for activity detection, but don't scan.
-                // First trigger always scans (last_activity_revision starts at 0
-                // while activity_revision could be empty if no live tick recorded it).
-                // Use i64::MAX sentinel to force the first scan.
+                // ── Smart mode: activity-driven today + fixed keepalive ────
+                // A tick refreshes today directly (rate-limited). The
+                // keepalive refreshes today+graph+sessions unconditionally:
+                // today is deliberately NOT gated on file activity, because
+                // the activity signal comes from the same watcher that may
+                // have gone silent (macOS FSEvents after system sleep froze
+                // the old activity_revision counter and stalled the tray/
+                // hero on yesterday's numbers until restart — 2026-08-16).
                 tokio::select! {
                     tick = tick_rx.recv() => {
                         if tick.is_some() {
-                            // Record activity but don't scan
-                            if let Some(ref db_arc) = db {
-                                if let Ok(conn) = db_arc.lock() {
-                                    let _ = crate::config::incr_int(&conn, "activity_revision", 1);
-                                }
-                            }
-                            // Drain any queued ticks
+                            // Coalesce: drain any ticks already buffered.
                             while tick_rx.try_recv().is_ok() {}
+                            if tokio::time::Instant::now() >= next_activity_scan_at {
+                                if emit_today(&scanner, &event_tx).await.is_err() {
+                                    break;
+                                }
+                                next_activity_scan_at =
+                                    tokio::time::Instant::now() + SMART_ACTIVITY_MIN_SPACING;
+                            }
                         } else {
                             break; // watcher stopped → exit
                         }
@@ -316,30 +334,11 @@ pub async fn run<S: Scanner>(
                         if emit_sessions(&scanner, &event_tx).await.is_err() {
                             break;
                         }
-                        next_graph_at = tokio::time::Instant::now()
-                            + next_history_interval(&cfg, cfg.history_interval);
+                        next_graph_at = tokio::time::Instant::now() + cfg.smart_keepalive;
                     }
                     _ = tokio::time::sleep_until(next_graph_at) => {
-                        let current_activity = db.as_ref()
-                            .and_then(|d| d.lock().ok())
-                            .and_then(|conn| {
-                                crate::config::get_int(&conn, "activity_revision")
-                                    .ok()
-                                    .flatten()
-                            })
-                            .unwrap_or(0);
-
-                        // Scan only when activity was detected since last scan.
-                        // The first trigger always scans: last_activity_revision=0
-                        // means no scan has happened yet, so any current_activity
-                        // (including 0, meaning "startup, no file-watch activity
-                        // yet but we should still get initial data") triggers it.
-                        let first_scan = last_activity_revision == 0;
-                        if first_scan || current_activity > last_activity_revision {
-                            if emit_today(&scanner, &event_tx).await.is_err() {
-                                break;
-                            }
-                            last_activity_revision = current_activity;
+                        if emit_today(&scanner, &event_tx).await.is_err() {
+                            break;
                         }
                         if emit_graph(&scanner, &event_tx).await.is_err() {
                             break;
@@ -347,9 +346,7 @@ pub async fn run<S: Scanner>(
                         if emit_sessions(&scanner, &event_tx).await.is_err() {
                             break;
                         }
-
-                        let smart_interval = next_history_interval(&cfg, cfg.history_interval);
-                        next_graph_at = tokio::time::Instant::now() + smart_interval;
+                        next_graph_at = tokio::time::Instant::now() + cfg.smart_keepalive;
                     }
                 }
             }
@@ -388,13 +385,6 @@ pub async fn run<S: Scanner>(
                 tokio::select! {
                     tick = tick_rx.recv() => match tick {
                         Some(()) => {
-                            // Update activity revision
-                            if let Some(ref db_arc) = db {
-                                if let Ok(conn) = db_arc.lock() {
-                                    let _ = crate::config::incr_int(&conn, "activity_revision", 1);
-                                }
-                            }
-
                             // Coalesce: drain any ticks already buffered by the burst
                             while tick_rx.try_recv().is_ok() {}
                             if emit_today(&scanner, &event_tx).await.is_err() {
@@ -416,6 +406,13 @@ pub async fn run<S: Scanner>(
                         next_graph_at = tokio::time::Instant::now() + interval;
                     }
                     _ = tokio::time::sleep_until(next_graph_at) => {
+                        // The history timer also refreshes today: if the
+                        // watcher is dead (descriptor exhaustion, FSEvents
+                        // silent after sleep), ticks never arrive and the
+                        // tray would otherwise freeze until a restart.
+                        if emit_today(&scanner, &event_tx).await.is_err() {
+                            break;
+                        }
                         if emit_graph(&scanner, &event_tx).await.is_err() {
                             break;
                         }
@@ -512,12 +509,19 @@ mod tests {
         // huge history interval so the graph timer never fires during the test
         let cfg = SchedulerConfig {
             history_interval: Duration::from_secs(3600),
+            smart_keepalive: Duration::from_secs(3600),
             enabled_clients: vec![],
             cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
-            run(mock, cfg, tick_rx, history_rx, ev_tx, None).await;
+            run(mock, cfg, tick_rx, history_rx, ev_tx).await;
         });
+
+        // Let the startup scan (history timer fires immediately at t=0) settle
+        // and record it as the baseline.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let baseline = today_c.load(Ordering::SeqCst);
+        assert!(baseline >= 1, "startup scan should have run");
 
         // Burst of 5 ticks in quick succession.
         for _ in 0..5 {
@@ -526,9 +530,13 @@ mod tests {
         // Let the scheduler process.
         tokio::time::sleep(Duration::from_millis(150)).await;
 
-        // today() called once (burst coalesced), not five times.
+        // today() called exactly once more (burst coalesced), not five times.
         let n = today_c.load(Ordering::SeqCst);
-        assert!(n == 1, "expected 1 coalesced today scan, got {n}");
+        assert!(
+            n == baseline + 1,
+            "expected 1 coalesced today scan from the burst, got {} (baseline {baseline})",
+            n - baseline
+        );
 
         // And a TodaySummary event was emitted.
         let mut got_summary = false;
@@ -552,17 +560,138 @@ mod tests {
         let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
         let cfg = SchedulerConfig {
             history_interval: Duration::from_millis(150),
+            smart_keepalive: Duration::from_secs(3600),
             enabled_clients: vec![],
             cached_config: Arc::new(Mutex::new(None)),
         };
         let handle = tokio::spawn(async move {
-            run(mock, cfg, tick_rx, history_rx, ev_tx, None).await;
+            run(mock, cfg, tick_rx, history_rx, ev_tx).await;
         });
 
         // Wait past the first history interval.
         tokio::time::sleep(Duration::from_millis(400)).await;
         let n = graph_c.load(Ordering::SeqCst);
         assert!(n >= 1, "expected at least one graph scan, got {n}");
+
+        drop(tick_tx);
+        let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
+    }
+
+    /// Smart-mode config with a custom keepalive and `history_interval` parked
+    /// at 1h so the (pre-fix) history fallback can't interfere.
+    fn smart_cfg(keepalive: Duration) -> SchedulerConfig {
+        SchedulerConfig {
+            history_interval: Duration::from_secs(3600),
+            smart_keepalive: keepalive,
+            enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(Some(Config {
+                collection_mode: "smart".to_string(),
+                ..Config::default()
+            }))),
+        }
+    }
+
+    #[tokio::test]
+    async fn smart_keepalive_emits_today_even_without_activity() {
+        // Regression (2026-08-16): with the old activity gating, a watcher that
+        // stopped delivering events (macOS FSEvents after system sleep) froze
+        // activity_revision, so every keepalive skipped the today scan and the
+        // tray/hero showed yesterday's numbers until the app was restarted.
+        // The keepalive must refresh today unconditionally.
+        let (mock, today_c, graph_c) = Mock::new();
+        let (tick_tx, tick_rx) = mpsc::channel::<()>(8);
+        let (_h_tx, history_rx) = mpsc::channel::<()>(8);
+        let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
+        let cfg = smart_cfg(Duration::from_millis(150));
+        let handle = tokio::spawn(async move {
+            run(mock, cfg, tick_rx, history_rx, ev_tx).await;
+        });
+
+        // No ticks ever. Startup scan + at least one keepalive within 500ms.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let today = today_c.load(Ordering::SeqCst);
+        let graph = graph_c.load(Ordering::SeqCst);
+        assert!(
+            today >= 2,
+            "keepalive must emit today without watcher activity, got {today}"
+        );
+        assert!(graph >= 2, "keepalive must emit graph, got {graph}");
+
+        drop(tick_tx);
+        let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
+    }
+
+    #[tokio::test]
+    async fn smart_tick_triggers_rate_limited_today_scan() {
+        // In smart mode a watcher tick must refresh today directly (so active
+        // use shows up within seconds instead of waiting for the keepalive),
+        // but at most once per SMART_ACTIVITY_MIN_SPACING so a busy session
+        // can't spam tokscale.
+        let (mock, today_c, _graph_c) = Mock::new();
+        let (tick_tx, tick_rx) = mpsc::channel::<()>(64);
+        let (_h_tx, history_rx) = mpsc::channel::<()>(8);
+        let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
+        // Huge keepalive so only the startup scan fires from the timer.
+        let cfg = smart_cfg(Duration::from_secs(3600));
+        let handle = tokio::spawn(async move {
+            run(mock, cfg, tick_rx, history_rx, ev_tx).await;
+        });
+
+        // Let the startup scan settle.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let after_startup = today_c.load(Ordering::SeqCst);
+        assert!(after_startup >= 1, "startup scan should have run");
+
+        // A tick must trigger a today scan.
+        tick_tx.send(()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let after_tick = today_c.load(Ordering::SeqCst);
+        assert!(
+            after_tick > after_startup,
+            "tick should trigger a today scan"
+        );
+
+        // An immediate second tick is rate-limited (60s spacing) — no extra scan.
+        tick_tx.send(()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let after_second = today_c.load(Ordering::SeqCst);
+        assert_eq!(
+            after_second, after_tick,
+            "second tick within the spacing window must be rate-limited"
+        );
+
+        drop(tick_tx);
+        let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
+    }
+
+    #[tokio::test]
+    async fn live_history_timer_also_emits_today() {
+        // Live mode normally gets today scans from watcher ticks. The history
+        // timer must also refresh today so a dead watcher (watch descriptors
+        // exhausted, FSEvents silent after system sleep) can't freeze the
+        // tray/hero until the next manual restart.
+        let (mock, today_c, graph_c) = Mock::new();
+        let (tick_tx, tick_rx) = mpsc::channel::<()>(8);
+        let (_h_tx, history_rx) = mpsc::channel::<()>(8);
+        let (ev_tx, _ev_rx) = mpsc::channel::<CollectionEvent>(8);
+        let cfg = SchedulerConfig {
+            history_interval: Duration::from_millis(150),
+            smart_keepalive: Duration::from_secs(3600),
+            enabled_clients: vec![],
+            cached_config: Arc::new(Mutex::new(None)), // None → live
+        };
+        let handle = tokio::spawn(async move {
+            run(mock, cfg, tick_rx, history_rx, ev_tx).await;
+        });
+
+        // No ticks. Startup + one timer pass within 500ms.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let today = today_c.load(Ordering::SeqCst);
+        assert!(
+            today >= 2,
+            "live history timer should also emit today, got {today}"
+        );
+        assert!(graph_c.load(Ordering::SeqCst) >= 2);
 
         drop(tick_tx);
         let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
@@ -579,6 +708,7 @@ mod tests {
 
         let cfg = SchedulerConfig {
             history_interval: Duration::from_secs(3600),
+            smart_keepalive: Duration::from_secs(3600),
             enabled_clients: vec![],
             cached_config: Arc::new(Mutex::new(None)),
         };
@@ -597,7 +727,6 @@ mod tests {
                 tick_rx2,
                 mpsc::channel::<()>(1).1,
                 mpsc::channel::<CollectionEvent>(1).0,
-                None,
             )
             .await;
         });
