@@ -8,6 +8,22 @@ use super::filesystem::build_precise_session_map;
 use super::report::{detail_rows, recompute_detail_pct, token_total};
 use super::types::ProjectAgg;
 
+/// Token floor for the projects-page visibility rule, acting as the
+/// cost-independent "real usage" signal (see [`is_visible_project`]).
+pub const MIN_VISIBLE_TOKENS: i64 = 10_000;
+
+/// Visibility rule for the projects page: suppress noise (stray one-off
+/// sessions) without ever hiding real usage just because pricing data is
+/// missing. A hard `cost_usd >= 0.1` gate alone blanked the whole page on
+/// days where every model was unpriced (2026-08-18: glm-5.3 wasn't in the
+/// LiteLLM table yet, cost summed to 0 for 30M+ tokens), so tokens act as a
+/// second signal: either the window has measurable cost, or enough tokens.
+pub fn is_visible_project(p: &ProjectAgg) -> bool {
+    (p.full_path.is_some() || p.latest_date.is_some())
+        && p.messages >= 5
+        && (p.cost_usd >= 0.1 || p.tokens >= MIN_VISIBLE_TOKENS)
+}
+
 /// Merge `incoming` into `projects` by `full_path`. When a project with the
 /// same path already exists, its tokens/cost/messages are accumulated and the
 /// model/tool detail rows are merged (percentages recomputed). Otherwise the

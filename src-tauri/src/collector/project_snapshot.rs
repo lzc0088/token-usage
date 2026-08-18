@@ -19,7 +19,7 @@ use rusqlite::Connection;
 
 use super::tokscale::{self, Period};
 use super::workspace::{
-    build_projects_from_sessions_with_map, filter_out_client, merge_project,
+    build_projects_from_sessions_with_map, filter_out_client, is_visible_project, merge_project,
     parse_workspace_report, ProjectAgg,
 };
 use crate::config;
@@ -95,10 +95,10 @@ async fn build_period_projects(
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.tokens));
-    // Filter out invisible projects (matches frontend filter).
-    projects.retain(|p| {
-        (p.full_path.is_some() || p.latest_date.is_some()) && p.messages >= 5 && p.cost_usd >= 0.1
-    });
+    // Filter out noise projects (stray one-off sessions). Cost alone must not
+    // gate visibility — unpriced models would blank the page (see
+    // is_visible_project).
+    projects.retain(is_visible_project);
     projects
 }
 

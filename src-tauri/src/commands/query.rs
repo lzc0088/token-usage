@@ -299,9 +299,7 @@ pub async fn get_projects(
     }
 
     projects.sort_by_key(|x| std::cmp::Reverse(x.tokens));
-    projects.retain(|x| {
-        (x.full_path.is_some() || x.latest_date.is_some()) && x.messages >= 5 && x.cost_usd >= 0.1
-    });
+    projects.retain(crate::collector::workspace::is_visible_project);
 
     Ok(apply_pagination(projects, offset, limit))
 }

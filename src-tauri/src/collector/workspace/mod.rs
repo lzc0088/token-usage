@@ -33,7 +33,8 @@ pub use filesystem::{
 pub use path_utils::decode_workspace;
 pub(crate) use path_utils::{project_root, read_cwds, tilde_prefix};
 pub use projects::{
-    build_projects_from_sessions, build_projects_from_sessions_with_map, merge_project,
+    build_projects_from_sessions, build_projects_from_sessions_with_map, is_visible_project,
+    merge_project, MIN_VISIBLE_TOKENS,
 };
 pub use report::{filter_out_client, parse_workspace_report};
 pub use types::{ClaudeFs, DecodedWorkspace, ProjectAgg, ProjectDetailRow};
@@ -234,5 +235,54 @@ mod tests {
         assert!(out.is_empty());
         let out = parse_workspace_report(&serde_json::json!({ "entries": [] }), None);
         assert!(out.is_empty());
+    }
+
+    // ── is_visible_project ────────────────────────────────────────────────
+
+    fn agg(cost: f64, tokens: i64, messages: i64) -> ProjectAgg {
+        ProjectAgg {
+            name: "demo".into(),
+            full_path: Some("~/demo".into()),
+            latest_date: Some("2026-08-18".into()),
+            tokens,
+            cost_usd: cost,
+            messages,
+            models: Vec::new(),
+            tools: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn unpriced_model_project_with_real_tokens_stays_visible() {
+        // Regression (2026-08-18): every model in the window was glm-5.3,
+        // which the LiteLLM pricing table doesn't know yet → cost 0 → the old
+        // hard `cost_usd >= 0.1` gate blanked the whole projects page for the
+        // day while other tabs showed data fine.
+        assert!(is_visible_project(&agg(0.0, 500_000, 10)));
+    }
+
+    #[test]
+    fn tiny_free_project_is_filtered_as_noise() {
+        assert!(!is_visible_project(&agg(0.0, 2_000, 10)));
+    }
+
+    #[test]
+    fn priced_project_visible_regardless_of_tokens() {
+        assert!(is_visible_project(&agg(0.5, 0, 6)));
+    }
+
+    #[test]
+    fn few_messages_hidden_even_with_cost() {
+        assert!(!is_visible_project(&agg(5.0, 1_000_000, 3)));
+    }
+
+    #[test]
+    fn project_without_path_or_date_hidden() {
+        let p = ProjectAgg {
+            full_path: None,
+            latest_date: None,
+            ..agg(1.0, 1_000_000, 10)
+        };
+        assert!(!is_visible_project(&p));
     }
 }
