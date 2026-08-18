@@ -41,7 +41,7 @@
     try {
       const ver = await api.getAppVersion();
       appVersion = ver;
-      const repo = "github.com/lzc0088/token-usage";
+      const repo = "lzc0088/token-usage";
       const info = await api.checkUpdate(repo, ver);
       if (info.has_update) {
         updateInfo = { hasUpdate: true, url: info.url, version: info.version };

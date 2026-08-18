@@ -149,7 +149,7 @@ jobs:
           # fetch live exchange rates (USD→CNY).
           JUHE_API_KEY: ${{ secrets.JUHE_API_KEY }}
           # Vite injects this at frontend build time — settings page default repo.
-          VITE_UPDATE_REPO: github.com/lzc0088/token-usage
+          VITE_UPDATE_REPO: lzc0088/token-usage
           # macOS signing + notarization. Tauri's bundle step signs the main
           # .app; the tokscale sidecar is pre-signed via beforeBundleCommand
           # (see tauri.conf.json) so it survives the bundle packaging.

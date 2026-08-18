@@ -110,6 +110,24 @@ fn api_url(owner: &str, repo: &str) -> String {
     )
 }
 
+/// Normalize a repo string to `owner/repo` before splitting. Callers have
+/// historically passed host-prefixed forms ("github.com/owner/repo" from
+/// VITE_UPDATE_REPO and the App.svelte default); splitting that on the first
+/// '/' yields owner = "github.com" and an API URL that 404s, so released
+/// versions were never discovered. Strips an optional scheme + host (any
+/// `xxx.tld` first segment), leading/trailing slashes, and whitespace.
+fn normalize_repo(repo: &str) -> String {
+    let trimmed = repo.trim().trim_matches('/');
+    let mut parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
+    // Drop leading segments that look like scheme/host parts ("https:",
+    // "github.com", "gitee.com") — loop so "https://github.com/…" strips both.
+    while parts.len() > 2 && (parts[0].contains('.') || parts[0] == "https:" || parts[0] == "http:")
+    {
+        parts.remove(0);
+    }
+    parts.join("/")
+}
+
 /// Query the releases API and compare with the current version.
 ///
 /// Cooldown: within `COOLDOWN_MS` (1h) of the last check, short-circuit to
@@ -132,8 +150,11 @@ pub async fn check_update(
     let db_arc: Arc<std::sync::Mutex<rusqlite::Connection>> = state.db.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let owner = repo.split_once('/').map(|(o, _)| o).unwrap_or("");
-        let repo_name = repo.split_once('/').map(|(_, r)| r).unwrap_or("");
+        // Tolerate host-prefixed repo strings ("github.com/owner/repo") so a
+        // misconfigured caller can't turn into a 404 API URL.
+        let normalized = normalize_repo(&repo);
+        let owner = normalized.split_once('/').map(|(o, _)| o).unwrap_or("");
+        let repo_name = normalized.split_once('/').map(|(_, r)| r).unwrap_or("");
         let force = force.unwrap_or(false);
 
         // ── 1. Cooldown short-circuit ──────────────────────────────────────────
@@ -371,6 +392,35 @@ mod tests {
         assert!(within_cooldown(0, 59 * 60 * 1000));
         // 61min → expired, re-check.
         assert!(!within_cooldown(0, 61 * 60 * 1000));
+    }
+
+    #[test]
+    fn normalize_repo_strips_host_prefixes() {
+        // Regression (2026-08-18): callers passed "github.com/owner/repo"
+        // (VITE_UPDATE_REPO / App.svelte default), the first-'/' split made
+        // owner = "github.com" and every check-update hit
+        // api.github.com/repos/github.com/... → 404, so released versions
+        // were never discovered.
+        assert_eq!(
+            normalize_repo("github.com/lzc0088/token-usage"),
+            "lzc0088/token-usage"
+        );
+        assert_eq!(
+            normalize_repo("https://github.com/lzc0088/token-usage"),
+            "lzc0088/token-usage"
+        );
+        // Already-normalized and gitee-style hosts pass through untouched.
+        assert_eq!(normalize_repo("lzc0088/token-usage"), "lzc0088/token-usage");
+        assert_eq!(normalize_repo("gitee.com/owner/repo"), "owner/repo");
+        // Leading/trailing slashes and whitespace are tolerated.
+        assert_eq!(
+            normalize_repo("/lzc0088/token-usage/"),
+            "lzc0088/token-usage"
+        );
+        assert_eq!(
+            normalize_repo("  lzc0088/token-usage  "),
+            "lzc0088/token-usage"
+        );
     }
 
     #[test]
