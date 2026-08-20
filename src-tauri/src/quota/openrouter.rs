@@ -63,6 +63,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
         sub_items: None,
     };
     Ok(Quota {
+        site: None,
         vendor: "openrouter".into(),
         status,
         windows: vec![window],

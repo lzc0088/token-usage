@@ -402,6 +402,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
     );
 
     Ok(Quota {
+        site: None,
         vendor: "glm".into(),
         plan_label: None,
         status,

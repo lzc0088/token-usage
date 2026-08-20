@@ -29,6 +29,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
         serde_json::from_str(body).map_err(|e| VendorError::Parse(format!("xAI: {e}")))?;
     let total = u.usage.total_tokens as f64;
     Ok(Quota {
+        site: None,
         vendor: "grok".into(),
         status: QuotaStatus::Ok,
         windows: vec![QuotaWindow {

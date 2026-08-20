@@ -277,6 +277,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     let used_pct = q_windows.iter().map(|w| w.used_pct).fold(0.0f64, f64::max);
 
     Ok(Quota {
+        site: None,
         vendor: "ollama".into(),
         plan_label: plan_name,
         status: QuotaStatus::from_used_pct(used_pct),

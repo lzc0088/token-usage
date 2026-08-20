@@ -708,6 +708,7 @@ fn build_quota(
 ) -> Result<Quota, VendorError> {
     let used_pct = windows.iter().map(|w| w.used_pct).fold(0.0f64, f64::max);
     Ok(Quota {
+        site: None,
         vendor: "opencode".into(),
         plan_label: Some("Go".into()),
         status: QuotaStatus::from_used_pct(used_pct),

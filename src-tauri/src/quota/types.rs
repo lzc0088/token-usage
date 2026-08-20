@@ -207,6 +207,7 @@ mod tests {
     #[test]
     fn windows_quota_serializes() {
         let q = Quota {
+            site: None,
             vendor: "glm".into(),
             status: QuotaStatus::Low,
             windows: vec![
@@ -241,6 +242,7 @@ mod tests {
     #[test]
     fn balance_quota_serializes() {
         let q = Quota {
+            site: None,
             vendor: "deepseek".into(),
             status: QuotaStatus::Ok,
             windows: vec![],

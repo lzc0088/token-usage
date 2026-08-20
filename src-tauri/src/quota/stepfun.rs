@@ -284,6 +284,7 @@ fn build_quota(
     };
 
     Quota {
+        site: None,
         vendor: "stepfun".into(),
         status,
         windows,

@@ -74,6 +74,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
         QuotaStatus::Ok
     };
     Ok(Quota {
+        site: None,
         vendor: "deepseek".into(),
         plan_label: Some("Pay-as-you-go".into()),
         status,

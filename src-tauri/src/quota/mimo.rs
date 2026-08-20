@@ -363,6 +363,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     }
     let status = QuotaStatus::from_used_pct(windows.first().map(|w| w.used_pct).unwrap_or(0.0));
     Ok(Quota {
+        site: None,
         vendor: "mimo".into(),
         plan_label,
         status,

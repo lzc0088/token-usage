@@ -254,6 +254,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
         ..Default::default()
     };
     Ok(Quota {
+        site: None,
         vendor: "cursor".into(),
         plan_label,
         status: QuotaStatus::from_used_pct(used_pct),

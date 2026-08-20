@@ -189,6 +189,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
     );
     Ok(Quota {
+        site: None,
         vendor: "copilot".into(),
         plan_label: None,
         status,

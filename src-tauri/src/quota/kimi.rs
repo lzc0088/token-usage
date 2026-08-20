@@ -456,6 +456,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
     );
     Ok(Quota {
+        site: None,
         vendor: "kimi".into(),
         plan_label: None,
         status,
@@ -744,6 +745,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
     );
     Ok(Quota {
+        site: None,
         vendor: "kimi".into(),
         plan_label: None,
         status,

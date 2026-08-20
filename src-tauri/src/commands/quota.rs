@@ -304,6 +304,7 @@ mod tests {
             error: None,
             cookie_error: None,
             expires_at: None,
+            site: None,
         }
     }
 

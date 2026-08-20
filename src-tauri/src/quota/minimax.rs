@@ -126,6 +126,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
     );
     Ok(Quota {
+        site: None,
         vendor: "minimax".into(),
         plan_label: Some("Token Plan".into()),
         status,

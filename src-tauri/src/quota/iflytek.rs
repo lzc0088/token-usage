@@ -218,6 +218,7 @@ pub fn parse(
         None => {
             let balance = balance.ok_or(VendorError::Empty)?;
             return Ok(Quota {
+                site: None,
                 vendor: "iflytek".into(),
                 status: QuotaStatus::Ok,
                 windows: vec![],
@@ -274,6 +275,7 @@ pub fn parse(
     );
 
     Ok(Quota {
+        site: None,
         vendor: "iflytek".into(),
         status,
         windows,

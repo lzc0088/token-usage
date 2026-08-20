@@ -132,6 +132,7 @@ fn placeholder(id: &str, auth_failed: bool) -> Quota {
     // rather than a generic card-wide error.
     let is_cookie_vendor = is_cookie_vendor(id);
     Quota {
+        site: None,
         vendor: id.to_string(),
         status: if auth_failed {
             crate::quota::QuotaStatus::Danger

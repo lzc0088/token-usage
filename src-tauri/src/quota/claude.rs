@@ -448,6 +448,7 @@ fn parse_usage_response(body: &str) -> Result<Quota, VendorError> {
     let used_pct = windows.iter().map(|w| w.used_pct).fold(0.0f64, f64::max);
 
     Ok(Quota {
+        site: None,
         vendor: "claude".into(),
         plan_label: None,
         status: QuotaStatus::from_used_pct(used_pct),

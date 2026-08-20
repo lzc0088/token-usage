@@ -242,6 +242,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
     );
     Ok(Quota {
+        site: None,
         vendor: "volcengine".into(),
         plan_label: volcengine_plan_label(&resp.result).or(Some("Coding Plan".into())),
         status,
@@ -447,6 +448,7 @@ fn fetch_ark_limits(http: &dyn Http, api_key: &str, region: &str) -> Result<Quot
                     .map(|w| QuotaStatus::from_used_pct(w.used_pct)),
             );
             return Ok(Quota {
+                site: None,
                 vendor: "volcengine".into(),
                 plan_label: Some("Ark API".into()),
                 status,
@@ -1011,6 +1013,7 @@ mod tests {
         // The 5h window keeps its own rolling ResetTimestamp; the plan end
         // goes to `expires_at`, NOT onto the windows.
         let mut q = Quota {
+            site: None,
             vendor: "volcengine".into(),
             status: QuotaStatus::Ok,
             windows: vec![
