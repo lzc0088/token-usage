@@ -143,6 +143,89 @@ pub fn ingest_graph(conn: &mut Connection, raw: &serde_json::Value) -> Result<us
     upsert_rows(conn, &rows)
 }
 
+// ── `tokscale --today` entries ingest ────────────────────────────────────────
+//
+// The `--today --group-by client,model` report has entries with flat fields:
+//   { client, model, input, output, cacheRead, cacheWrite, reasoning,
+//     messageCount, cost, performance }
+// We parse these into DailyRow and upsert so `daily_usage` stays as fresh as
+// the live hero (instead of waiting 15 min for the next `graph` run).
+
+/// Read the first present i64 among `keys` on `obj` (camelCase + snake_case
+/// aliases, since tokscale's casing has varied across versions).
+fn first_i64(obj: &serde_json::Value, keys: &[&str]) -> i64 {
+    for k in keys {
+        if let Some(n) = obj.get(k).and_then(|x| x.as_i64()) {
+            return n;
+        }
+    }
+    0
+}
+
+/// Read the first present f64 among `keys` on `obj`.
+fn first_f64(obj: &serde_json::Value, keys: &[&str]) -> f64 {
+    for k in keys {
+        if let Some(n) = obj.get(k).and_then(|x| x.as_f64()) {
+            return n;
+        }
+    }
+    0.0
+}
+
+/// Read the first present string among `keys` on `obj`.
+fn first_string<'a>(obj: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    for k in keys {
+        if let Some(s) = obj.get(k).and_then(|x| x.as_str()) {
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
+/// Parse entries from a `tokscale --today --group-by client,model` JSON value
+/// and upsert today's rows into `daily_usage`. Returns rows written.
+///
+/// This keeps breakdown/trends queries in sync with the live hero data between
+/// the 15-min `tokscale graph` runs. Safe to call repeatedly — upsert replaces
+/// on `(date, tool, model)` conflict.
+pub fn ingest_today_entries(
+    conn: &mut Connection,
+    v: &serde_json::Value,
+    today: &str,
+) -> Result<usize, StorageError> {
+    let Some(entries) = v.get("entries").and_then(|e| e.as_array()) else {
+        return Ok(0);
+    };
+    let mut rows = Vec::new();
+    for entry in entries {
+        let (Some(client), Some(model)) = (
+            first_string(entry, &["client", "clientName"]),
+            first_string(entry, &["model", "modelId", "modelName"]),
+        ) else {
+            continue;
+        };
+        // Skip synthetic/aggregate entries (e.g. "All Models").
+        if client.is_empty() || model.is_empty() {
+            continue;
+        }
+        rows.push(DailyRow {
+            date: today.to_string(),
+            tool: client.to_string(),
+            model: model.to_string(),
+            input: first_i64(entry, &["input", "inputTokens", "input_tokens"]),
+            output: first_i64(entry, &["output", "outputTokens", "output_tokens"]),
+            cache_read: first_i64(entry, &["cacheRead", "cacheReadTokens", "cache_read_tokens"]),
+            cache_write: first_i64(entry, &["cacheWrite", "cacheWriteTokens", "cache_write_tokens"]),
+            reasoning: first_i64(entry, &["reasoning", "reasoningTokens", "reasoning_tokens"]),
+            cost_usd: first_f64(entry, &["cost", "costUsd", "cost_usd"]),
+            messages: first_i64(entry, &["messageCount", "messages", "message_count"]),
+        });
+    }
+    upsert_rows(conn, &rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +383,118 @@ mod tests {
     fn empty_batch_is_noop() {
         let mut conn = fresh_conn();
         assert_eq!(upsert_rows(&mut conn, &[]).unwrap(), 0);
+    }
+
+    #[test]
+    fn ingest_today_entries_parses_flat_fields() {
+        let mut conn = fresh_conn();
+        let today_json = serde_json::json!({
+            "groupBy": "client,model",
+            "totalInput": 1500, "totalOutput": 300,
+            "entries": [
+                {
+                    "client": "claude", "model": "glm-5.2", "provider": "x",
+                    "input": 1000, "output": 200, "cacheRead": 500, "cacheWrite": 0,
+                    "reasoning": 0, "messageCount": 5, "cost": 1.23,
+                    "performance": {"timedDurationMs": 3000}
+                },
+                {
+                    "client": "codex", "model": "gpt-5-plus", "provider": "openai",
+                    "input": 500, "output": 100, "cacheRead": 0, "cacheWrite": 0,
+                    "reasoning": 0, "messageCount": 3, "cost": 0.42,
+                    "performance": {}
+                }
+            ]
+        });
+        let n = ingest_today_entries(&mut conn, &today_json, "2026-08-20").unwrap();
+        assert_eq!(n, 2);
+
+        let total_claude: i64 = conn
+            .query_row(
+                "SELECT input_tokens+output_tokens+cache_read_tokens+cache_write_tokens
+                 FROM daily_usage WHERE date='2026-08-20' AND tool='claude'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total_claude, 1700); // 1000+200+500+0
+
+        let (cost, msgs): (f64, i64) = conn
+            .query_row(
+                "SELECT cost_usd, messages FROM daily_usage
+                 WHERE date='2026-08-20' AND tool='codex'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!((cost - 0.42).abs() < 1e-9);
+        assert_eq!(msgs, 3);
+    }
+
+    #[test]
+    fn ingest_today_entries_upserts_on_repeat() {
+        let mut conn = fresh_conn();
+        let v1 = serde_json::json!({
+            "entries": [{
+                "client": "claude", "model": "glm-5.2",
+                "input": 100, "output": 50, "cacheRead": 0, "cacheWrite": 0,
+                "reasoning": 0, "messageCount": 2, "cost": 0.1
+            }]
+        });
+        ingest_today_entries(&mut conn, &v1, "2026-08-20").unwrap();
+
+        // Later tick with updated totals.
+        let v2 = serde_json::json!({
+            "entries": [{
+                "client": "claude", "model": "glm-5.2",
+                "input": 200, "output": 100, "cacheRead": 0, "cacheWrite": 0,
+                "reasoning": 0, "messageCount": 4, "cost": 0.3
+            }]
+        });
+        ingest_today_entries(&mut conn, &v2, "2026-08-20").unwrap();
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM daily_usage", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1, "upsert must not create duplicates");
+        let inp: i64 = conn
+            .query_row(
+                "SELECT input_tokens FROM daily_usage WHERE date='2026-08-20'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(inp, 200, "should have the latest value");
+    }
+
+    #[test]
+    fn ingest_today_entries_empty_entries_is_noop() {
+        let mut conn = fresh_conn();
+        let v = serde_json::json!({"entries": []});
+        assert_eq!(ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(), 0);
+    }
+
+    #[test]
+    fn ingest_today_entries_no_entries_key_is_noop() {
+        let mut conn = fresh_conn();
+        let v = serde_json::json!({"totalInput": 100});
+        assert_eq!(ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(), 0);
+    }
+
+    #[test]
+    fn ingest_today_entries_skips_entries_missing_client_or_model() {
+        let mut conn = fresh_conn();
+        let v = serde_json::json!({
+            "entries": [
+                {"client": "claude", "input": 100},  // missing model → skip
+                {"model": "glm-5.2", "input": 200},  // missing client → skip
+                {"client": "codex", "model": "gpt", "input": 300, "output": 0,
+                 "cacheRead": 0, "cacheWrite": 0, "reasoning": 0,
+                 "messageCount": 1, "cost": 0.0}     // complete → keep
+            ]
+        });
+        let n = ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]

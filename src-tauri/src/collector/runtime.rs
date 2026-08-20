@@ -9,8 +9,15 @@ use std::time::Duration;
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 use super::{scheduler, tokscale, watcher};
+
+/// Minimum interval between project snapshot rebuilds triggered by TodaySummary
+/// events. The full rebuild (~4s of tokscale calls) is too expensive to run on
+/// every watcher tick; rate-limiting to every 2 minutes keeps projects fresh
+/// without excessive CPU/IO.
+const PROJECT_SNAPSHOT_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
 #[cfg(test)]
 mod tests {
@@ -192,6 +199,10 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     tauri::async_runtime::spawn(scheduler::run(scanner, cfg, tick_rx, history_rx, ev_tx));
 
     // 4. consumer: persist graph, emit today:updated, update tray title.
+    // Track when we last triggered a project snapshot rebuild from TodaySummary
+    // so we can rate-limit it (the rebuild runs ~4s of tokscale calls).
+    let mut last_project_snapshot = Instant::now() - PROJECT_SNAPSHOT_MIN_INTERVAL;
+
     tauri::async_runtime::spawn(async move {
         let _watch_guard = watch_guard; // keep the watcher alive for the app's lifetime
         while let Some(ev) = ev_rx.recv().await {
@@ -291,7 +302,13 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     });
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {
-                    if let Ok(conn) = db.lock() {
+                    // Ingest today's per-client/model entries into daily_usage
+                    // so breakdown/trends reflect live data (not 15-min stale).
+                    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    if let Ok(mut conn) = db.lock() {
+                        if let Err(e) = storage::daily_usage::ingest_today_entries(&mut conn, &v, &today) {
+                            tracing::warn!(error = %e, "ingest_today_entries failed");
+                        }
                         tray::update_from_json(&app, &v, &conn);
                         floating::push_data(&app, &conn);
                     }
@@ -305,6 +322,20 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                             }
                         }
                         let _ = app.emit("today:updated", s);
+                    }
+                    // Notify frontend to refetch breakdown/trends (daily_usage
+                    // was just updated with fresh today data).
+                    let _ = app.emit("collection:updated", ());
+
+                    // Rate-limited project snapshot rebuild: keep projects page
+                    // in sync with live data without running tokscale on every tick.
+                    if last_project_snapshot.elapsed() >= PROJECT_SNAPSHOT_MIN_INTERVAL {
+                        last_project_snapshot = Instant::now();
+                        let bin_snap = bin_for_snapshot.clone();
+                        let db_snap = db.clone();
+                        tauri::async_runtime::spawn(async move {
+                            super::project_snapshot::precompute_and_persist(bin_snap, db_snap).await;
+                        });
                     }
                 }
                 scheduler::CollectionEvent::ScanError(msg) => {
