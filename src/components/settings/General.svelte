@@ -126,12 +126,17 @@
     }
 
     api.checkUpdate(UPDATE_REPO, appVersion, true).then((info) => {
-      updateStatus = info;
+      // Normalize: only treat as update when versions actually differ.
+      const normalized = {
+        ...info,
+        has_update: info.has_update && info.version.replace(/^v/, '') !== appVersion,
+      };
+      updateStatus = normalized;
       checking = false;
-      if (info.error) {
+      if (normalized.error) {
         return;
       }
-      if (!info.has_update) {
+      if (!normalized.has_update) {
         showLatestAlert = true;
         sTimeout(() => { showLatestAlert = false; }, 3000);
       }

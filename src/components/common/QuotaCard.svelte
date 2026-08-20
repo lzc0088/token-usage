@@ -209,7 +209,7 @@
       <span class="qcookie-text">⚠ {translateCookieError(quota.cookie_error, _lang)}</span>
       <div class="qcookie-bar-actions">
         {#if VENDOR_PANEL[quota.vendor]}
-          <button type="button" class="qcookie-open" onclick={() => openPanelUrl(quota.vendor)}>{l("打开控制台","Open Console")}</button>
+          <button type="button" class="qcookie-open" onclick={() => openPanelUrl(quota.vendor, quota.site)}>{l("打开控制台","Open Console")}</button>
         {/if}
         <button type="button" class="qcookie-btn" onclick={() => startEditCookie(quota.vendor)}>{l("更新 Cookie","Update Cookie")}</button>
       </div>

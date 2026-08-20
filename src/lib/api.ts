@@ -195,6 +195,9 @@ export interface Quota {
   /** Subscription plan expiry (RFC3339). Distinct from per-window `resets_at`
    * (rolling quota reset). Drives the "到期" tag. */
   expires_at?: string | null;
+  /** Region / site identifier for multi-region vendors (e.g. Qoder "cn"/"global").
+   * Used to construct the correct console URL when opening the vendor panel. */
+  site?: string | null;
 }
 
 export interface Config {

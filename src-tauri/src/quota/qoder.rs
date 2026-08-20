@@ -388,6 +388,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
         cookie_error: None,
         // No header-level expiry: Qoder expiry is per resource-package / sub-item.
         expires_at: None,
+        site: Some(site.to_string()),
     })
 }
 

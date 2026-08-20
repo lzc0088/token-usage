@@ -43,7 +43,11 @@
       appVersion = ver;
       const repo = "lzc0088/token-usage";
       const info = await api.checkUpdate(repo, ver);
-      if (info.has_update) {
+      // Only show update badge when versions actually differ.
+      // The backend may return has_update=true due to tag format differences
+      // (e.g., "v1.0.5" vs "1.0.5"), so we double-check here.
+      const versionsDiffer = info.has_update && info.version.replace(/^v/, '') !== ver;
+      if (versionsDiffer) {
         updateInfo = { hasUpdate: true, url: info.url, version: info.version };
         updateError = null;
       } else if (info.error_kind) {

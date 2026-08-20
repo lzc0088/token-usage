@@ -290,34 +290,50 @@ pub async fn install_update(
     // These are mirrored from the OS system proxy at startup by
     // utils::proxy::sync_system_proxy(), so the updater routes through the
     // user's Clash/V2Ray without any hard-coded port here.
-    let updater = app
-        .updater_builder()
-        .build()
-        .map_err(|e| format!("updater 初始化失败：{e}"))?;
+    tracing::info!("install_update: starting updater check...");
+    let updater = app.updater_builder().build().map_err(|e| {
+        let msg = format!("updater 初始化失败：{e}");
+        tracing::error!("install_update: {msg}");
+        let _ = on_event.send(DownloadEvent::Error {
+            message: msg.clone(),
+        });
+        msg
+    })?;
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| {
-            let msg = format!("检查更新失败：{e}");
+    tracing::info!("install_update: checking for updates...");
+    let update = match updater.check().await {
+        Ok(Some(u)) => {
+            tracing::info!(
+                "install_update: found update v{} (target={}) → downloading {}",
+                u.version,
+                u.target,
+                u.download_url
+            );
+            u
+        }
+        Ok(None) => {
+            let msg = "当前已是最新版本".to_string();
+            tracing::info!("install_update: {msg}");
             let _ = on_event.send(DownloadEvent::Error {
                 message: msg.clone(),
             });
-            msg
-        })?
-        .ok_or_else(|| "当前已是最新版本".to_string())?;
-
-    tracing::info!(
-        "install_update: found update v{} (target={}) → downloading {}",
-        update.version,
-        update.target,
-        update.download_url
-    );
+            return Err(msg);
+        }
+        Err(e) => {
+            let msg = format!("检查更新失败：{e}");
+            tracing::error!("install_update: {msg}");
+            let _ = on_event.send(DownloadEvent::Error {
+                message: msg.clone(),
+            });
+            return Err(msg);
+        }
+    };
 
     // Stream download progress to the frontend. v2.10+ API: the first callback
     // fires per chunk with `(chunk_length, total_option)`; the second fires
     // once when download finishes (before install). We synthesize a Started
     // event from the first chunk + its total, then Progress per chunk.
+    tracing::info!("install_update: starting download...");
     let first = std::sync::atomic::AtomicBool::new(true);
     let downloaded = std::sync::atomic::AtomicU64::new(0);
     let last_log = std::sync::atomic::AtomicU64::new(0);
@@ -325,7 +341,13 @@ pub async fn install_update(
     let on_progress = {
         let on_event = on_event.clone();
         move |chunk_length: usize, total: Option<u64>| {
-            if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            let is_first = first.swap(false, std::sync::atomic::Ordering::SeqCst);
+            if is_first {
+                tracing::info!(
+                    "install_update: first chunk received, total={:?}, chunk_length={}",
+                    total,
+                    chunk_length
+                );
                 let _ = on_event.send(DownloadEvent::Started {
                     content_length: total.unwrap_or(0),
                 });
@@ -354,21 +376,30 @@ pub async fn install_update(
     let on_download_finish = {
         let on_event = on_event.clone();
         move || {
+            tracing::info!("install_update: download finished, sending Finished event");
             let _ = on_event.send(DownloadEvent::Finished);
         }
     };
 
-    update
+    tracing::info!("install_update: calling download_and_install...");
+    match update
         .download_and_install(on_progress, on_download_finish)
         .await
-        .map_err(|e| {
+    {
+        Ok(()) => {
+            tracing::info!("install_update: download_and_install completed successfully");
+        }
+        Err(e) => {
             let msg = format!("下载/安装失败：{e}");
+            tracing::error!("install_update: {msg}");
             let _ = on_event.send(DownloadEvent::Error {
                 message: msg.clone(),
             });
-            msg
-        })?;
+            return Err(msg);
+        }
+    }
 
+    tracing::info!("install_update: sending Installed event");
     let _ = on_event.send(DownloadEvent::Installed);
     // Don't auto-restart — let the user pick the moment via `restart_app`.
     Ok(())

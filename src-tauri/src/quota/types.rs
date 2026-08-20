@@ -70,6 +70,10 @@ pub struct Quota {
     /// "到期" tag. `None` for balance-only / no-plan vendors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// Region / site identifier for multi-region vendors (e.g. Qoder "cn"/"global").
+    /// Used to construct the correct console URL when opening the vendor panel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
 }
 
 /// One subscription window (e.g. "5h 42%", "weekly 78%", "MCP 月 25%").

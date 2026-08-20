@@ -1,11 +1,25 @@
 import { VENDOR_PANEL } from "./meta/panels";
 import { api } from "./api";
 
-/** Open the vendor panel URL in the system browser. */
-export function openPanelUrl(vendor: string): void {
+/** Open the vendor panel URL in the system browser.
+ *  For vendors with dynamic URLs (e.g. Qoder's site-based split), pass the
+ *  site/region identifier as the second argument to pick the right URL.
+ */
+export function openPanelUrl(vendor: string, site?: string | null): void {
   const panel = VENDOR_PANEL[vendor];
   if (!panel) return;
-  const url = typeof panel.url === "string" ? panel.url : Object.values(panel.url.map)[0] ?? "";
+
+  let url: string;
+  if (typeof panel.url === "string") {
+    url = panel.url;
+  } else if (site && panel.url.map[site]) {
+    // Dynamic URL: use site-specific entry.
+    url = panel.url.map[site];
+  } else {
+    // Fallback: first map entry.
+    url = Object.values(panel.url.map)[0] ?? "";
+  }
+
   if (url) api.openExternal(url).catch(() => {});
 }
 
