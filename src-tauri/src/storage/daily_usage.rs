@@ -216,8 +216,14 @@ pub fn ingest_today_entries(
             model: model.to_string(),
             input: first_i64(entry, &["input", "inputTokens", "input_tokens"]),
             output: first_i64(entry, &["output", "outputTokens", "output_tokens"]),
-            cache_read: first_i64(entry, &["cacheRead", "cacheReadTokens", "cache_read_tokens"]),
-            cache_write: first_i64(entry, &["cacheWrite", "cacheWriteTokens", "cache_write_tokens"]),
+            cache_read: first_i64(
+                entry,
+                &["cacheRead", "cacheReadTokens", "cache_read_tokens"],
+            ),
+            cache_write: first_i64(
+                entry,
+                &["cacheWrite", "cacheWriteTokens", "cache_write_tokens"],
+            ),
             reasoning: first_i64(entry, &["reasoning", "reasoningTokens", "reasoning_tokens"]),
             cost_usd: first_f64(entry, &["cost", "costUsd", "cost_usd"]),
             messages: first_i64(entry, &["messageCount", "messages", "message_count"]),
@@ -471,14 +477,20 @@ mod tests {
     fn ingest_today_entries_empty_entries_is_noop() {
         let mut conn = fresh_conn();
         let v = serde_json::json!({"entries": []});
-        assert_eq!(ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(), 0);
+        assert_eq!(
+            ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(),
+            0
+        );
     }
 
     #[test]
     fn ingest_today_entries_no_entries_key_is_noop() {
         let mut conn = fresh_conn();
         let v = serde_json::json!({"totalInput": 100});
-        assert_eq!(ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(), 0);
+        assert_eq!(
+            ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(),
+            0
+        );
     }
 
     #[test]

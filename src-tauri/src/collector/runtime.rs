@@ -306,7 +306,9 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     // so breakdown/trends reflect live data (not 15-min stale).
                     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                     if let Ok(mut conn) = db.lock() {
-                        if let Err(e) = storage::daily_usage::ingest_today_entries(&mut conn, &v, &today) {
+                        if let Err(e) =
+                            storage::daily_usage::ingest_today_entries(&mut conn, &v, &today)
+                        {
                             tracing::warn!(error = %e, "ingest_today_entries failed");
                         }
                         tray::update_from_json(&app, &v, &conn);
@@ -334,7 +336,8 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                         let bin_snap = bin_for_snapshot.clone();
                         let db_snap = db.clone();
                         tauri::async_runtime::spawn(async move {
-                            super::project_snapshot::precompute_and_persist(bin_snap, db_snap).await;
+                            super::project_snapshot::precompute_and_persist(bin_snap, db_snap)
+                                .await;
                         });
                     }
                 }
