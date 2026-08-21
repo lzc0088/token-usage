@@ -245,6 +245,18 @@
         </div>
         {#if open}
           <div class="s-detail">
+            {#if s.project_path}
+              <div class="det-project">
+                <span class="det-proj-path">{s.project_path}</span>
+                <button
+                  type="button"
+                  class="det-proj-copy"
+                  title="复制路径"
+                  aria-label="复制路径"
+                  onclick={() => { navigator.clipboard.writeText(s.project_path!).catch(() => {}); }}
+                >📋</button>
+              </div>
+            {/if}
             {#if detail === null}
               <Skeleton type="list" rows={2} />
             {:else if detail.length === 0}
@@ -323,6 +335,36 @@
 
   /* ── inline expand ── */
   .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: var(--overlay-dark); }
+  .det-project {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px dashed var(--border-dim);
+  }
+  .det-proj-path {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  .det-proj-copy {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+    padding: 0;
+    line-height: 1;
+  }
+  .det-proj-copy:hover { opacity: 1; }
   .det-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-dim); }
   .det-entry:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .det-model-row { display: flex; align-items: center; gap: 3px; padding: 2px 0; }
