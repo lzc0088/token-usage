@@ -5,7 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config } from "../lib/api";
   import { applyAppearance, initAppearanceListeners } from "../lib/appearance";
-  import { setLang } from "../lib/i18n.svelte";
+  import { setLang, t } from "../lib/i18n.svelte";
   import General from "../components/settings/General.svelte";
   import MainView from "../components/settings/MainView.svelte";
   import Window from "../components/settings/Window.svelte";
@@ -122,7 +122,7 @@
 
     <main class="setpanel">
       {#if !loaded}
-        <p class="loading">加载中…</p>
+        <p class="loading">{t("common.loading")}</p>
       {:else if active === "general"}
         <General config={cfg} {onUpdate} />
       {:else if active === "mainview"}
@@ -138,7 +138,7 @@
   </div>
 
   <!-- floating close button, top-right corner -->
-  <button type="button" class="fclose" onclick={close} aria-label="关闭" title="关闭设置">✕</button>
+  <button type="button" class="fclose" onclick={close} aria-label={t("settings.close")} title={t("settings.close")}>✕</button>
 </div>
 
 <style>

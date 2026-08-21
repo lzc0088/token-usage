@@ -103,8 +103,9 @@
   {#each segments as s (s.key)}
     <button
       data-testid={"segment-" + s.key}
+      role="tab"
+      aria-selected={active === s.key}
       class:active={active === s.key}
-      aria-current={active === s.key ? "page" : undefined}
       onclick={() => setSegment(s.key)}
     >{s.label}</button>
   {/each}

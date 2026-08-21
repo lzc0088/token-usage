@@ -167,7 +167,7 @@
         loadError = null;
       } catch (e) {
         if (!cancelled) {
-          loadError = "加载失败，请稍后重试";
+          loadError = t("common.loadFailed");
         }
       }
     })();

@@ -155,7 +155,7 @@
           <div class="rd-row">
             <div class="rd-main">
               <div class="rd-line1">
-                <span class="rd-user">👤</span>
+                <span class="rd-user" aria-label={t("sessions.roundUser")}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg></span>
                 <span class="rd-text">{r.user_text || t("sessions.noText")}</span>
               </div>
               <div class="rd-line2">
@@ -364,7 +364,7 @@
   .rd-row:hover { background: rgba(232,176,75,.04); }
   .rd-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .rd-line1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-  .rd-user { font-size: 12px; flex-shrink: 0; }
+  .rd-user { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-faint); }
   .rd-text { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
   .rd-line2 { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--text-faint); }
   .rd-time { font-family: var(--font-mono); }

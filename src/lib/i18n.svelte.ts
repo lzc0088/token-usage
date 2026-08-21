@@ -387,6 +387,7 @@ const DICT: Record<string, Record<string, string>> = {
   "sessions.noDetail": { zh: "暂无详情", en: "No details" },
   "sessions.modelsCount": { zh: " 个模型", en: " models" },
   "sessions.noText": { zh: "(无文本输入)", en: "(no text)" },
+  "sessions.roundUser": { zh: "用户输入", en: "User input" },
   "sessions.history": { zh: "会话历史", en: "Session History" },
   "sessions.viewDetail": { zh: "查看详情", en: "View Detail" },
   "sessions.turnsUnit": { zh: "轮", en: "turns" },
