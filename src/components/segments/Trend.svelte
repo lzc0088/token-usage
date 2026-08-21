@@ -212,7 +212,7 @@
     gap: 8px;
   }
   .stat {
-    background: rgba(255, 255, 255, 0.025);
+    background: var(--surface-tint);
     border: 1px solid var(--border-dim);
     border-radius: 9px;
     padding: 10px 11px;
@@ -277,14 +277,23 @@
     font-weight: 600;
   }
   /* Chart colors as direct values — CSS vars may not resolve inside SVG on
-   * Windows WebView2 (transparent window). Hardcoded dark-theme palette; both
-   * themes remain readable. */
+   * Windows WebView2 (transparent window). Dark-theme values below; the
+   * [data-theme="light"] block overrides them with light equivalents
+   * (dark-only values were near-invisible on the light background). */
   .trend-area { fill: rgba(232, 176, 75, 0.1); }
   .trend-line { fill: none; stroke: #e8b04b; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   .avg-line   { stroke: #7fd1d3; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.7; }
   .axis-line  { stroke: #6b6453; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5; }
   .node       { fill: #e8b04b; stroke: #0f0e0b; stroke-width: 1; vector-effect: non-scaling-stroke; transition: r 0.12s; cursor: pointer; }
   .node.active{ fill: #b4e34c; }
+  /* Light theme — same literals as the token values in app.css (kept as
+   * literals for the WebView2 reason above). */
+  :global([data-theme="light"]) .trend-area { fill: rgba(201, 138, 30, 0.12); }
+  :global([data-theme="light"]) .trend-line { stroke: #c98a1e; }
+  :global([data-theme="light"]) .avg-line   { stroke: #2a9fa3; }
+  :global([data-theme="light"]) .axis-line  { stroke: #9a9384; }
+  :global([data-theme="light"]) .node       { fill: #c98a1e; stroke: #f5f3ef; }
+  :global([data-theme="light"]) .node.active{ fill: #6ba81f; }
   .x-axis {
     position: relative;
     height: 16px;

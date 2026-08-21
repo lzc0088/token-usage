@@ -1,6 +1,5 @@
 <script lang="ts">
   import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
-  import { PALETTE } from "../../lib/constants";
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
@@ -112,14 +111,13 @@
     return s.project_name ?? toolMeta(s.tool).label;
   }
 
-  const palette = PALETTE;
-
   function composeDetail(dr: SessionDetailRow): { label: string; tokens: number; pct: number; color: string }[] {
     const total = dr.tokens || 1;
+    // Token-category semantic colors — same vars as the Overview IO cells.
     return [
-      { label: t("detail.input"), tokens: dr.input, pct: (dr.input / total) * 100, color: palette[0] },
-      { label: t("detail.output"), tokens: dr.output, pct: (dr.output / total) * 100, color: palette[1] },
-      { label: t("detail.cache"), tokens: dr.cache_read, pct: (dr.cache_read / total) * 100, color: palette[2] },
+      { label: t("detail.input"), tokens: dr.input, pct: (dr.input / total) * 100, color: "var(--tok-input)" },
+      { label: t("detail.output"), tokens: dr.output, pct: (dr.output / total) * 100, color: "var(--tok-output)" },
+      { label: t("detail.cache"), tokens: dr.cache_read, pct: (dr.cache_read / total) * 100, color: "var(--tok-cache-r)" },
     ];
   }
 </script>

@@ -12,7 +12,7 @@
 
   --text: #f2ede1;
   --text-dim: #a39c8c;
-  --text-faint: #6b6453;
+  --text-faint: #7b755f;
 
   --amber: #e8b04b;
   --amber-soft: #c9923a;
@@ -58,6 +58,20 @@
   --glass-subtle-strong: rgba(255, 255, 255, 0.06);
   --overlay-dark: rgba(0, 0, 0, 0.08);
 
+  /* Sidebar / panel surface — a darkening overlay in dark mode, a light gray
+     tint in light mode. Defined per theme (not via a base alias) because the
+     two values are not simple inversions. */
+  --sidebar-bg: rgba(0, 0, 0, 0.15);
+
+  /* Token-category semantic colors — ONE color per token class, shared by the
+     Overview IO cells and every detail-composition bar so "input" reads the
+     same color on every page. Aliased to the accent tokens so light-theme
+     overrides propagate automatically. */
+  --tok-input: var(--cyan);
+  --tok-output: var(--amber);
+  --tok-cache-r: var(--lime);
+  --tok-cache-w: var(--coral);
+
   --font-ui: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: "Fraunces", serif;
@@ -79,7 +93,9 @@
 
   --text: #2a2519;
   --text-dim: #6b6453;
-  --text-faint: #9a9384;
+  /* ≥4.5:1 on --bg (AA) — the previous #9a9384 was ~2.8:1, unreadable at
+     the 9-10px caption sizes faint is used for. */
+  --text-faint: #736c57;
 
   --amber: #c98a1e;
   --amber-soft: #b07a18;
@@ -117,6 +133,8 @@
   --glass-subtle: rgba(0, 0, 0, 0.04);
   --glass-subtle-strong: rgba(0, 0, 0, 0.06);
   --overlay-dark: rgba(0, 0, 0, 0.04);
+
+  --sidebar-bg: rgba(0, 0, 0, 0.04);
 
   color-scheme: light;
 }

@@ -436,7 +436,7 @@
   .tok-tag.s-active  { background: rgba(108,199,116,0.12); color: var(--lime); }
   .tok-tag.s-missing { background: rgba(224,108,117,0.12); color: var(--coral); }
   .tok-ver { font-family: "JetBrains Mono", var(--font-mono); font-size: 12px; color: var(--lime); }
-  .tok-badge { font-size: 10.5px; color: var(--text-dim); background: rgba(255,255,255,0.05); padding: 2px 7px; border-radius: 5px; }
+  .tok-badge { font-size: 10.5px; color: var(--text-dim); background: var(--surface-tint-strong); padding: 2px 7px; border-radius: 5px; }
 
   .empty { font-size: 11px; color: var(--text-faint); padding: 12px 0; }
 

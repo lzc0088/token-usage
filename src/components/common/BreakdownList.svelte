@@ -60,12 +60,14 @@
     }
   }
 
-  /** Token-composition rows for the detail expand (input/output/cache). */
-  function tokenComposition(e: BreakdownEntry): { label: string; key: string; tokens: number }[] {
+  /** Token-composition rows for the detail expand (input/output/cache).
+   *  Colors use the shared --tok-* semantic vars so the same token class
+   *  reads one color across Overview / Sessions / here. */
+  function tokenComposition(e: BreakdownEntry): { label: string; key: string; tokens: number; color: string }[] {
     return [
-      { label: t("detail.input"), key: "input", tokens: e.input },
-      { label: t("detail.output"), key: "output", tokens: e.output },
-      { label: t("detail.cache"), key: "cache_read", tokens: e.cache_read },
+      { label: t("detail.input"), key: "input", tokens: e.input, color: "var(--tok-input)" },
+      { label: t("detail.output"), key: "output", tokens: e.output, color: "var(--tok-output)" },
+      { label: t("detail.cache"), key: "cache_read", tokens: e.cache_read, color: "var(--tok-cache-r)" },
     ];
   }
 
@@ -117,12 +119,12 @@
       <div class="det-row"><span>{t("detail.sessionCount")}</span><span class="det-val">{e.messages}</span></div>
       <div class="det-row"><span>{t("detail.costRatio")}</span><span class="det-val">{e.cost_pct.toFixed(1)}%</span></div>
       <div class="det-sep"></div>
-      {#each tokenComposition(e) as tc, ci (tc.key)}
+      {#each tokenComposition(e) as tc (tc.key)}
         {@const tcp = e.tokens > 0 ? (tc.tokens / e.tokens) * 100 : 0}
         {@const tcs = splitTokens(tc.tokens)}
         <div class="det-row det-sub">
-          <span class="det-label"><span class="det-dot" style="background:{PALETTE[ci % PALETTE.length]}"></span>{tc.label}</span>
-          <div class="det-bar"><i style="width:{Math.max(2, tcp).toFixed(1)}%;background:{PALETTE[ci % PALETTE.length]}"></i></div>
+          <span class="det-label"><span class="det-dot" style="background:{tc.color}"></span>{tc.label}</span>
+          <div class="det-bar"><i style="width:{Math.max(2, tcp).toFixed(1)}%;background:{tc.color}"></i></div>
           <span class="det-pct">{tcp.toFixed(1)}<span class="pct-u">%</span></span>
           <span class="det-tok">{tcs.value}<span class="tku">{tcs.unit}</span></span>
         </div>

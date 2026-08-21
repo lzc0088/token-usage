@@ -160,10 +160,10 @@
         <div class="split2">
           {#if summary}
             {@const cells = [
-              { k: t("detail.input"), v: summary.input, cls: "" },
-              { k: t("detail.output"), v: summary.output, cls: "amber" },
-              { k: t("detail.cacheRead"), v: summary.cache_read, cls: "lime" },
-              { k: t("detail.cacheWrite"), v: summary.cache_write, cls: "coral" },
+              { k: t("detail.input"), v: summary.input, cls: "tok-in" },
+              { k: t("detail.output"), v: summary.output, cls: "tok-out" },
+              { k: t("detail.cacheRead"), v: summary.cache_read, cls: "tok-cr" },
+              { k: t("detail.cacheWrite"), v: summary.cache_write, cls: "tok-cw" },
             ]}
             {#each cells as cell}
               {@const s = splitTokens(cell.v)}
@@ -275,9 +275,12 @@
     display: flex; align-items: baseline; gap: 2px;
   }
   .scell .v .u { font-size: 11px; color: var(--text-faint); font-weight: 600; }
-  .v.amber { color: var(--amber) !important; }
-  .v.lime { color: var(--lime) !important; }
-  .v.coral { color: var(--coral) !important; }
+  /* Token-category colors — shared semantics with detail-composition bars
+   * (Sessions / BreakdownList) so each token class reads one color everywhere. */
+  .v.tok-in { color: var(--tok-input) !important; }
+  .v.tok-out { color: var(--tok-output) !important; }
+  .v.tok-cr { color: var(--tok-cache-r) !important; }
+  .v.tok-cw { color: var(--tok-cache-w) !important; }
   .crow {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 0; cursor: pointer;

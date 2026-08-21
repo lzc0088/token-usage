@@ -476,7 +476,7 @@
     justify-content: space-between;
     padding: 9px 18px;
     border-top: 1px solid var(--border-dim);
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--sidebar-bg);
     flex-shrink: 0;
   }
   .pop-footer .l {

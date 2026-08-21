@@ -122,7 +122,7 @@
     </main>
   </div>
 
-  <!-- floating close button, bottom-right corner -->
+  <!-- floating close button, top-right corner -->
   <button type="button" class="fclose" onclick={close} aria-label="关闭" title="关闭设置">✕</button>
 </div>
 
@@ -147,7 +147,7 @@
     flex-shrink: 0;
     padding: 32px 10px 14px;
     border-right: 1px solid var(--border-dim);
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--sidebar-bg);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -169,7 +169,7 @@
     -webkit-app-region: no-drag;
   }
   .item:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--surface-tint);
     color: var(--text);
   }
   .item.active {
@@ -209,7 +209,7 @@
     right: 14px;
     width: 30px;
     height: 30px;
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--surface-tint-strong);
     border: 1px solid var(--border-dim);
     border-radius: 8px;
     color: var(--text-faint);
@@ -225,7 +225,7 @@
   .fclose:hover {
     color: var(--amber);
     border-color: var(--amber);
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--amber-hover);
   }
 
   /* ensure interactive elements inside the draggable window still work */

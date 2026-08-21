@@ -394,7 +394,7 @@
   .hk kbd {
     font-family: "JetBrains Mono", var(--font-mono);
     font-size: 12px;
-    background: rgba(0,0,0,0.18);
+    background: var(--surface-tint-strong);
     border: 1px solid var(--border-dim);
     border-radius: 4px;
     padding: 1px 6px;

@@ -58,7 +58,7 @@
   flex-direction: column;
   gap: 4px;
   border-bottom: 1px dashed var(--border-dim);
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--overlay-dark);
 }
 .det-row {
   display: flex;

@@ -42,7 +42,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--surface-tint);
     border: 1px solid var(--border-dim);
     color: var(--text-faint);
     padding: 4px 9px;

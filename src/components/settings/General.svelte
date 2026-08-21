@@ -514,7 +514,7 @@
   .update-changelog {
     font-size: 11px; color: var(--text-dim); line-height: 1.7;
     max-height: 160px; overflow-y: auto;
-    background: rgba(0,0,0,0.03); border-radius: 6px; padding: 8px 10px;
+    background: var(--surface-tint); border-radius: 6px; padding: 8px 10px;
     white-space: pre-wrap; word-break: break-word;
   }
   .update-changelog::-webkit-scrollbar { width: 4px; }
@@ -539,7 +539,7 @@
 
   .install-progress { display: flex; align-items: center; gap: 8px; margin-top: 4px; width: 100%; }
   .progress-bar {
-    flex: 1; height: 6px; background: rgba(0,0,0,0.15); border-radius: 3px; overflow: hidden; min-width: 120px;
+    flex: 1; height: 6px; background: var(--bar-track); border-radius: 3px; overflow: hidden; min-width: 120px;
   }
   .progress-fill { height: 100%; background: var(--lime); transition: width 0.2s; }
   .progress-text { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
