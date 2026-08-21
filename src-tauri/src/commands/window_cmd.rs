@@ -57,10 +57,10 @@ pub fn show_settings_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
-        // The settings window uses Tauri's `window.startDragging()` from a
-        // designated drag handle (left nav) rather than MovableByWindowBackground,
-        // which conflicts with row-drag on macOS (the OS intercepts mousedown
-        // at the NSWindow level before CSS `app-region` can block it).
+        // Window dragging: MovableByWindowBackground is enabled once at
+        // startup (lib.rs setup). Row-drag in the settings pages suspends it
+        // via `set_drag_suspended` and resumes to the same baseline — see
+        // `drag_baseline`.
     } else {
         tracing::warn!("settings window not found");
     }
@@ -146,8 +146,12 @@ pub fn set_window_draggable(label: String, enabled: bool, app: AppHandle) -> Res
 ///
 /// `suspended = true`  → `MovableByWindowBackground = false`; label tracked.
 /// `suspended = false` → removed from the set; baseline restored:
-///   - "settings"  → always draggable (the settings window is opened with
-///                    native drag enabled in `show_settings_window`).
+///   - "settings"  → always draggable. The settings window is made
+///                   background-movable at startup (lib.rs setup), so a
+///                   `false` baseline here would permanently disable window
+///                   dragging after the first row-drag — exactly the bug
+///                   where drag-sorting in 预览界面/账号额度 left the whole
+///                   settings window stuck.
 ///   - "main"      → `cfg.window_display_mode != "fixed"` (user setting).
 ///   - any other   → drag enabled (safe default).
 ///
@@ -186,9 +190,11 @@ pub fn set_drag_suspended(
 
 fn drag_baseline(label: &str, main_baseline: bool) -> bool {
     match label {
-        // Settings uses Tauri's `window.startDragging()` from a designated
-        // handle (left nav) — no MovableByWindowBackground needed.
-        "settings" => false,
+        // Settings is background-movable (set at startup in lib.rs); resume
+        // must restore that. There is no startDragging() drag handle in the
+        // frontend — an earlier comment claimed one, and its wrong `false`
+        // baseline is what broke dragging after a row-sort.
+        "settings" => true,
         "main" => main_baseline,
         _ => true,
     }
@@ -293,10 +299,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn drag_baseline_is_always_off_for_settings() {
-        // Settings uses Tauri startDragging(), not MovableByWindowBackground.
-        assert!(!drag_baseline("settings", true));
-        assert!(!drag_baseline("settings", false));
+    fn drag_baseline_is_always_on_for_settings() {
+        // Settings is background-movable from startup (lib.rs); a row-drag
+        // suspend must resume back to draggable, not permanently disable it.
+        assert!(drag_baseline("settings", true));
+        assert!(drag_baseline("settings", false));
     }
 
     #[test]
