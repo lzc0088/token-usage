@@ -103,6 +103,7 @@
   const totalStr = $derived(splitTokens(totalTokens));
   const avgStr = $derived(splitTokens(avgTokens));
   const peakStr = $derived(peak ? splitTokens(peak.tokens) : null);
+  const maxStr = $derived(splitTokens(maxTokens));
 
   // X-axis tick indices: first, middle, last (when enough points).
   const xTicks = $derived.by(() => {
@@ -160,9 +161,17 @@
             <div class="tip-row"><span>{t("trends.messagesLabel")}</span><span>{pt.messages}</span></div>
           </div>
         {/if}
+        <!-- Y-axis max value (top-left); the only fixed reference besides the avg line -->
+        <div class="ymax">{maxStr.value}<span class="ymu">{maxStr.unit}</span></div>
         <!-- average value label, positioned at the avg line's height -->
-        <div class="avg-label" style="top:{pyPct(avgTokens).toFixed(1)}%">avg {avgStr.value}<span class="alu">{avgStr.unit}</span></div>
-        <svg viewBox="0 0 {W} {H}" class="chart" preserveAspectRatio="none">
+        <div class="avg-label" style="top:{pyPct(avgTokens).toFixed(1)}%">{t("trends.avgShort")} {avgStr.value}<span class="alu">{avgStr.unit}</span></div>
+        <svg
+          viewBox="0 0 {W} {H}"
+          class="chart"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="{rangeLabel}: {t('trends.total')} {totalStr.value}{totalStr.unit}, {t('trends.dailyAvg')} {avgStr.value}{avgStr.unit}"
+        >
           <!-- average dashed line -->
           <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY} class="avg-line" />
           <!-- area fill under the line -->
@@ -174,7 +183,8 @@
           <!-- Y axis (left) + X axis (bottom) -->
           <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B} class="axis-line" />
           <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} class="axis-line" />
-          <!-- nodes -->
+          <!-- nodes: decorative (the svg carries a text summary; per-node
+               labels made screen-reader output noisy) -->
           {#each points as pt, i (pt.date)}
             <circle
               cx={px(i, points.length)}
@@ -182,8 +192,7 @@
               r={hoverIdx === i ? 3.5 : 2.4}
               class="node"
               class:active={hoverIdx === i}
-              role="img"
-              aria-label="{fmtDate(pt.date)}: {formatTokens(pt.tokens)}, ${pt.cost_usd.toFixed(2)}"
+              aria-hidden="true"
               onmouseenter={() => (hoverIdx = i)}
               onmouseleave={() => (hoverIdx = null)}
             />
@@ -271,6 +280,16 @@
     pointer-events: none;
     z-index: 5;
   }
+  .ymax {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .ymu { font-size: 7px; font-weight: 600; }
   .alu {
     font-size: 7px;
     margin-left: 1px;

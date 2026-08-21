@@ -84,7 +84,7 @@
 
 <div class="bd-header">
   <span class="bd-title">{title}<span class="bd-count">{entries.length}</span></span>
-  <div class="bd-sort">
+  <div class="bd-sort" role="group" aria-label={t("common.sortBy")}>
     {#each [["token", t("breakdown.sortToken")], ["cost", t("breakdown.sortCost")], ["name", t("breakdown.sortName")]] as [k, label] (k)}
       <button class:on={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
     {/each}

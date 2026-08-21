@@ -390,6 +390,10 @@ const DICT: Record<string, Record<string, string>> = {
   "sessions.noText": { zh: "(无文本输入)", en: "(no text)" },
   "sessions.history": { zh: "会话历史", en: "Session History" },
   "sessions.viewDetail": { zh: "查看详情", en: "View Detail" },
+  "sessions.turnsUnit": { zh: "轮", en: "turns" },
+  "sessions.toolsUnit": { zh: "个工具", en: "tools" },
+  "common.sortBy": { zh: "排序方式", en: "Sort by" },
+  "trends.avgShort": { zh: "均值", en: "avg" },
 
   // ── Trends ──
   "trends.last7days": { zh: "近7天", en: "Last 7 Days" },

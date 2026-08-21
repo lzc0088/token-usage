@@ -112,7 +112,7 @@
 <div class="seg-body">
   <div class="bd-header">
     <span class="bd-title">{t("projects.title")}<span class="bd-count">{sorted.length}</span></span>
-    <div class="bd-sort">
+    <div class="bd-sort" role="group" aria-label={t("common.sortBy")}>
       {#each [["latest", t("projects.sortLatest")], ["token", t("projects.sortToken")], ["cost", t("projects.sortCost")], ["name", t("projects.sortName")]] as [k, label] (k)}
         <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
       {/each}

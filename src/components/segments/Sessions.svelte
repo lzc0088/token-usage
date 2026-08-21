@@ -137,7 +137,7 @@
           {/if}
         </span>
       {/if}
-      <div class="rd-sort">
+      <div class="rd-sort" role="group" aria-label={t("common.sortBy")}>
         {#each [["time", t("sessions.sortTime")], ["token", t("sessions.sortToken")]] as [k, label] (k)}
           <button class:on={roundSort === (k as RoundSort)} aria-pressed={roundSort === (k as RoundSort)} onclick={() => (roundSort = k as RoundSort)}>{label}</button>
         {/each}
@@ -161,10 +161,10 @@
               <div class="rd-line2">
                 <span class="rd-time">{r.timestamp ?? ""}</span>
                 <span class="rd-sep">·</span>
-                <span class="rd-turns">{r.turns} turns</span>
+                <span class="rd-turns">{r.turns} {t("sessions.turnsUnit")}</span>
                 {#if r.tools > 0}
                   <span class="rd-sep">·</span>
-                  <span class="rd-tools">{r.tools} tools</span>
+                  <span class="rd-tools">{r.tools} {t("sessions.toolsUnit")}</span>
                 {/if}
                 {#if r.model}
                   <span class="rd-sep">·</span>
@@ -184,7 +184,7 @@
     <!-- ── session list ── -->
     <div class="bd-header">
       <span class="bd-title">{t("sessions.history")}<span class="bd-count">{sorted.length}</span></span>
-      <div class="bd-sort">
+      <div class="bd-sort" role="group" aria-label={t("common.sortBy")}>
         {#each [["latest", t("sessions.sortLatest")], ["token", t("sessions.sortToken")], ["proj", t("sessions.sortProj")], ["tool", t("sessions.sortTool")]] as [k, label] (k)}
           <button class:on={sort === (k as SortKey)} aria-pressed={sort === (k as SortKey)} onclick={() => (sort = k as SortKey)}>{label}</button>
         {/each}
@@ -293,7 +293,7 @@
   .s-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .s-line { display: flex; align-items: baseline; gap: 6px; }
   .s-l1 .s-proj { font-size: 13px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-l2 .s-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; -webkit-user-select: text; }
   .s-l3 { display: flex; align-items: center; gap: 4px; }
   .s-tool-tag { font-size: 10px; white-space: nowrap; }
   .s-tool-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }
