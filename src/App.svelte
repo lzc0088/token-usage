@@ -431,8 +431,18 @@
       {:else if refreshStatus === "fail"}
         <span class="refresh-feedback fail">{t("hero.refreshFail")}</span>
       {/if}
-      <button type="button" class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">↻</button>
-      <button type="button" class="fbtn fbtn-gear" onclick={() => { invoke("open_settings").catch(() => {}); }} title="设置" aria-label="设置">⚙</button>
+      <button type="button" class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="21 3 21 9 15 9" />
+          <path d="M20.5 15a8.5 8.5 0 1 1-2-8.8L21 9" />
+        </svg>
+      </button>
+      <button type="button" class="fbtn fbtn-gear" onclick={() => { invoke("open_settings").catch(() => {}); }} title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2" />
+          <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" />
+        </svg>
+      </button>
     </div>
   </footer>
 </div>
@@ -579,7 +589,8 @@
     min-width: 32px;
     min-height: 32px;
   }
-  .fbtn-gear { font-size: 21px; }
+  .fbtn svg { width: 14px; height: 14px; display: block; }
+  .fbtn-gear svg { width: 15px; height: 15px; }
   .fbtn:hover {
     color: var(--amber);
     border-color: var(--amber-soft);

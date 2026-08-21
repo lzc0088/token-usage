@@ -77,13 +77,27 @@
   });
 
   // Reactive nav labels — language-aware via cfg.language prop read.
+  // Icons are inline lucide-style SVGs (stroke matches the app's icon
+  // language; the old geometric text glyphs ◯▣▢▤◉ read as placeholders).
   function label(zh: string, en: string): string { return cfg.language === "en" ? en : zh; }
+  const NAV_ICONS: Record<string, string> = {
+    // sliders (general settings)
+    general: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.1"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2.1"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="7" cy="17" r="2.1"/></svg>',
+    // panel-left (preview layout)
+    mainview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><line x1="9.5" y1="4" x2="9.5" y2="20"/></svg>',
+    // monitor (window appearance)
+    window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12.5" rx="2"/><line x1="8.5" y1="20" x2="15.5" y2="20"/><line x1="12" y1="16.5" x2="12" y2="20"/></svg>',
+    // database (collection tracking)
+    collection: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.6"/><path d="M4.5 5.5v12.8c0 1.44 3.36 2.6 7.5 2.6s7.5-1.16 7.5-2.6V5.5"/><path d="M4.5 12c0 1.44 3.36 2.6 7.5 2.6s7.5-1.16 7.5-2.6"/></svg>',
+    // user (account & quotas)
+    account: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.2 20c0-3.1 3-5.3 6.8-5.3s6.8 2.2 6.8 5.3"/></svg>',
+  };
   let NAV = $derived([
-    { k: "general", l: label("基本设置", "General"), i: "◯" },
-    { k: "mainview", l: label("预览界面", "Preview"), i: "▣" },
-    { k: "window", l: label("窗口外观", "Appearance"), i: "▢" },
-    { k: "collection", l: label("采集追踪", "Collection"), i: "▤" },
-    { k: "account", l: label("账号额度", "Account"), i: "◉" },
+    { k: "general", l: label("基本设置", "General"), i: NAV_ICONS.general },
+    { k: "mainview", l: label("预览界面", "Preview"), i: NAV_ICONS.mainview },
+    { k: "window", l: label("窗口外观", "Appearance"), i: NAV_ICONS.window },
+    { k: "collection", l: label("采集追踪", "Collection"), i: NAV_ICONS.collection },
+    { k: "account", l: label("账号额度", "Account"), i: NAV_ICONS.account },
   ]);
 
   function onNavClick(target: string): void {
@@ -100,7 +114,7 @@
     <nav class="setnav">
       {#each NAV as n (n.k)}
         <button class="item" class:active={active === n.k} onclick={() => onNavClick(n.k)}>
-          <span class="si">{n.i}</span><span class="sl">{n.l}</span>
+          <span class="si">{@html n.i}</span><span class="sl">{n.l}</span>
         </button>
       {/each}
     </nav>
@@ -177,10 +191,16 @@
     color: var(--amber);
   }
   .item .si {
-    font-size: 16px;
     width: 20px;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     opacity: 0.9;
+  }
+  .item .si :global(svg) {
+    width: 17px;
+    height: 17px;
   }
 
   .setpanel {
