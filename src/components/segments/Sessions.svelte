@@ -246,14 +246,15 @@
         {#if open}
           <div class="s-detail">
             {#if s.project_path}
+              {@const path = s.project_path}
               <div class="det-project">
-                <span class="det-proj-path">{s.project_path}</span>
+                <span class="det-proj-path">{path}</span>
                 <button
                   type="button"
                   class="det-proj-copy"
                   title="复制路径"
                   aria-label="复制路径"
-                  onclick={() => { navigator.clipboard.writeText(s.project_path!).catch(() => {}); }}
+                  onclick={() => { navigator.clipboard.writeText(path).catch(() => {}); }}
                 >📋</button>
               </div>
             {/if}
