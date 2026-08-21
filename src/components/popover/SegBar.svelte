@@ -1,6 +1,9 @@
 <script lang="ts">
   // 7-segment nav bar. Writes the global segment store; App renders the
-  // matching view. Only 总览 is built in T4.1; others fall back to a placeholder.
+  // matching view. Tabs never shrink below their label width (flex: 1 0 auto),
+  // so in wide-label locales (EN) the bar scrolls horizontally instead of
+  // clipping — edge fades + vertical-wheel-to-horizontal scrolling keep that
+  // discoverable (the scrollbar itself is hidden).
   import { getSegment, setSegment } from "../../stores/segment.svelte";
   import type { Config } from "../../lib/api";
 
@@ -55,9 +58,48 @@
   });
 
   let active = $derived(getSegment());
+
+  // ── Horizontal-overflow affordance ──
+  let bar = $state<HTMLDivElement | null>(null);
+  let canL = $state(false);
+  let canR = $state(false);
+
+  function updateFades(): void {
+    const el = bar;
+    if (!el) return;
+    canL = el.scrollLeft > 1;
+    canR = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+  }
+
+  // Re-check after the tab set / language changes and on font settle.
+  $effect(() => {
+    void segments;
+    void config.language;
+    // Tick past render so widths reflect the new labels.
+    const raf = requestAnimationFrame(updateFades);
+    return () => cancelAnimationFrame(raf);
+  });
+
+  function onWheel(e: WheelEvent): void {
+    const el = bar;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    // Translate vertical wheel into horizontal tab scrolling.
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+    updateFades();
+  }
 </script>
 
-<nav class="segbar" data-testid="segbar">
+<div
+  class="segbar"
+  bind:this={bar}
+  onscroll={updateFades}
+  onwheel={onWheel}
+  data-testid="segbar"
+  role="tablist"
+>
   {#each segments as s (s.key)}
     <button
       data-testid={"segment-" + s.key}
@@ -66,7 +108,9 @@
       onclick={() => setSegment(s.key)}
     >{s.label}</button>
   {/each}
-</nav>
+  <span class="fade-l" class:show={canL} aria-hidden="true"></span>
+  <span class="fade-r" class:show={canR} aria-hidden="true"></span>
+</div>
 
 <style>
   .segbar {
@@ -76,12 +120,13 @@
     overflow-x: auto;
     scrollbar-width: none;
     flex-shrink: 0;
+    position: relative;
   }
   .segbar::-webkit-scrollbar {
     display: none;
   }
   .segbar button {
-    flex: 1;
+    flex: 1 0 auto;
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
@@ -89,7 +134,7 @@
     font-family: var(--font-ui);
     font-size: 13px;
     font-weight: 500;
-    padding: 16px 4px 14px;
+    padding: 16px 7px 14px;
     cursor: pointer;
     white-space: nowrap;
     transition: 0.15s;
@@ -104,5 +149,30 @@
     color: var(--amber);
     font-weight: 700;
     border-bottom-color: var(--amber);
+  }
+
+  /* Edge fades — visible only while that side has content cut off. They sit
+   * on the popover background (rgba(var(--app-bg), 1) → transparent). */
+  .fade-l,
+  .fade-r {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 18px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .fade-l {
+    left: 0;
+    background: linear-gradient(to right, rgba(var(--app-bg), 1), transparent);
+  }
+  .fade-r {
+    right: 0;
+    background: linear-gradient(to left, rgba(var(--app-bg), 1), transparent);
+  }
+  .fade-l.show,
+  .fade-r.show {
+    opacity: 1;
   }
 </style>
