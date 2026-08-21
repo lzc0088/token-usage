@@ -18,6 +18,7 @@
   } = $props();
 
   let copied = $state(false);
+  let failed = $state(false);
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   $effect(() => {
@@ -28,10 +29,14 @@
     try {
       await navigator.clipboard.writeText(value);
       copied = true;
+      failed = false;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => { copied = false; }, 2000);
     } catch {
-      /* clipboard write failed — keep the plain icon, no feedback */
+      failed = true;
+      copied = false;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { failed = false; }, 2000);
     }
   }
 </script>
@@ -40,6 +45,7 @@
   type="button"
   class="cp-btn"
   class:copied
+  class:failed
   class:md={size === "md"}
   onclick={(e) => { e.stopPropagation(); void copy(); }}
   title={title || t("common.copy")}
@@ -50,6 +56,12 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M20 6 9 17l-5-5" />
+    </svg>
+  {:else if failed}
+    <!-- x mark -->
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   {:else}
     <!-- clipboard -->
@@ -96,6 +108,11 @@
     color: var(--lime);
     border-color: var(--lime);
     background: var(--lime-bg);
+  }
+  .cp-btn.failed {
+    color: var(--coral);
+    border-color: var(--coral);
+    background: var(--coral-bg);
   }
   .cp-btn svg {
     width: 12px;

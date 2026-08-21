@@ -725,4 +725,20 @@
     text-align: right;
     flex-shrink: 0;
   }
+
+  /* ── cookie editor region select ── */
+  :global(.qregion-select) {
+    font-size: 10.5px;
+    font-family: inherit;
+    background: var(--glass-2);
+    border: 1px solid var(--border-dim);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  :global(.qregion-select:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
