@@ -243,7 +243,7 @@
           </div>
         </div>
         {#if open}
-          <div class="s-detail">
+          <div class="bd-detail">
             {#if s.project_path}
               {@const path = s.project_path}
               <div class="det-project">
@@ -287,14 +287,6 @@
 <style>
   .seg-body { display: flex; flex-direction: column; }
 
-  .bd-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 12px; }
-  .bd-title { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }
-  .bd-count { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-bg); padding: 1px 8px; border-radius: 10px; line-height: 1.4; }
-  .bd-sort { display: inline-flex; gap: 1px; background: var(--glass-3); border-radius: 8px; padding: 2px; }
-  .bd-sort button { background: transparent; border: none; color: var(--text-faint); font-family: var(--font-ui); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
-  .bd-sort button:hover { color: var(--text-dim); }
-  .bd-sort button.on { background: var(--amber); color: var(--badge-text); }
-
   /* ── list row ── */
   .srow { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; padding: 10px 16px; cursor: pointer; background: none; border: none; font-family: inherit; text-align: left; width: 100%; border-bottom: 1px dashed var(--border-dim); }
   .srow:hover { background: rgba(232,176,75,.04); }
@@ -327,8 +319,7 @@
   }
   .s-arr:hover { color: var(--amber); }
 
-  /* ── inline expand ── */
-  .s-detail { padding: 8px 24px 10px 24px; border-bottom: 1px dashed var(--border-dim); background: var(--overlay-dark); }
+  /* ── inline expand ── (container uses the shared .bd-detail from breakdown.css) */
   .det-project {
     display: flex;
     align-items: center;
@@ -355,10 +346,6 @@
   .det-model-cost { font-family: var(--font-mono); font-size: 10px; color: var(--amber); }
   .det-comp-row { display: grid; grid-template-columns: 1fr 100px 50px 56px; align-items: center; gap: 8px; padding: 2px 0; }
   .det-bar-label { font-size: 10px; color: var(--text-faint); text-align: left; display: flex; align-items: center; gap: 4px; }
-  /* Per-segment overrides on the shared .det-* base (breakdown.css) */
-  .det-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-  .det-bar { height: 3px; border-radius: 1.5px; }
-  .det-bar i { border-radius: 1.5px; }
   .pct-u { font-size: 7px; margin-left: 1px; }
 
   /* ── detail page ── */

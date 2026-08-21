@@ -150,7 +150,7 @@
         </div>
       </button>
       {#if open}
-        <div class="p-detail">
+        <div class="bd-detail">
           {#if p.full_path}
             <div class="det-row">
               <span>{t("projects.path")}</span>
@@ -219,47 +219,6 @@
     width: 100%;
   }
 
-  .bd-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px 12px;
-  }
-  .bd-title {
-    font-size: 13px; color: var(--text-dim);
-    display: flex; align-items: center; gap: 7px;
-  }
-  .bd-count {
-    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
-    color: var(--amber); background: var(--amber-bg);
-    padding: 1px 8px; border-radius: 10px;
-    line-height: 1.4;
-  }
-  .bd-sort {
-    display: inline-flex;
-    gap: 1px;
-    background: var(--glass-3);
-    border-radius: 8px;
-    padding: 2px;
-  }
-  .bd-sort button {
-    background: transparent;
-    border: none;
-    color: var(--text-faint);
-    font-family: var(--font-ui);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .bd-sort button:hover {
-    color: var(--text-dim);
-  }
-  .bd-sort button.on {
-    background: var(--amber);
-    color: var(--badge-text);
-  }
 
   .prow {
     display: grid;
@@ -366,15 +325,6 @@
     text-align: right;
   }
 
-  /* expand detail — matches BreakdownList */
-  .p-detail {
-    padding: 8px 24px 10px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    border-bottom: 1px solid var(--border-dim);
-    background: var(--overlay-dark);
-  }
   .det-row > span:first-child {
     flex-shrink: 0;
     white-space: nowrap;
@@ -401,14 +351,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     direction: rtl; /* ellipsis on LEFT */
-  }
-  /* Per-segment overrides on the shared .det-* base (breakdown.css) */
-  .det-bar {
-    height: 6px;
-    border-radius: 3px;
-  }
-  .det-bar i {
-    border-radius: 3px;
   }
 
   .load-more-row {
