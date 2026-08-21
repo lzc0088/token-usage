@@ -179,11 +179,17 @@ pub fn set_drag_suspended(
     }
     set.remove(&label);
     drop(set);
-    let main_baseline = state
-        .load_config()
-        .map(|c| c.window_display_mode != "fixed")
-        .unwrap_or(true);
-    let baseline = drag_baseline(&label, main_baseline);
+    // Only "main" has a config-dependent baseline; skip the DB read for other
+    // labels — row hover enter/leave hits this path frequently.
+    let baseline = if label == "main" {
+        let main_baseline = state
+            .load_config()
+            .map(|c| c.window_display_mode != "fixed")
+            .unwrap_or(true);
+        drag_baseline(&label, main_baseline)
+    } else {
+        drag_baseline(&label, /* main_baseline unused */ true)
+    };
     crate::ui::window::set_window_draggable(&app, &label, baseline);
     Ok(())
 }

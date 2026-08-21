@@ -19,9 +19,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 //     row (e.g. the enable toggle) keep working for short presses.
 //   - Past the threshold, pointer capture is set on the row, a translucent
 //     ghost follows the pointer, and the source row dims. Native window
-//     dragging (`MovableByWindowBackground`) is also suspended via the
-//     `set_drag_suspended` Tauri command so the OS doesn't try to move the
-//     whole window while we're reordering a row.
+//     dragging (`MovableByWindowBackground`) is suspended via the
+//     `set_drag_suspended` Tauri command — critically on HOVER (pointerenter),
+//     not on pointerdown: WKWebView runs this JS in a separate process, so an
+//     IPC issued at pointerdown lands after AppKit has already claimed the
+//     press+move as a window drag. Suspending while the cursor merely hovers
+//     the row removes the race entirely; pointerleave resumes.
 //   - On pointerup, the target index is the count of rows (in current DOM
 //     order, including self) whose vertical midpoint is strictly below the
 //     pointer — clamped to `[0, n-1]`. The parent then applies the reorder
@@ -149,7 +152,17 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
       ghost = null;
     }
     node.classList.remove("row-drag-source");
-    resumeWindowDrag();
+    // NOTE: window-drag resume is deliberately NOT here — callers decide
+    // based on where the pointer ended up (see endDrag / onPointerLeave).
+  }
+
+  /** True while the given point sits inside the row's box. Used to decide
+   *  whether a resume is safe (pointer left → resume now) or whether the
+   *  hover suspend should stand (pointer still over the row → the upcoming
+   *  pointerleave will resume). */
+  function isInsideRow(x: number, y: number): boolean {
+    const r = node.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }
 
   function teardownListeners(): void {
@@ -179,10 +192,10 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
       if (t && t.closest && t.closest(options.excludeSelector)) return;
     }
     startTracking(e);
-    // Suspend OS-level window drag IMMEDIATELY (not after the threshold) so
-    // the OS doesn't have a chance to interpret a sub-threshold movement as a
-    // window drag. The CSS `app-region: no-drag` on the row is the primary
-    // defense; this IPC is belt-and-suspenders for non-CSS or future callers.
+    // Belt-and-suspenders: the hover suspend (pointerenter) has normally
+    // already turned window dragging off by now; re-issuing costs nothing
+    // (the Rust side dedupes) and covers pointers that press down without a
+    // prior enter (e.g. touch).
     suspendWindowDrag();
   }
 
@@ -214,34 +227,37 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
   }
 
   function endDrag(e: PointerEvent, commit: boolean): void {
-    if (!dragging) {
-      // Short press — no drag, just a click. The suspend in onPointerDown
-      // must be released so the window can be dragged again.
-      teardownListeners();
-      capturedPointerId = null;
-      resumeWindowDrag();
-      return;
-    }
-    const myIdx = currentIndex();
-    if (commit && myIdx >= 0) {
-      const target = computeTargetIndex(e.clientY);
-      if (target !== myIdx) {
-        options.onReorder(target);
+    if (dragging) {
+      const myIdx = currentIndex();
+      if (commit && myIdx >= 0) {
+        const target = computeTargetIndex(e.clientY);
+        if (target !== myIdx) {
+          options.onReorder(target);
+        }
+      }
+      try {
+        (e.target as Element).releasePointerCapture?.(e.pointerId);
+      } catch {
+        // ignore
       }
     }
     cleanupGhost();
-    try {
-      (e.target as Element).releasePointerCapture?.(e.pointerId);
-    } catch {
-      // ignore
-    }
     teardownListeners();
     capturedPointerId = null;
     // Defer clearing suppressClick so the click event (which fires after
     // pointerup) sees the flag and is cancelled.
-    setTimeout(() => {
-      suppressClick = false;
-    }, 0);
+    if (dragging) {
+      setTimeout(() => {
+        suppressClick = false;
+      }, 0);
+    }
+    // Resume window dragging only when the pointer ended OUTSIDE the row;
+    // if it's still over the row the hover suspend stands and the eventual
+    // pointerleave resumes — resuming here would re-arm the AppKit race
+    // for the very next press on this row.
+    if (!isInsideRow(e.clientX, e.clientY)) {
+      resumeWindowDrag();
+    }
   }
 
   function onPointerUp(e: PointerEvent): void {
@@ -250,28 +266,37 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
 
   function onKeyDown(e: KeyboardEvent): void {
     if (e.key === "Escape" && capturedPointerId !== null) {
-      // Dragging or just pressed — either way release the suspend.
-      const wasDragging = dragging;
+      // Abort. The pointer is (almost certainly) still over the row, so the
+      // hover suspend stands — pointerleave will resume window dragging.
       cleanupGhost();
       teardownListeners();
       capturedPointerId = null;
-      if (!wasDragging) {
-        // The drag never started; the suspend from onPointerDown must still
-        // be released.
-        resumeWindowDrag();
-      }
     }
   }
 
   function onWindowBlur(): void {
     if (capturedPointerId !== null) {
-      const wasDragging = dragging;
       cleanupGhost();
       teardownListeners();
       capturedPointerId = null;
-      if (!wasDragging) {
-        resumeWindowDrag();
-      }
+    }
+    // The window lost focus (possibly hidden mid-hover). A lingering hover
+    // suspend would keep dragging off after the next show, so resume now —
+    // the Rust side no-ops when nothing is suspended.
+    resumeWindowDrag();
+  }
+
+  // ── hover-scoped window-drag suspension ──
+  // Suspending at pointerdown loses the race against AppKit's background
+  // drag (WKWebView JS is a process hop away); suspending on hover wins by
+  // a wide margin because no button is involved yet.
+  function onPointerEnter(): void {
+    suspendWindowDrag();
+  }
+  function onPointerLeave(): void {
+    // Only resume when no press is active — a press's own end path decides.
+    if (capturedPointerId === null) {
+      resumeWindowDrag();
     }
   }
 
@@ -284,6 +309,8 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
   }
 
   node.addEventListener("pointerdown", onPointerDown);
+  node.addEventListener("pointerenter", onPointerEnter);
+  node.addEventListener("pointerleave", onPointerLeave);
   // Suppress the post-drop click in the capture phase so it doesn't reach
   // inner buttons (which would toggle on drop).
   node.addEventListener("click", onClickCapture, true);
@@ -295,7 +322,11 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
     destroy(): void {
       teardownListeners();
       cleanupGhost();
+      // Node leaving the DOM never sees a pointerleave — always resume.
+      resumeWindowDrag();
       node.removeEventListener("pointerdown", onPointerDown);
+      node.removeEventListener("pointerenter", onPointerEnter);
+      node.removeEventListener("pointerleave", onPointerLeave);
       node.removeEventListener("click", onClickCapture, true);
     },
   };

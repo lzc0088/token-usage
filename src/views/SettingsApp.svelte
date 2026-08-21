@@ -48,10 +48,11 @@
     return initAppearanceListeners();
   });
 
-  // Settings window is intentionally fixed (not draggable) so that row-drag
-  // in the Account / Collection pages works reliably without conflicting
-  // with OS-level window drag gestures. The main popover drags via
-  // MovableByWindowBackground; the settings window doesn't.
+  // Window dragging: the settings window is background-movable (set once at
+  // startup in Rust). Row-drag in Account / Collection / MainView suspends
+  // that while the cursor hovers a sortable row (see lib/actions/rowDrag.ts)
+  // so OS-level and row-level drags never race; everywhere else the
+  // background stays draggable.
 
 
   // On focus: reload config (picks up tray-menu changes) and consume the
