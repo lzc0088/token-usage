@@ -8,6 +8,8 @@ const DICT: Record<string, Record<string, string>> = {
   "common.loadFailed": { zh: "加载失败，请重试", en: "Failed to load, please retry" },
   "common.goSettings": { zh: "去设置", en: "Open settings" },
   "common.back": { zh: "返回", en: "Back" },
+  "common.copy": { zh: "复制", en: "Copy" },
+  "common.copied": { zh: "已复制", en: "Copied" },
 
   // ── Popover shell ──
   "hero.todayTokens": { zh: "今日 Token", en: "Today Tokens" },
@@ -67,6 +69,7 @@ const DICT: Record<string, Record<string, string>> = {
   "projects.sortCost": { zh: "成本", en: "Cost" },
   "projects.sortName": { zh: "名称", en: "Name" },
   "projects.path": { zh: "项目路径", en: "Project Path" },
+  "projects.copyPath": { zh: "复制完整路径", en: "Copy full path" },
   "projects.lastActive": { zh: "最近活跃", en: "Last Active" },
   "projects.loadMore": { zh: "加载更多项目", en: "Load More" },
   "projects.loading": { zh: "加载中…", en: "Loading…" },

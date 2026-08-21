@@ -6,6 +6,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import CopyButton from "../common/CopyButton.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
   import { periodValue } from "../../stores/period.svelte";
@@ -15,7 +16,6 @@
 
   let projects = $state<ProjectVm[] | null>(null);
   let expanded = $state<string | null>(null);
-  let copyFeedback = $state<string | null>(null);
   let loading = $state(true);
   // Virtual pagination: the full project list is fetched in one request
   // (the backend snapshot path already holds it in memory), then sorted
@@ -26,32 +26,12 @@
   const MAX_PROJECTS = 500; // backend clamps limit to [1, 500]
   let renderCount = $state(RENDER_PAGE);
 
-  // Timer cleanup
-  const timeouts = new Set<number>();
-  $effect(() => {
-    return () => { for (const id of timeouts) clearTimeout(id); };
-  });
-
   // Sort key: token | cost | name | latest
   type SortKey = "token" | "cost" | "name" | "latest";
   let sort = $state<SortKey>("latest");
 
   function toggleExpand(key: string): void {
     expanded = expanded === key ? null : key;
-  }
-
-  /** Copy full project path to clipboard */
-  async function copyPath(path: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(path);
-      copyFeedback = path;
-      const id = window.setTimeout(() => {
-        copyFeedback = null;
-      }, 2000);
-      timeouts.add(id);
-    } catch (err) {
-      /* clipboard write failed */
-    }
   }
 
   /** Widen the render window — no network call, just shows more of the
@@ -176,18 +156,7 @@
               <span>{t("projects.path")}</span>
               <div class="det-val-row">
                 <span class="det-val ellipsis-left" title={p.full_path}>{ellipsisLeft(p.full_path)}</span>
-                <button
-                  class="copy-btn"
-                  onclick={() => copyPath(p.full_path!)}
-                  title="复制完整路径"
-                  aria-label="复制项目路径"
-                >
-                  {#if copyFeedback === p.full_path}
-                    ✓
-                  {:else}
-                    📋
-                  {/if}
-                </button>
+                <CopyButton value={p.full_path} title={t("projects.copyPath")} />
               </div>
             </div>
           {/if}
@@ -424,31 +393,6 @@
     text-align: right;
     flex-shrink: 1;
     min-width: 0;
-  }
-  .copy-btn {
-    flex-shrink: 0;
-    background: var(--surface-tint-strong);
-    border: 1px solid var(--border-dim);
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-size: 11px;
-    cursor: pointer;
-    color: var(--text-dim);
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    min-width: 24px;
-    height: 20px;
-  }
-  .copy-btn:hover {
-    background: var(--amber-bg-strong);
-    border-color: var(--amber);
-    color: var(--amber);
-  }
-  .copy-btn:active {
-    transform: scale(0.95);
   }
   .ellipsis-left {
     flex: 1;

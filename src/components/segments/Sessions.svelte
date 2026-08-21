@@ -6,6 +6,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
+  import CopyButton from "../common/CopyButton.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
   import { COLLECTION_UPDATED } from "../../lib/events";
@@ -246,14 +247,8 @@
             {#if s.project_path}
               {@const path = s.project_path}
               <div class="det-project">
-                <span class="det-proj-path">{path}</span>
-                <button
-                  type="button"
-                  class="det-proj-copy"
-                  title="复制路径"
-                  aria-label="复制路径"
-                  onclick={() => { navigator.clipboard.writeText(path).catch(() => {}); }}
-                >📋</button>
+                <span class="det-proj-path" title={path}>{path}</span>
+                <CopyButton value={path} />
               </div>
             {/if}
             {#if detail === null}
@@ -352,18 +347,6 @@
     flex: 1;
     min-width: 0;
   }
-  .det-proj-copy {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 10px;
-    opacity: 0.5;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-    padding: 0;
-    line-height: 1;
-  }
-  .det-proj-copy:hover { opacity: 1; }
   .det-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-dim); }
   .det-entry:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .det-model-row { display: flex; align-items: center; gap: 3px; padding: 2px 0; }
