@@ -244,12 +244,13 @@
 </div>
 
 <style>
-  .ov-body { padding: 14px 18px; display: flex; flex-direction: column; }
+  .ov-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
   .module {
-    margin-bottom: 14px; padding-bottom: 14px;
-    border-bottom: 1px solid var(--border-dim);
+    padding: 10px 12px;
+    background: var(--surface-tint);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
   }
-  .module:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .sec-h {
     font-size: 13px; font-weight: 700;
     color: var(--text);

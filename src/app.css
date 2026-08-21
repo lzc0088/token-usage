@@ -12,7 +12,8 @@
 
   --text: #f2ede1;
   --text-dim: #a39c8c;
-  --text-faint: #7b755f;
+  /* ≥4.5:1 on --bg (AA) at 9-10px caption sizes. Previous #7b755f was ≈3.6:1. */
+  --text-faint: #8a8470;
 
   --amber: #e8b04b;
   --amber-soft: #c9923a;

@@ -87,6 +87,10 @@
     gap: 3px;
     user-select: text;
     -webkit-user-select: text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .big-unit {
     font-size: 12px;

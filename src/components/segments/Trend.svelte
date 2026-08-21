@@ -289,7 +289,7 @@
   .trend-area { fill: rgba(232, 176, 75, 0.1); }
   .trend-line { fill: none; stroke: #e8b04b; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   .avg-line   { stroke: #7fd1d3; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.7; }
-  .axis-line  { stroke: #6b6453; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5; }
+  .axis-line  { stroke: #8a8470; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5; }
   .node       { fill: #e8b04b; stroke: #0f0e0b; stroke-width: 1; vector-effect: non-scaling-stroke; transition: r 0.12s; cursor: pointer; }
   .node.active{ fill: #b4e34c; }
   /* Light theme — same literals as the token values in app.css (kept as
