@@ -13,29 +13,16 @@
   let data = $state<Trends | null>(null);
   let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
+  let chartW = $state(320);
 
   $effect(() => {
     const p = periodValue();
     let cancelled = false;
     const fetch = async () => {
-      const t0 = performance.now();
-      let done = false;
-      // Plain watchdog — does NOT touch invoke (no AbortSignal → no CORS issue).
-      // If get_trends never resolves/rejects, this is the only clue.
-      const wd = window.setTimeout(() => {
-        if (!done) console.error("[Trend] get_trends HUNG > 10s (no resolve/reject)");
-      }, 10000);
-      console.info("[Trend] invoke get_trends, period:", p);
       try {
         const t = await api.getTrends(p);
-        done = true;
-        window.clearTimeout(wd);
-        console.info("[Trend] get_trends OK in", Math.round(performance.now() - t0), "ms, points:", t.points.length);
         if (!cancelled) { data = t; loadAttempted = true; }
-      } catch (e) {
-        done = true;
-        window.clearTimeout(wd);
-        console.error("[Trend] get_trends FAILED:", e);
+      } catch {
         if (!cancelled) loadAttempted = true;
       }
     };
@@ -57,8 +44,8 @@
   );
 
   // ── chart geometry (SVG viewBox) ────────────────────────────────────
-  const W = 320;
   const H = 150;
+  const W = $derived(chartW || 320);
   const PAD_L = 4;
   const PAD_R = 4;
   const PAD_T = 8;
@@ -151,7 +138,7 @@
 
     <!-- line chart with axes -->
     <div class="chart-grid">
-      <div class="plot">
+      <div class="plot" bind:clientWidth={chartW}>
         {#if hoverIdx !== null && points[hoverIdx]}
           {@const pt = points[hoverIdx]}
           <div class="tip" style="left:{tipLeft.toFixed(1)}%">
@@ -313,6 +300,7 @@
   :global([data-theme="light"]) .axis-line  { stroke: #9a9384; }
   :global([data-theme="light"]) .node       { fill: #c98a1e; stroke: #f5f3ef; }
   :global([data-theme="light"]) .node.active{ fill: #6ba81f; }
+  :global([data-theme="light"]) .tip { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
   .x-axis {
     position: relative;
     height: 16px;

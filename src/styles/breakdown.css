@@ -125,30 +125,3 @@
   border-top: 1px solid var(--border);
   margin: 8px 0;
 }
-
-/* ── Shared outline button ── */
-.btn-outline {
-  background: var(--surface-tint-strong);
-  border: 1px solid var(--border-dim);
-  color: var(--text-dim);
-  padding: 5px 12px;
-  border-radius: 7px;
-  font-family: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.btn-outline:hover:not(:disabled) {
-  border-color: var(--amber);
-  color: var(--amber);
-  background: rgba(232, 176, 75, 0.08);
-}
-.btn-outline:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.btn-outline:disabled:hover {
-  border-color: var(--border-dim);
-  color: var(--text-dim);
-  background: var(--surface-tint-strong);
-}
