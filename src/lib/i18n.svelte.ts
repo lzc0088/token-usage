@@ -70,6 +70,7 @@ const DICT: Record<string, Record<string, string>> = {
   "projects.sortName": { zh: "名称", en: "Name" },
   "projects.path": { zh: "项目路径", en: "Project Path" },
   "projects.copyPath": { zh: "复制完整路径", en: "Copy full path" },
+  "overview.quotaDetail": { zh: "查看额度详情", en: "View quota details" },
   "projects.lastActive": { zh: "最近活跃", en: "Last Active" },
   "projects.loadMore": { zh: "加载更多项目", en: "Load More" },
   "projects.loading": { zh: "加载中…", en: "Loading…" },

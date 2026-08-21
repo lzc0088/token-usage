@@ -8,7 +8,7 @@
   import { formatCost, splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
-  import QuotaCard from "../common/QuotaCard.svelte";
+  import QuotaCardCompact from "../common/QuotaCardCompact.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
   import { periodValue } from "../../stores/period.svelte";
@@ -31,7 +31,6 @@
   let toolB = $state<Breakdown | null>(null);
   let modelB = $state<Breakdown | null>(null);
   let quotas = $state<Quota[]>([]);
-  let nowMs = $state(Date.now());
 
   // Derive quota filter/display state from the parent config prop so it stays
   // in sync with App.svelte's live reload (no separate api.getConfig() needed).
@@ -41,7 +40,6 @@
 
   let overviewQuotaVendors = $derived(config?.overview_quota_vendors ?? null);
   let activeVendors = $derived(config?.quota_active_vendors ?? null);
-  let progressMode = $derived((config?.quota_progress_mode as "用量" | "剩余") ?? "剩余");
 
   // Generation counter prevents a slow initial fetch from overwriting fresher
   // quota data delivered by a later `quota:updated` event re-fetch.
@@ -70,10 +68,6 @@
       }
     })();
     return () => { cancelled = true; };
-  });
-  $effect(() => {
-    const t = setInterval(() => { nowMs = Date.now(); }, 30_000);
-    return () => clearInterval(t);
   });
 
   // Live-update quotas when the background scheduler finishes a refresh cycle.
@@ -225,7 +219,7 @@
         {#if visibleQuotas.length > 0}
           <div class="qcard-list">
             {#each visibleQuotas as q (q.vendor)}
-              <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate} />
+              <QuotaCardCompact quota={q} onOpen={() => setSegment("limit")} />
             {/each}
           </div>
         {:else}
