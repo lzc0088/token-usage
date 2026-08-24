@@ -787,7 +787,6 @@
 
   /* section-title override: larger + flex layout for stat badge */
   .section-title {
-    font-size: 15px;
     margin-bottom: 2px;
     display: flex;
     align-items: center;

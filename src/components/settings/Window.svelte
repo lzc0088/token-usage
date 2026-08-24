@@ -208,11 +208,11 @@
   </div>
 
   <!-- ══ 字体 ══ -->
-  <div class="section-title">{t("window.fontSize")}</div>
+  <div class="section-title">{t("window.fontSection")}</div>
   <div class="section-box">
     <div class="box-row">
       <div class="lab">{t('window.fontSize')}<div class="hint">{t('window.fontSizeHint')}</div></div>
-      <div class="seg">
+      <div class="seg seg-equal">
         {#each FONT_SIZE_OPTIONS as opt (opt.value)}
           <button
             type="button"
@@ -405,6 +405,7 @@
     transition: all 0.15s;
     white-space: nowrap;
   }
+  .seg-equal .seg-btn { flex: 1; text-align: center; padding: 0 4px; }
   .seg-btn:hover { color: var(--text); }
   .seg-btn.on {
     background: var(--amber);

@@ -518,7 +518,6 @@
 
   /* ── section title (override shared) ── */
   .section-title {
-    font-size: 15px;
     margin-top: 20px;
     margin-bottom: 8px;
   }

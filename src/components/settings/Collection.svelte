@@ -307,7 +307,6 @@
 
   .btn-w { min-width: 150px; }
   .section-title {
-    font-size: 15px;
     margin-top: 20px;
     margin-bottom: 8px;
     display: flex;
