@@ -17,8 +17,22 @@
     { value: "system", label: t("window.themeSystem") },
   ]));
 
+  const FONT_SIZE_OPTIONS: Array<{ value: NonNullable<Config["font_size"]>; label: string }> = $derived(Array.from([
+    { value: "small", label: t("window.fontSmall") },
+    { value: "medium", label: t("window.fontMedium") },
+    { value: "large", label: t("window.fontLarge") },
+  ]));
+
+  const FONT_FAMILY_OPTIONS: Array<{ value: NonNullable<Config["font_family"]>; label: string }> = $derived(Array.from([
+    { value: "app", label: t("window.fontApp") },
+    { value: "system", label: t("window.fontSystem") },
+    { value: "mono", label: t("window.fontMono") },
+  ]));
+
   const activeTheme = $derived(config.theme || "system");
   const activeAnimation = $derived(config.animation || "system");
+  const activeFontSize = $derived(config.font_size || "medium");
+  const activeFontFamily = $derived(config.font_family || "app");
 
   // Display-mode options: "fixed" is macOS/Linux only.
   const DISPLAY_MODE_OPTIONS = $derived.by(() => {
@@ -190,6 +204,41 @@
         ]}
         onchange={(v) => onUpdate({ language: v as Config["language"] })}
       />
+    </div>
+  </div>
+
+  <!-- ══ 字体 ══ -->
+  <div class="section-title">{t("window.fontSize")}</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">{t('window.fontSize')}<div class="hint">{t('window.fontSizeHint')}</div></div>
+      <div class="seg">
+        {#each FONT_SIZE_OPTIONS as opt (opt.value)}
+          <button
+            type="button"
+            class="seg-btn"
+            class:on={activeFontSize === opt.value}
+            onclick={() => onUpdate({ font_size: opt.value })}
+          >
+            {opt.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+    <div class="box-row">
+      <div class="lab">{t('window.fontFamily')}<div class="hint">{t('window.fontFamilyHint')}</div></div>
+      <div class="seg">
+        {#each FONT_FAMILY_OPTIONS as opt (opt.value)}
+          <button
+            type="button"
+            class="seg-btn"
+            class:on={activeFontFamily === opt.value}
+            onclick={() => onUpdate({ font_family: opt.value })}
+          >
+            {opt.label}
+          </button>
+        {/each}
+      </div>
     </div>
   </div>
 
@@ -401,4 +450,5 @@
     padding: 1px 6px;
     line-height: 1.4;
   }
+
 </style>

@@ -77,6 +77,13 @@
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: "Fraunces", serif;
 
+  /* Base font size — overridden by appearance.ts font_size setting. */
+  --font-size-base: 15px;
+
+  /* Accent color — overridden by appearance.ts theme_preset / accent_color. */
+  --accent: #e8b04b;
+  --accent-rgb: 232, 176, 75;
+
   /* Hint native form controls (select dropdown, etc.) to render with dark
      colors — critical on Windows WebView2 where the OS popup otherwise uses
      a white background regardless of the page theme. */
@@ -137,6 +144,10 @@
 
   --sidebar-bg: rgba(0, 0, 0, 0.04);
 
+  /* Light theme accent defaults — overridden by appearance.ts presets. */
+  --accent: #c98a1e;
+  --accent-rgb: 201, 138, 30;
+
   color-scheme: light;
 }
 
@@ -181,7 +192,7 @@ body {
   background: rgba(var(--app-bg), 1);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: var(--font-size-base, 15px);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   /* Clip the entire webview so all four corners are rounded. */

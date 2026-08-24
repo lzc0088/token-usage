@@ -3,6 +3,80 @@
 
 import type { Currency } from "./api";
 
+// ── Locale-aware compact formatting ────────────────────────────────────────
+
+export type Locale = "zh" | "en" | "ja" | "ko";
+
+/**
+ * Format a number with locale-aware compact units.
+ * - Western (en): 1.2K, 3.4M, 5.6B
+ * - Chinese (zh): 1.2万, 3.4亿
+ * - Japanese (ja): 1.2万, 3.4億
+ * - Korean (ko): 1.2만, 3.4억
+ */
+export function formatCompact(value: number, locale: Locale = "en"): string {
+  if (!Number.isFinite(value)) return "0";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  if (locale === "zh") {
+    if (abs >= 1_0000_0000) return `${sign}${trim(value / 1_0000_0000)}亿`;
+    if (abs >= 1_0000) return `${sign}${trim(value / 1_0000)}万`;
+    return `${sign}${Math.round(abs).toLocaleString("en-US")}`;
+  }
+
+  if (locale === "ja") {
+    if (abs >= 1_0000_0000) return `${sign}${trim(value / 1_0000_0000)}億`;
+    if (abs >= 1_0000) return `${sign}${trim(value / 1_0000)}万`;
+    return `${sign}${Math.round(abs).toLocaleString("en-US")}`;
+  }
+
+  if (locale === "ko") {
+    if (abs >= 1_0000_0000) return `${sign}${trim(value / 1_0000_0000)}억`;
+    if (abs >= 1_0000) return `${sign}${trim(value / 1_0000)}만`;
+    return `${sign}${Math.round(abs).toLocaleString("en-US")}`;
+  }
+
+  // Western (default)
+  if (abs >= 1_000_000_000) return `${sign}${trim(value / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${sign}${trim(value / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${trim(value / 1_000)}K`;
+  return `${sign}${Math.round(abs)}`;
+}
+
+/**
+ * Split a number into value and unit for locale-aware display.
+ * Returns { value: "1.2", unit: "万" } for Chinese or { value: "1.2", unit: "M" } for English.
+ */
+export function splitCompact(value: number, locale: Locale = "en", decimals = 2): { value: string; unit: string } {
+  if (!Number.isFinite(value)) return { value: "0", unit: "" };
+  const abs = Math.abs(value);
+
+  if (locale === "zh") {
+    if (abs >= 1_0000_0000) return { value: trim(value / 1_0000_0000, decimals), unit: "亿" };
+    if (abs >= 1_0000) return { value: trim(value / 1_0000, decimals), unit: "万" };
+    return { value: String(Math.round(abs)), unit: "" };
+  }
+
+  if (locale === "ja") {
+    if (abs >= 1_0000_0000) return { value: trim(value / 1_0000_0000, decimals), unit: "億" };
+    if (abs >= 1_0000) return { value: trim(value / 1_0000, decimals), unit: "万" };
+    return { value: String(Math.round(abs)), unit: "" };
+  }
+
+  if (locale === "ko") {
+    if (abs >= 1_0000_0000) return { value: trim(value / 1_0000_0000, decimals), unit: "억" };
+    if (abs >= 1_0000) return { value: trim(value / 1_0000, decimals), unit: "만" };
+    return { value: String(Math.round(abs)), unit: "" };
+  }
+
+  // Western
+  if (abs >= 1_000_000_000) return { value: trim(value / 1_000_000_000, decimals), unit: "B" };
+  if (abs >= 1_000_000) return { value: trim(value / 1_000_000, decimals), unit: "M" };
+  if (abs >= 1_000) return { value: trim(value / 1_000, decimals), unit: "K" };
+  return { value: String(Math.round(abs)), unit: "" };
+}
+
 /** Compact token count: 1.84M / 184 万 / 1,840,000 depending on style. */
 export function formatTokens(n: number, style: TokenStyle = "compact"): string {
   if (!Number.isFinite(n)) return "0";

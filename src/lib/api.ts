@@ -234,6 +234,10 @@ export interface Config {
   theme?: "dark" | "light" | "system";
   /** Animation preference: "system" | "on" | "off". */
   animation?: "system" | "on" | "off";
+  /** Font size preset: "small" (13px) | "medium" (15px) | "large" (17px). */
+  font_size?: "small" | "medium" | "large";
+  /** Font family preset: "app" (Hanken Grotesk) | "system" (system-ui) | "mono" (JetBrains Mono). */
+  font_family?: "app" | "system" | "mono";
   /** Data refresh interval. */
   refresh_interval?: "manual" | "30s" | "60s" | "300s";
   /** Collection mode: "live" (file-watch realtime) | "smart" (10min interval, activity-gated)
@@ -429,4 +433,13 @@ export const api = {
 
   /** Return the current OS: "macos" | "windows" | "linux". */
   getPlatform: () => invoke<string>("get_platform"),
+
+  /** Export usage data as JSON string. */
+  exportJson: () => invoke<string>("export_json"),
+
+  /** Export usage data as CSV string (snapshot breakdown). */
+  exportCsv: () => invoke<string>("export_csv"),
+
+  /** Copy text to clipboard. */
+  copyToClipboard: (text: string) => invoke<void>("copy_to_clipboard", { text }),
 };

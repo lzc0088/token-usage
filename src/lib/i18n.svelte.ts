@@ -272,6 +272,32 @@ const DICT: Record<string, Record<string, string>> = {
   "window.trayTotalBoth": { zh: "累计 Tokens + 成本", en: "Total Tokens + Cost" },
   "window.trayIconOnly": { zh: "仅显示图标", en: "Icon Only" },
   "window.trayQuotaMin": { zh: "最紧额度 %", en: "Tightest Quota %" },
+  "window.fontSize": { zh: "大小", en: "Size" },
+  "window.fontSizeHint": { zh: "界面文字的基础大小", en: "Base text size for the interface" },
+  "window.fontSmall": { zh: "小", en: "Small" },
+  "window.fontMedium": { zh: "中", en: "Medium" },
+  "window.fontLarge": { zh: "大", en: "Large" },
+  "window.fontFamily": { zh: "字体", en: "Font" },
+  "window.fontFamilyHint": { zh: "界面字体风格", en: "Interface font style" },
+  "window.fontApp": { zh: "默认", en: "Default" },
+  "window.fontSystem": { zh: "系统", en: "System" },
+  "window.fontMono": { zh: "等宽", en: "Mono" },
+
+  // ── Export ──
+  "export.title": { zh: "导出", en: "Export" },
+  "export.desc": { zh: "导出用量数据为 JSON 或 CSV 格式", en: "Export usage data as JSON or CSV" },
+  "export.json": { zh: "导出 JSON", en: "Export JSON" },
+  "export.csv": { zh: "导出 CSV", en: "Export CSV" },
+  "export.copied": { zh: "已复制到剪贴板", en: "Copied to clipboard" },
+  "export.copyJson": { zh: "复制 JSON", en: "Copy JSON" },
+  "export.copyCsv": { zh: "复制 CSV", en: "Copy CSV" },
+
+  // ── Stats Cards ──
+  "stats.days": { zh: "天", en: "days" },
+  "stats.messages": { zh: "条", en: "msgs" },
+
+  // ── Trends Heatmap ──
+  "trends.activity": { zh: "活动热力图", en: "Activity Heatmap" },
   "window.dockHint": { zh: "在 Dock 中显示应用图标（默认隐藏）", en: "Show app icon in Dock (hidden by default)" },
   "window.floating": { zh: "悬浮窗口", en: "Floating Window" },
   "window.floatingHint": { zh: "桌面边缘悬浮小部件：默认显示图标，悬停展开显示用量，点击打开主窗口（可拖动）", en: "Edge widget: shows icon by default, hover to peek usage, click to open main (draggable)" },

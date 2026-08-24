@@ -102,10 +102,41 @@
     }
   }
 
+  // ── 数据导出 ──
+  let exportMessage = $state("");
+  const exportTimeouts = new Set<number>();
+
+  function showExportMsg(msg: string): void {
+    exportMessage = msg;
+    const id = window.setTimeout(() => { exportMessage = ""; }, 3000);
+    exportTimeouts.add(id);
+  }
+
+  async function copyJson(): Promise<void> {
+    try {
+      const json = await api.exportJson();
+      await api.copyToClipboard(json);
+      showExportMsg(t("export.copied"));
+    } catch (e) {
+      showExportMsg(String(e));
+    }
+  }
+
+  async function copyCsv(): Promise<void> {
+    try {
+      const csv = await api.exportCsv();
+      await api.copyToClipboard(csv);
+      showExportMsg(t("export.copied"));
+    } catch (e) {
+      showExportMsg(String(e));
+    }
+  }
+
   // 组件挂载时加载
   $effect(() => {
     loadCurrentRate();
     loadAutoStart();
+    return () => { for (const id of exportTimeouts) clearTimeout(id); };
   });
 
   function checkUpdate(): void {
@@ -446,6 +477,25 @@
     {/if}
   </div>
 
+  <!-- ══ 数据导出 ══ -->
+  <div class="section-title">{t("export.title")}</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">{t('export.title')}<div class="hint">{t('export.desc')}</div></div>
+      <div class="export-actions">
+        <button type="button" class="btn-export-json" onclick={copyJson}>
+          {t('export.copyJson')}
+        </button>
+        <button type="button" class="btn-export-csv" onclick={copyCsv}>
+          {t('export.copyCsv')}
+        </button>
+      </div>
+    </div>
+    {#if exportMessage}
+      <div class="export-alert">{exportMessage}</div>
+    {/if}
+  </div>
+
   <!-- ══ 关于 ══ -->
   <div class="section-title">{t("general.about")}</div>
   <div class="section-box">
@@ -563,6 +613,22 @@
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
   }
+
+  /* ── export ── */
+  .export-actions { display: flex; gap: 8px; }
+  .btn-export-json {
+    background: var(--amber); border: none; color: var(--badge-text);
+    padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit; min-width: 80px; height: 32px;
+  }
+  .btn-export-json:hover { opacity: 0.9; }
+  .btn-export-csv {
+    background: transparent; border: 1px solid var(--amber); color: var(--amber);
+    padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit; min-width: 80px; height: 32px;
+  }
+  .btn-export-csv:hover { background: var(--amber-hover); }
+  .export-alert { padding: 8px 12px; margin-top: 6px; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 6px; font-size: 11.5px; color: var(--text); animation: slideIn 0.3s ease-out; text-align: center; }
 
   .about-text { font-size: 13px; color: var(--text); line-height: 1.7; margin: 0 0 10px; }
   .about-links { display: flex; gap: 20px; }

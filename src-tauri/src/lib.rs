@@ -756,6 +756,9 @@ pub fn run() {
             commands::update::install_update,
             commands::update::restart_app,
             commands::platform::get_platform,
+            commands::export::export_json,
+            commands::export::export_csv,
+            commands::export::copy_to_clipboard,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();

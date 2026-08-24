@@ -4,13 +4,16 @@
   import { listen } from "@tauri-apps/api/event";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
-  import { api, type Trends } from "../../lib/api";
+  import Heatmap from "../common/Heatmap.svelte";
+  import StatsCards from "../common/StatsCards.svelte";
+  import { api, type Summary, type Trends } from "../../lib/api";
   import { COLLECTION_UPDATED } from "../../lib/events";
   import { t } from "../../lib/i18n.svelte";
   import { formatTokens, splitTokens } from "../../lib/format";
   import { periodValue } from "../../stores/period.svelte";
 
   let data = $state<Trends | null>(null);
+  let summary = $state<Summary | null>(null);
   let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
   let chartW = $state(320);
@@ -20,8 +23,8 @@
     let cancelled = false;
     const fetch = async () => {
       try {
-        const t = await api.getTrends(p);
-        if (!cancelled) { data = t; loadAttempted = true; }
+        const [t, s] = await Promise.all([api.getTrends(p), api.getSummary(p)]);
+        if (!cancelled) { data = t; summary = s; loadAttempted = true; }
       } catch {
         if (!cancelled) loadAttempted = true;
       }
@@ -192,6 +195,21 @@
         {/each}
       </div>
     </div>
+
+    <!-- stats cards -->
+    {#if summary}
+      <div class="stats-section">
+        <StatsCards {summary} trends={points} locale="zh" />
+      </div>
+    {/if}
+
+    <!-- activity heatmap (only for total period) -->
+    {#if period === "total" && points.length > 7}
+      <div class="heatmap-section">
+        <div class="heatmap-title">{t("trends.activity")}</div>
+        <Heatmap {points} locale="zh" />
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -343,5 +361,22 @@
   .tip-row span:last-child {
     color: var(--text-dim);
     font-family: var(--font-mono);
+  }
+
+  /* ── stats cards section ── */
+  .stats-section {
+    margin-top: 4px;
+  }
+
+  /* ── heatmap section ── */
+  .heatmap-section {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-dim);
+  }
+  .heatmap-title {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-bottom: 8px;
   }
 </style>
