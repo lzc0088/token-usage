@@ -70,6 +70,12 @@ pub struct Config {
     /// Animation preference: "system" | "on" | "off".
     #[serde(default = "default_animation")]
     pub animation: String,
+    /// Font size preset: "small" (13px) | "medium" (15px) | "large" (17px).
+    #[serde(default = "default_font_size")]
+    pub font_size: String,
+    /// Font family preset: "app" (Hanken Grotesk) | "system" | "mono" (JetBrains Mono).
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
     /// Data refresh interval: "manual" | "30s" | "60s" | "300s" | "600s".
     #[serde(default = "default_refresh_interval")]
     pub refresh_interval: String,
@@ -145,6 +151,8 @@ impl Default for Config {
             hotkey: String::new(),
             theme: default_theme(),
             animation: default_animation(),
+            font_size: default_font_size(),
+            font_family: default_font_family(),
             refresh_interval: default_refresh_interval(),
             collection_mode: default_collection_mode(),
             session_archive_enabled: default_true(),
@@ -200,6 +208,12 @@ fn default_theme() -> String {
 }
 fn default_animation() -> String {
     "system".into()
+}
+fn default_font_size() -> String {
+    "medium".into()
+}
+fn default_font_family() -> String {
+    "app".into()
 }
 fn default_refresh_interval() -> String {
     "manual".into()
