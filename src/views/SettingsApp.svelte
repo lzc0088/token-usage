@@ -61,12 +61,11 @@
   // pending landing page (set by open_settings, take semantics) — quota
   // quick-links open settings on a specific page. App-switch focus returns
   // null, so the user's current page is preserved.
+  // NOTE: only update `cfg` here — the $effect above handles appearance.
   $effect(() => {
     async function onFocus() {
       try {
-        const c = await api.getConfig();
-        cfg = c;
-        applyAppearance(c);
+        cfg = await api.getConfig();
       } catch { /* ignore */ }
       try {
         const target = await invoke<string | null>("consume_settings_target");
@@ -82,13 +81,11 @@
   // Listen for config changes from other windows (e.g. main popover).
   // Without this, the settings window won't update its theme when changed
   // from another window until it regains focus.
+  // NOTE: only update `cfg` here — the $effect above handles appearance.
   $effect(() => {
     const unlisten = listen<void>(CONFIG_CHANGED, () => {
       api.getConfig()
-        .then((c) => {
-          cfg = c;
-          applyAppearance(c);
-        })
+        .then((c) => { cfg = c; })
         .catch(() => {});
     });
     return () => { unlisten.then((fn) => fn()); };

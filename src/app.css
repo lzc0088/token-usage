@@ -80,7 +80,7 @@
   /* Base font size — overridden by appearance.ts font_size setting. */
   --font-size-base: 15px;
 
-  /* Accent color — overridden by appearance.ts theme_preset / accent_color. */
+  /* Accent color — static per theme (no runtime override). */
   --accent: #e8b04b;
   --accent-rgb: 232, 176, 75;
 
@@ -144,7 +144,7 @@
 
   --sidebar-bg: rgba(0, 0, 0, 0.04);
 
-  /* Light theme accent defaults — overridden by appearance.ts presets. */
+  /* Light theme accent. */
   --accent: #c98a1e;
   --accent-rgb: 201, 138, 30;
 
