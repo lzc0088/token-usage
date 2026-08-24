@@ -44,7 +44,7 @@
 
   interface HeatmapCell {
     date: string;
-    intensity: number; // 0-4
+    intensity: number;
     tokens: number;
     cost: number;
     col: number;
@@ -56,12 +56,10 @@
   const cells = $derived.by((): HeatmapCell[] => {
     if (points.length === 0) return [];
 
-    // Find date range (rolling year from latest date)
     const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
     const endDate = sorted[sorted.length - 1].date;
     const startDate = addDays(endDate, -364); // ~1 year
 
-    // Build intensity map
     const intensityMap = new Map<string, number>();
     const tokensMap = new Map<string, number>();
     const costMap = new Map<string, number>();
@@ -75,7 +73,6 @@
       }
     }
 
-    // Compute intensities (0-4 scale)
     for (const [date, tokens] of tokensMap) {
       if (maxTokens <= 0) {
         intensityMap.set(date, 0);
@@ -85,7 +82,6 @@
       }
     }
 
-    // Generate grid (Sunday-started columns)
     const startDow = dayOfWeekSun(startDate);
     const gridStart = addDays(startDate, -startDow);
 
@@ -117,43 +113,84 @@
 
   const weeks = $derived(cells.length > 0 ? cells[cells.length - 1].col + 1 : 0);
   const width = $derived(weeks * (cellSize + gap) - gap);
-  const height = $derived(7 * (cellSize + gap) - gap);
+  const gridH = $derived(7 * (cellSize + gap) - gap);
+  const LABEL_GAP = 16;
 
-  // ── Month labels ────────────────────────────────────────────────────────
+  // ── Month labels & separators ─────────────────────────────────────────
+
+  let scrollEl: HTMLDivElement | null = null;
+
+  function scrollToEnd(): void {
+    if (scrollEl) {
+      scrollEl.scrollLeft = scrollEl.scrollWidth;
+    }
+  }
+
+  // Auto-scroll to the latest month on mount / data change.
+  $effect(() => {
+    // Wait for DOM to paint, then scroll.
+    const id = requestAnimationFrame(() => requestAnimationFrame(scrollToEnd));
+    return () => cancelAnimationFrame(id);
+  });
 
   const monthLabels = $derived.by(() => {
-    const labels: { col: number; label: string }[] = [];
+    const labels: { col: number; sepCol: number; label: string }[] = [];
+    let prevMonth = "";
     for (const cell of cells) {
-      if (cell.date.slice(8, 10) === "01") {
-        labels.push({ col: cell.col, label: cell.date.slice(0, 7) });
+      const m = cell.date.slice(0, 7);
+      if (m !== prevMonth) {
+        const mon = parseInt(cell.date.slice(5, 7), 10);
+        const isFirst = labels.length === 0;
+        labels.push({
+          col: cell.col,
+          sepCol: isFirst ? -1 : cell.col,
+          label: locale === "en" ? `M${mon}` : `${mon}月`,
+        });
       }
+      prevMonth = m;
     }
     return labels;
+  });
+
+  // Unique separator x-positions (one per month boundary).
+  const sepPositions = $derived.by(() => {
+    const s = new Set<number>();
+    for (const label of monthLabels) {
+      if (label.sepCol >= 0) s.add(label.sepCol);
+    }
+    return [...s].sort((a, b) => a - b);
   });
 
   // ── Intensity colors ────────────────────────────────────────────────────
 
   const INTENSITY_COLORS = [
-    "var(--glass-3)",     // 0: empty
-    "rgba(76, 175, 80, 0.3)",  // 1: low
-    "rgba(76, 175, 80, 0.5)",  // 2: medium
-    "rgba(76, 175, 80, 0.7)",  // 3: high
-    "rgba(76, 175, 80, 1.0)",  // 4: very high
+    "var(--glass-3)",
+    "rgba(76, 175, 80, 0.3)",
+    "rgba(76, 175, 80, 0.5)",
+    "rgba(76, 175, 80, 0.7)",
+    "rgba(76, 175, 80, 1.0)",
   ];
 
-  // ── Tooltip ─────────────────────────────────────────────────────────────
+  // ── Tooltip (viewport-aware, not clipped by overflow-x) ─────────────
 
-  let tooltip = $state<{ x: number; y: number; date: string; tokens: number; cost: number } | null>(null);
+  const TIP_W = 160;
+  const TIP_H = 60;
+  const PAD = 8;
+
+  let tooltip = $state<{ left: number; top: number; date: string; tokens: number; cost: number } | null>(null);
 
   function showTooltip(cell: HeatmapCell, e: MouseEvent): void {
     const rect = (e.target as SVGElement).getBoundingClientRect();
-    tooltip = {
-      x: rect.left + rect.width / 2,
-      y: rect.top - 8,
-      date: cell.date,
-      tokens: cell.tokens,
-      cost: cell.cost,
-    };
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top;
+
+    let left = cx - TIP_W / 2;
+    left = Math.max(PAD, Math.min(left, window.innerWidth - TIP_W - PAD));
+
+    const above = cy - TIP_H - 4 >= PAD;
+    const top = above ? cy - TIP_H - 4 : cy + rect.height + 4;
+
+    tooltip = { left, top, date: cell.date, tokens: cell.tokens, cost: cell.cost };
   }
 
   function hideTooltip(): void {
@@ -161,39 +198,56 @@
   }
 </script>
 
-<div class="heatmap-container">
-  <svg {width} {height} class="heatmap-svg">
-    {#each cells as cell (cell.date)}
-      <rect
-        x={cell.x}
-        y={cell.y}
-        width={cellSize}
-        height={cellSize}
-        rx={2}
-        fill={INTENSITY_COLORS[cell.intensity]}
-        class="heatmap-cell"
-        role="img"
-        aria-label="{cell.date}: {cell.tokens} tokens"
-        onmouseenter={(e) => showTooltip(cell, e)}
-        onmouseleave={hideTooltip}
-      />
-    {/each}
+<div class="heatmap-outer">
+  <div class="heatmap-scroll" bind:this={scrollEl}>
+    <svg width={width} height={gridH + LABEL_GAP} class="heatmap-svg">
+      <!-- month separator lines -->
+      {#each sepPositions as col (col)}
+        <line
+          x1={col * (cellSize + gap) - gap / 2}
+          y1={0}
+          x2={col * (cellSize + gap) - gap / 2}
+          y2={gridH}
+          stroke="var(--border-dim)"
+          stroke-width="1.5"
+          stroke-dasharray="3 2"
+        />
+      {/each}
 
-    {#each monthLabels as label (label.col)}
-      <text
-        x={label.col * (cellSize + gap)}
-        y={height + 14}
-        class="month-label"
-      >
-        {label.label.slice(5)}
-      </text>
-    {/each}
-  </svg>
+      <!-- cells -->
+      {#each cells as cell (cell.date)}
+        <rect
+          x={cell.x}
+          y={cell.y}
+          width={cellSize}
+          height={cellSize}
+          rx={2}
+          fill={INTENSITY_COLORS[cell.intensity]}
+          class="heatmap-cell"
+          role="img"
+          aria-label="{cell.date}: {cell.tokens} tokens"
+          onmouseenter={(e) => showTooltip(cell, e)}
+          onmouseleave={hideTooltip}
+        />
+      {/each}
+
+      <!-- month labels -->
+      {#each monthLabels as label (label.col)}
+        <text
+          x={label.col * (cellSize + gap)}
+          y={gridH + 12}
+          class="month-label"
+        >
+          {label.label}
+        </text>
+      {/each}
+    </svg>
+  </div>
 
   {#if tooltip}
     <div
       class="heatmap-tooltip"
-      style="left: {tooltip.x}px; top: {tooltip.y}px;"
+      style="left: {tooltip.left}px; top: {tooltip.top}px;"
     >
       <div class="tooltip-date">{tooltip.date}</div>
       <div class="tooltip-value">
@@ -207,10 +261,33 @@
 </div>
 
 <style>
-  .heatmap-container {
+  /* ── outer wrapper (tooltip lives here, not clipped by overflow-x) ── */
+  .heatmap-outer {
     position: relative;
-    overflow-x: auto;
     padding-bottom: 20px;
+  }
+
+  .heatmap-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+  }
+  .heatmap-scroll::-webkit-scrollbar {
+    height: 5px;
+  }
+  .heatmap-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .heatmap-scroll::-webkit-scrollbar-thumb {
+    background: var(--glass-3);
+    border-radius: 3px;
+  }
+  .heatmap-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--text-faint);
+  }
+  .heatmap-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--glass-3) transparent;
   }
 
   .heatmap-svg {
@@ -221,7 +298,6 @@
     cursor: pointer;
     transition: opacity 0.15s;
   }
-
   .heatmap-cell:hover {
     opacity: 0.8;
     stroke: var(--text);
@@ -234,9 +310,9 @@
     font-family: var(--font-mono);
   }
 
+  /* ── tooltip: positioned by JS, no CSS transform ── */
   .heatmap-tooltip {
     position: fixed;
-    transform: translate(-50%, -100%);
     background: var(--glass);
     border: 1px solid var(--border);
     border-radius: 6px;

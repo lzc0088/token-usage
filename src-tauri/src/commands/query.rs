@@ -108,7 +108,8 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
     let today = today();
     let conn = db(&state);
     // DAY → last 7 days (daily); MONTH → current month (daily);
-    // TOTAL → all history grouped by month.
+    // TOTAL → all history daily so the heatmap (Trend.svelte) gets proper
+    // YYYY-MM-DD dates and enough granularity to render.
     let res = match p {
         query::Period::Day => {
             let range = query::last_n_days(&today, 7);
@@ -121,8 +122,8 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
             query::trends::query(&conn, &range)
         }
         query::Period::Total => {
-            tracing::debug!("get_trends: total monthly");
-            query::trends::query_monthly(&conn, &query::DateRange::default())
+            tracing::debug!("get_trends: total daily");
+            query::trends::query(&conn, &query::DateRange::default())
         }
     };
     match &res {

@@ -42,9 +42,6 @@
   const maxTokens = $derived(Math.max(1, ...points.map((p) => p.tokens)));
   const totalTokens = $derived(points.reduce((s, p) => s + p.tokens, 0));
   const avgTokens = $derived(points.length > 0 ? Math.round(totalTokens / points.length) : 0);
-  const peak = $derived(
-    points.reduce<Trends["points"][number] | null>((m, p) => (!m || p.tokens > m.tokens ? p : m), null),
-  );
 
   // ── chart geometry (SVG viewBox) ────────────────────────────────────
   const H = 150;
@@ -92,7 +89,6 @@
 
   const totalStr = $derived(splitTokens(totalTokens));
   const avgStr = $derived(splitTokens(avgTokens));
-  const peakStr = $derived(peak ? splitTokens(peak.tokens) : null);
   const maxStr = $derived(splitTokens(maxTokens));
 
   // X-axis tick indices: first, middle, last (when enough points).
@@ -122,22 +118,6 @@
   {:else}
     <!-- period title (first row, larger font) -->
     <div class="range-label">{rangeLabel}</div>
-
-    <!-- summary stats (font sizes mirror Overview split2 cells) -->
-    <div class="stats">
-      <div class="stat">
-        <div class="k">{t("trends.total")}</div>
-        <div class="v">{totalStr.value}<span class="u">{totalStr.unit}</span></div>
-      </div>
-      <div class="stat">
-        <div class="k">{t("trends.dailyAvg")}</div>
-        <div class="v">{avgStr.value}<span class="u">{avgStr.unit}</span></div>
-      </div>
-      <div class="stat">
-        <div class="k">{t("trends.peak")}</div>
-        <div class="v">{peakStr ? `${peakStr.value}` : "—"}<span class="u">{peakStr?.unit ?? ""}</span></div>
-      </div>
-    </div>
 
     <!-- line chart with axes -->
     <div class="chart-grid">
@@ -219,37 +199,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-  .stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-  }
-  .stat {
-    background: var(--surface-tint);
-    border: 1px solid var(--border-dim);
-    border-radius: 9px;
-    padding: 10px 11px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .stat .k {
-    font-size: 0.7333rem;
-    color: var(--text-faint);
-  }
-  .stat .v {
-    font-size: 1.333rem;
-    font-weight: 500;
-    color: var(--text);
-    display: flex;
-    align-items: baseline;
-    gap: 2px;
-  }
-  .stat .v .u {
-    font-size: 0.7333rem;
-    color: var(--text-faint);
-    font-weight: 600;
   }
   .range-label {
     font-size: 0.8667rem;

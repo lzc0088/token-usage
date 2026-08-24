@@ -19,16 +19,10 @@ pub struct Trends {
 }
 
 pub fn query(conn: &Connection, range: &DateRange) -> Result<Trends, QueryError> {
-    query_inner(conn, range, false)
+    query_inner(conn, false, range)
 }
 
-/// Monthly variant: groups by `YYYY-MM` instead of by day. Used for the TOTAL
-/// trend so all-time data collapses into one point per month.
-pub fn query_monthly(conn: &Connection, range: &DateRange) -> Result<Trends, QueryError> {
-    query_inner(conn, range, true)
-}
-
-fn query_inner(conn: &Connection, range: &DateRange, monthly: bool) -> Result<Trends, QueryError> {
+fn query_inner(conn: &Connection, monthly: bool, range: &DateRange) -> Result<Trends, QueryError> {
     let (clause, params) = super::range_clause(range);
     let group_expr = if monthly {
         "strftime('%Y-%m', date)"

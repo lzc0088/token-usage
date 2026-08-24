@@ -20,25 +20,6 @@
 
   const activeDays = $derived(trends.filter((p) => p.tokens > 0).length);
 
-  const currentStreak = $derived.by(() => {
-    if (trends.length === 0) return 0;
-    const sorted = [...trends].sort((a, b) => b.date.localeCompare(a.date));
-    let streak = 0;
-    for (const p of sorted) {
-      if (p.tokens > 0) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-    return streak;
-  });
-
-  const peakDay = $derived.by(() => {
-    if (trends.length === 0) return null;
-    return trends.reduce((max, p) => (p.tokens > max.tokens ? p : max), trends[0]);
-  });
-
   interface StatCard {
     key: string;
     value: string;
@@ -49,14 +30,11 @@
   const cards = $derived.by((): StatCard[] => {
     const total = splitCompact(summary.total_tokens, locale);
     const cost = { value: summary.cost_usd.toFixed(2), unit: "USD" };
-    const peak = peakDay ? splitCompact(peakDay.tokens, locale) : { value: "0", unit: "" };
 
     return [
       { key: "totalTokens", ...total, icon: "⚡" },
       { key: "totalCost", ...cost, icon: "💰" },
       { key: "activeDays", value: String(activeDays), unit: t("stats.days"), icon: "📅" },
-      { key: "streak", value: String(currentStreak), unit: t("stats.days"), icon: "🔥" },
-      { key: "peakDay", ...peak, icon: "📈" },
       { key: "messages", value: String(summary.messages), unit: t("stats.messages"), icon: "💬" },
     ];
   });
