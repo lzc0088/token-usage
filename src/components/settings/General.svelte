@@ -401,7 +401,7 @@
         {t('general.currVersion')}：
         <span class="ver-num">{appVersion}</span>
       </div>
-      <button type="button" class="btn-outline" onclick={checkUpdate} disabled={checking} class:checking>
+      <button type="button" class="btn-outline btn-check" onclick={checkUpdate} disabled={checking} class:checking>
         {#if checking}
           <span class="spin"></span>{t('general.checking')}
         {:else}
@@ -633,6 +633,10 @@
   .about-links { display: flex; gap: 20px; }
   .alink { font-size: 12px; color: var(--amber); text-decoration: none; transition: color 0.15s; }
   .alink:hover { text-decoration: underline; color: var(--amber-soft); }
+
+  /* ── check-update button: match export buttons' fixed width (32px height, two
+     buttons at min-width 80px + 8px gap = 168px total) ── */
+  .btn-check { min-width: 168px; }
 
   /* ── check-update button spinner ── */
   .spin {
