@@ -634,9 +634,8 @@
   .alink { font-size: 12px; color: var(--amber); text-decoration: none; transition: color 0.15s; }
   .alink:hover { text-decoration: underline; color: var(--amber-soft); }
 
-  /* ── check-update button: match export buttons' fixed width (32px height, two
-     buttons at min-width 80px + 8px gap = 168px total) ── */
-  .btn-check { min-width: 168px; }
+  /* ── check-update button: match a single export button's width ── */
+  .btn-check { min-width: 80px; }
 
   /* ── check-update button spinner ── */
   .spin {
