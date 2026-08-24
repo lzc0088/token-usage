@@ -19,6 +19,7 @@ use std::collections::HashSet;
 
 use crate::auth::credentials;
 use crate::config;
+use crate::quota::burn_rate::{BurnRateTracker, ADAPTIVE_BASE_SECS};
 use crate::quota::{adapter_for, Quota, QuotaBalance, TRACKED_VENDORS};
 
 /// How long to wait before the first scheduled refresh after startup.
@@ -101,7 +102,7 @@ pub async fn refresh_all(db: &Arc<Mutex<Connection>>) -> bool {
         let _ = config::set_json(&conn, SILENCED_KEY, &Vec::<String>::new());
     }
     let mut silenced = HashSet::new();
-    refresh_all_impl(db, &mut silenced).await;
+    refresh_all_impl(db, &mut silenced, None, None).await;
     REFRESHING.store(false, Ordering::Release);
     true
 }
@@ -159,12 +160,26 @@ fn placeholder(id: &str, auth_failed: bool) -> Quota {
 
 /// Parse a `quota_refresh_interval` config value ("1m" | "3m" | "5m" | "10m"
 /// | "15m"; also tolerates seconds like "30s") into seconds. Unknown/empty
-/// values fall back to the 5-minute default.
+/// values fall back to the 5-minute default. The special value "adaptive"
+/// also parses to its baseline here so staleness checks (which only need a
+/// rough freshness bound) work unchanged — the scheduler itself branches on
+/// the raw string for the urgency logic.
 pub fn parse_interval_secs(raw: &str) -> u64 {
+    if raw == "adaptive" {
+        return ADAPTIVE_BASE_SECS;
+    }
     raw.strip_suffix('m')
         .and_then(|r| r.parse::<u64>().ok().map(|m| m * 60))
         .or_else(|| raw.strip_suffix('s').and_then(|r| r.parse::<u64>().ok()))
         .unwrap_or(300)
+}
+
+/// Current unix time in milliseconds.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// True when the freshest cached quota is older than `interval_secs`, or when
@@ -186,6 +201,12 @@ static REFRESHING: AtomicBool = AtomicBool::new(false);
 /// Starts after a short delay, then fires every `quota_refresh_interval` (from
 /// config, default 5 min). Reads the interval from the DB on each tick so
 /// config changes take effect without a restart.
+///
+/// Adaptive mode (`quota_refresh_interval == "adaptive"`): baseline
+/// full refreshes every 5 minutes, PLUS urgency-driven targeted passes that
+/// re-probe only the vendors whose windows are burning toward exhaustion
+/// (delay = ttl/4, floored at 60s — see `burn_rate`). The schedule only ever
+/// shortens the baseline; idle quotas cost nothing extra.
 pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
     // Initial delay to let the app settle.
     tokio::time::sleep(Duration::from_millis(INITIAL_DELAY_MS)).await;
@@ -204,34 +225,99 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             .unwrap_or_default()
     };
 
-    // First refresh immediately.
+    // Burn-rate history for adaptive mode. In-memory: restarts reset it and
+    // it self-heals after two samples.
+    let mut burn = BurnRateTracker::new();
+    // When the last FULL (all-vendor) refresh fired. Targeted passes do not
+    // advance this — the baseline cadence continues on its own clock.
+    let mut last_full_ms = now_ms();
+
+    // First refresh immediately (always full — establishes baselines).
     if try_begin_refresh() {
-        refresh_all_impl(&db, &mut auth_errored).await;
+        refresh_all_impl(&db, &mut auth_errored, None, Some(&mut burn)).await;
         REFRESHING.store(false, Ordering::Release);
     }
     let _ = app.emit("quota:updated", ());
 
     loop {
-        // Read current interval from config on each loop iteration.
-        let interval_secs = {
+        // Read current config on each loop iteration: the interval (and the
+        // tray mode, for the quota_min repaint hook).
+        let (interval_raw, tray_mode) = {
             let conn = db.lock().unwrap_or_else(|e| {
                 warn!("db mutex poisoned in quota scheduler, recovering: {e}");
                 e.into_inner()
             });
             let cfg = config::load(&conn).unwrap_or_default();
-            parse_interval_secs(cfg.quota_refresh_interval.as_str())
+            (
+                cfg.quota_refresh_interval.clone(),
+                cfg.tray_display.clone(),
+            )
+        };
+        let is_adaptive = interval_raw == "adaptive";
+        let base_secs = if is_adaptive {
+            ADAPTIVE_BASE_SECS
+        } else {
+            parse_interval_secs(interval_raw.as_str())
         };
 
-        tokio::time::sleep(Duration::from_secs(interval_secs)).await;
-        if try_begin_refresh() {
-            refresh_all_impl(&db, &mut auth_errored).await;
-            REFRESHING.store(false, Ordering::Release);
+        // Plan the next pass: a full refresh at the baseline cadence, or an
+        // earlier targeted probe if an urgent window will burn through before
+        // then. Fixed intervals keep the exact previous sleep-then-refresh
+        // behaviour.
+        let now = now_ms();
+        let next_full_ms = last_full_ms.saturating_add((base_secs as i64) * 1000);
+        let until_full_ms = (next_full_ms - now).max(1_000);
+        let (sleep_ms, do_full) = if !is_adaptive {
+            (base_secs * 1000, true)
         } else {
-            debug!("skipping scheduled refresh — another refresh already in progress");
+            match burn.urgency(now) {
+                Some(u) => {
+                    let urgent_ms = (u.delay_secs as i64) * 1000;
+                    if urgent_ms < until_full_ms {
+                        (urgent_ms.max(1_000) as u64, false)
+                    } else {
+                        (until_full_ms as u64, true)
+                    }
+                }
+                None => (until_full_ms as u64, true),
+            }
+        };
+
+        tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+        let fired_at = now_ms();
+
+        // Re-read urgency at fire time: a window may have reset while we
+        // slept. If the plan was targeted but no urgency remains, skip the
+        // pass entirely and re-plan from the baseline on the next iteration.
+        let target: Option<Vec<String>> = if do_full {
+            None
+        } else {
+            burn.urgency(fired_at).map(|u| u.vendors)
+        };
+        let should_run = do_full || target.is_some();
+
+        if should_run {
+            if try_begin_refresh() {
+                refresh_all_impl(&db, &mut auth_errored, target.as_deref(), Some(&mut burn))
+                    .await;
+                REFRESHING.store(false, Ordering::Release);
+                if do_full {
+                    last_full_ms = fired_at;
+                }
+            } else {
+                debug!("skipping scheduled refresh — another refresh already in progress");
+            }
+            // Notify windows so the "updated" time and quota cards refresh live
+            // without the user re-opening the page.
+            let _ = app.emit("quota:updated", ());
+            // quota_min tray mode reads the quota cache — repaint so the
+            // tightest percentage stays live between collector ticks.
+            if tray_mode == "quota_min" {
+                if let Ok(conn) = db.lock() {
+                    crate::ui::tray::refresh_from_db(&app, &conn);
+                }
+            }
         }
-        // Notify windows so the "updated" time and quota cards refresh live
-        // without the user re-opening the page.
-        let _ = app.emit("quota:updated", ());
         // Persist the updated silenced set so it survives restarts.
         if let Ok(conn) = db.lock() {
             let _ = config::set_json(
@@ -259,14 +345,27 @@ fn is_transient_error(e: &crate::quota::VendorError) -> bool {
     matches!(e, VendorError::Network(_))
 }
 
-/// Internal: refresh all vendors, with auth-error silencing.
+/// Internal: refresh vendors, with auth-error silencing.
+///
+/// `target: None` refreshes every bound vendor (baseline cadence / manual
+/// refresh); `Some(ids)` is an adaptive urgency pass that re-probes only the
+/// named vendors — a non-urgent vendor's API must not be hammered because a
+/// different vendor's window is close to exhaustion. When provided, `burn`
+/// records one sample per successfully committed vendor so the next urgency
+/// computation measures from this runtime's own probes (never from cached
+/// rows, whose timestamps predate this runtime).
 ///
 /// Vendors are fetched **concurrently** (each capped at `VENDOR_FETCH_TIMEOUT`)
 /// rather than sequentially, so one slow/hung endpoint cannot stall the whole
 /// cycle. Total refresh time ≈ the slowest single vendor (~30s worst case),
 /// not the sum of all vendors. DB writes happen sequentially after all fetches
 /// resolve, under a single brief lock per vendor.
-async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<String>) {
+async fn refresh_all_impl(
+    db: &Arc<Mutex<Connection>>,
+    silenced: &mut HashSet<String>,
+    target: Option<&[String]>,
+    mut burn: Option<&mut BurnRateTracker>,
+) {
     let (creds, cfg) = {
         let conn = db.lock().unwrap_or_else(|e| {
             warn!("db mutex poisoned in refresh_all_impl, recovering: {e}");
@@ -298,12 +397,18 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
 
     let active_set = cfg.quota_active_vendors.clone();
 
-    // Build the work list: filter by active_vendors, and pre-skip API-key
-    // vendors already silenced for a known auth failure (their key won't
-    // self-heal, so retrying every cycle only spams logs).
+    // Build the work list: filter by the adaptive target (if any), by
+    // active_vendors, and pre-skip API-key vendors already silenced for a
+    // known auth failure (their key won't self-heal, so retrying every cycle
+    // only spams logs).
     let work: Vec<(String, String)> = creds
         .into_iter()
         .filter(|(id, _)| {
+            if let Some(ids) = target {
+                if !ids.contains(id) {
+                    return false;
+                }
+            }
             if let Some(ref active) = active_set {
                 if !active.contains(id) {
                     return false;
@@ -381,6 +486,11 @@ async fn refresh_all_impl(db: &Arc<Mutex<Connection>>, silenced: &mut HashSet<St
                         });
                     }
                     write_cache(&conn, &id, &q, now_ms);
+                }
+                // Feed the burn-rate tracker ONLY from committed probes of
+                // this runtime (see refresh_all_impl doc comment).
+                if let Some(t) = burn.as_deref_mut() {
+                    t.record(&id, &q, now_ms);
                 }
             }
             FetchOutcome::Failed(id, e) => {

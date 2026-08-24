@@ -701,6 +701,7 @@
           { value: "5m", label: t("account.5m") },
           { value: "10m", label: t("account.10m") },
           { value: "15m", label: t("account.15m") },
+          { value: "adaptive", label: t("account.adaptive") },
         ]}
         onchange={(v) => updateConfig({ quota_refresh_interval: v as Config["quota_refresh_interval"] })}
       />

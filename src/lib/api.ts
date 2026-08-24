@@ -224,6 +224,7 @@ export interface Config {
     | "total_tokens"
     | "total_cost"
     | "total_both"
+    | "quota_min"
     | "icon_only";
   /** Whether to show the app icon in the Dock. */
   show_in_dock?: boolean;
@@ -240,8 +241,9 @@ export interface Config {
   collection_mode?: "live" | "smart" | "interval";
   /** Preserve sessions whose source tool is no longer installed. */
   session_archive_enabled?: boolean;
-  /** Quota data refresh interval. */
-  quota_refresh_interval?: "1m" | "3m" | "5m" | "10m" | "15m";
+  /** Quota data refresh interval: fixed cadence, or "adaptive" (5-min baseline
+   *  + burn-rate-driven early probes for windows nearing exhaustion). */
+  quota_refresh_interval?: "1m" | "3m" | "5m" | "10m" | "15m" | "adaptive";
   /** Quota progress display mode. */
   quota_progress_mode?: "用量" | "剩余";
   /** Enabled vendor IDs for the quota display (undefined = all enabled). */

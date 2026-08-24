@@ -45,6 +45,7 @@
       { value: "total_tokens", label: t("window.trayTotalTokens") },
       { value: "total_cost", label: t("window.trayTotalCost") },
       { value: "total_both", label: t("window.trayTotalBoth") },
+      { value: "quota_min", label: t("window.trayQuotaMin") },
       { value: "icon_only", label: t("window.trayIconOnly") },
     ];
   });

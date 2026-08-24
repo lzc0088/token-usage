@@ -11,6 +11,7 @@
 //! reference; other adapters land incrementally. Dispatch is by [`VendorId`]
 //! (no trait objects, no async-trait dep).
 
+pub mod burn_rate;
 pub mod claude;
 pub mod codex;
 pub mod copilot;

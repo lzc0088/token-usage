@@ -277,6 +277,11 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
                 td,
                 label("累计 Tokens + 成本", "Total Tokens + Cost"),
             )?,
+            &tray(
+                "tray_quota_min",
+                td,
+                label("最紧额度 %", "Tightest Quota %"),
+            )?,
             &tray("tray_icon_only", td, label("仅显示图标", "Icon Only"))?,
         ],
     )?;
@@ -816,7 +821,7 @@ pub fn run() {
                 let needs_tray_refresh = match id {
                     "tray_today_tokens" | "tray_today_cost" | "tray_today_both"
                     | "tray_total_tokens" | "tray_total_cost" | "tray_total_both"
-                    | "tray_icon_only" => id
+                    | "tray_quota_min" | "tray_icon_only" => id
                         .strip_prefix("tray_")
                         .map(|mode| {
                             let _ = config::with_config(c, |cfg| {
