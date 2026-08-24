@@ -793,7 +793,7 @@
     justify-content: space-between;
   }
   .title-stat {
-    font-size: 11px;
+    font-size: 0.7333rem;
     font-weight: 500;
     color: var(--lime);
     background: var(--lime-bg-soft);
@@ -823,12 +823,12 @@
   .arow.open { border-bottom: none; }
 
   .ainfo { flex: 1; min-width: 0; }
-  .aname { font-size: 13px; color: var(--text); display: block; }
+  .aname { font-size: 0.8667rem; color: var(--text); display: block; }
   .atags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 
   /* ── info tags（厂商特性标签，6 色）── */
   .itag {
-    font-size: 9.5px;
+    font-size: 0.6333rem;
     font-weight: 500;
     padding: 1px 5px;
     border-radius: 3px;
@@ -843,12 +843,12 @@
   .itag.c-gray   { background: var(--surface-tint-strong); color: var(--text-faint); }
 
   .astate { flex-shrink: 0; min-width: 50px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-  .badge { font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
+  .badge { font-size: 0.7rem; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
   .badge.s-ok  { color: var(--lime); background: var(--lime-bg); }
   .badge.s-dim { color: var(--text-faint); background: var(--surface-tint); }
   .badge.s-warn { color: var(--coral); background: rgba(234,84,85,0.14); }
 
-  .chev { color: var(--text-dim); font-size: 14px; flex-shrink: 0; width: 18px; text-align: center; transition: transform 0.15s; }
+  .chev { color: var(--text-dim); font-size: 0.9333rem; flex-shrink: 0; width: 18px; text-align: center; transition: transform 0.15s; }
   .arow.open .chev { color: var(--amber); }
 
   /* ── 展开面板 ── */
@@ -858,7 +858,7 @@
     border-bottom: 1px dashed var(--border);
   }
   .panel-warn {
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     color: var(--coral);
     background: rgba(234,84,85,0.10);
     border: 1px solid var(--coral-border);
@@ -887,12 +887,12 @@
     justify-content: space-between;
     gap: 8px;
   }
-  .cookie-mgr-status { font-size: 11px; min-width: 0; flex: 1; line-height: 1.5; }
+  .cookie-mgr-status { font-size: 0.7333rem; min-width: 0; flex: 1; line-height: 1.5; }
   .cs-ok { color: var(--lime); }
   .cs-err { color: var(--coral); }
   .cs-none { color: var(--text-faint); }
   .cookie-mgr-actions { display: flex; gap: 6px; margin-top: 6px; }
-  .panel-hint { font-size: 11px; color: var(--text-faint); margin: 4px 0 10px; line-height: 1.6; }
+  .panel-hint { font-size: 0.7333rem; color: var(--text-faint); margin: 4px 0 10px; line-height: 1.6; }
 
   /* ── Copilot device-flow login ── */
   .device-flow {
@@ -902,12 +902,12 @@
     border-radius: 8px;
     background: var(--surface-tint);
   }
-  .df-status { font-size: 12px; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
+  .df-status { font-size: 0.8rem; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
   .df-status.df-ok { color: var(--lime); margin: 0; }
   .df-status.df-err { color: var(--coral); margin: 0; }
   .df-code {
     font-family: "JetBrains Mono", var(--font-mono);
-    font-size: 22px;
+    font-size: 1.467rem;
     font-weight: 700;
     letter-spacing: 4px;
     color: var(--amber);
@@ -918,19 +918,19 @@
     margin-bottom: 8px;
     user-select: all;
   }
-  .df-hint { font-size: 11px; color: var(--text-faint); margin: 0 0 6px; }
+  .df-hint { font-size: 0.7333rem; color: var(--text-faint); margin: 0 0 6px; }
   .df-link {
     background: none;
     border: none;
     color: var(--amber);
     cursor: pointer;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 0.7333rem;
     padding: 0;
     text-decoration: underline;
   }
   .df-polling {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-dim);
     margin: 0;
     animation: df-pulse 1.4s ease-in-out infinite;
@@ -942,7 +942,7 @@
 
   .fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
   .field { display: flex; flex-direction: column; gap: 3px; }
-  .flabel { font-size: 10.5px; color: var(--text-faint); }
+  .flabel { font-size: 0.7rem; color: var(--text-faint); }
   .finp {
     background: var(--surface-tint);
     border: 1px solid var(--border-dim);
@@ -950,7 +950,7 @@
     padding: 6px 10px;
     border-radius: 7px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     height: 32px;
     box-sizing: border-box;
   }
@@ -963,7 +963,7 @@
     word-break: break-all;
   }
   .panel-actions { display: flex; align-items: center; gap: 8px; row-gap: 4px; flex-wrap: wrap; }
-  .ok-text { font-size: 11px; color: var(--lime); }
+  .ok-text { font-size: 0.7333rem; color: var(--lime); }
 
   .btn-primary {
     background: var(--amber);
@@ -972,7 +972,7 @@
     padding: 5px 14px;
     border-radius: 7px;
     font-family: inherit;
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     font-weight: 600;
     cursor: pointer;
     transition: opacity 0.15s;
@@ -1004,7 +1004,7 @@
     padding: 6px 12px;
     border-radius: 7px;
     font-family: inherit;
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     cursor: pointer;
     margin-bottom: 6px;
     transition: all 0.15s;
@@ -1018,17 +1018,17 @@
     border: 1px solid var(--surface-tint-strong);
     border-radius: 7px;
   }
-  .cs-title { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .cs-title { font-size: 0.7333rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
 
-  .panel-note { font-size: 11px; color: var(--text-faint); margin: 0 0 10px; line-height: 1.6; }
-  .save-err { font-size: 11px; color: var(--coral); margin: 6px 0 0; line-height: 1.5; }
-  .field-err { font-size: 10.5px; color: var(--coral); margin: 3px 0 0; line-height: 1.4; }
+  .panel-note { font-size: 0.7333rem; color: var(--text-faint); margin: 0 0 10px; line-height: 1.6; }
+  .save-err { font-size: 0.7333rem; color: var(--coral); margin: 6px 0 0; line-height: 1.5; }
+  .field-err { font-size: 0.7rem; color: var(--coral); margin: 3px 0 0; line-height: 1.4; }
   .finp.field-invalid { border-color: var(--coral-border); }
 
   /* ── account group header ── */
   .group-head {
     font-family: var(--font-ui);
-    font-size: 12px;
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--amber);
     letter-spacing: 0.03em;
@@ -1036,7 +1036,7 @@
   }
   .group-head:first-of-type { margin-top: 4px; }
   .group-count {
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 500;
     color: var(--text-faint);
     background: var(--surface-tint-strong);
@@ -1048,7 +1048,7 @@
   .stat-group { display: flex; align-items: center; gap: 6px; }
   .stat {
     font-family: var(--font-ui);
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 5px;
@@ -1092,10 +1092,10 @@
     min-width: 0;
     flex: 1;
   }
-  .tname { font-size: 13px; color: var(--text); font-weight: 500; }
+  .tname { font-size: 0.8667rem; color: var(--text); font-weight: 500; }
   .ttags { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
   .ttag {
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 500;
     padding: 1px 7px;
     border-radius: 4px;
@@ -1118,7 +1118,7 @@
 
   /* ── icon legend ── */
 
-  .loading, .empty { font-size: 11px; color: var(--text-faint); padding: 8px 0; }
+  .loading, .empty { font-size: 0.7333rem; color: var(--text-faint); padding: 8px 0; }
 
   .icon-legend {
     display: flex;
@@ -1140,12 +1140,12 @@
     justify-content: center;
     width: 28px; /* match .ibtn width → aligns with the button column below */
     height: 28px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     line-height: 1;
   }
   .icon-legend .legend-text {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     white-space: nowrap;
   }

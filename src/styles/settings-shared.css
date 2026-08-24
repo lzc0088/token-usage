@@ -5,7 +5,7 @@
 .section-title {
   font-family: var(--font-ui);
   font-weight: 700;
-  font-size: 15px;
+  font-size: 1rem;
   color: var(--amber);
   margin-top: 18px;
   margin-bottom: 6px;
@@ -40,9 +40,9 @@
 .no-divider .box-row:first-child { padding-top: 0; }
 .no-divider .box-row:last-child { padding-bottom: 0; }
 
-.lab { font-size: 13px; color: var(--text); }
-.lab .hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-.hint { font-size: 11px; color: var(--text-faint); }
+.lab { font-size: 0.8667rem; color: var(--text); }
+.lab .hint { font-size: 0.7333rem; color: var(--text-faint); margin-top: 2px; }
+.hint { font-size: 0.7333rem; color: var(--text-faint); }
 .hint strong { color: var(--text); font-weight: 600; }
 
 /* ── select ── */
@@ -52,7 +52,7 @@
   color: var(--text);
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: 0.8667rem;
   cursor: pointer;
   font-family: inherit;
   min-width: 130px;
@@ -70,7 +70,7 @@
   padding: 6px 10px;
   border-radius: 7px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 0.8rem;
   height: 32px;
   box-sizing: border-box;
 }
@@ -137,7 +137,7 @@
   color: var(--badge-text);
   padding: 6px 14px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -154,7 +154,7 @@
   color: var(--text);
   padding: 5px 12px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
@@ -171,7 +171,7 @@
   color: var(--text);
   padding: 6px 10px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: 0.8667rem;
   font-family: var(--font-mono);
   width: 80px;
   height: 32px;

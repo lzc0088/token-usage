@@ -340,13 +340,13 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text);
     font-weight: 500;
     flex-shrink: 0;
   }
   .qrefreshed {
-    font-size: 10px;
+    font-size: 0.6667rem;
     color: var(--text-dim);
     font-family: "JetBrains Mono", var(--font-mono);
     background: var(--glass-subtle);
@@ -357,11 +357,11 @@
     flex-shrink: 0;
   }
   .qerror {
-    font-size: 10px;
+    font-size: 0.6667rem;
     color: var(--coral);
   }
   .qplan-tag {
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 500;
     color: var(--violet);
     background: rgba(182, 155, 224, 0.12);
@@ -372,7 +372,7 @@
     line-height: 1.7;
   }
   .qexpiry {
-    font-size: 10px;
+    font-size: 0.6667rem;
     color: var(--text-dim);
     font-family: "JetBrains Mono", var(--font-mono);
     background: var(--glass-subtle);
@@ -408,9 +408,9 @@
     align-items: baseline;
     justify-content: space-between;
   }
-  .qibl-label { font-size: 11.5px; color: var(--text-dim); }
+  .qibl-label { font-size: 0.7667rem; color: var(--text-dim); }
   .qibl-amount {
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     color: var(--text);
     font-weight: 600;
     font-family: "JetBrains Mono", var(--font-mono);
@@ -421,7 +421,7 @@
     justify-content: flex-end;
     align-items: baseline;
     gap: 4px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
   }
   .qcons-label { color: var(--text-faint); }
   .qcons-value {
@@ -444,7 +444,7 @@
     gap: 0;
   }
   .qiw-label {
-    font-size: 11.5px;
+    font-size: 0.7667rem;
     color: var(--text-dim);
     white-space: nowrap;
     flex-shrink: 0;
@@ -455,7 +455,7 @@
   }
   .qiw-chevron {
     display: inline-block;
-    font-size: 13px;
+    font-size: 0.8667rem;
     color: var(--text-faint);
     transition: transform 0.15s;
     width: 12px;
@@ -480,7 +480,7 @@
     left: 6px;
     right: 6px;
     margin-top: 2px;
-    font-size: 9px;
+    font-size: 0.6rem;
     color: var(--text-faint);
     font-family: "JetBrains Mono", var(--font-mono);
     text-align: center;
@@ -505,7 +505,7 @@
   .qiw-fill.f-danger { background: var(--coral); }
   .qiw-mode-tag {
     flex: 0 0 52px;
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 500;
     padding: 1px 5px;
     border-radius: 4px;
@@ -515,7 +515,7 @@
   }
   .qiw-pct {
     flex: 0 0 34px;
-    font-size: 11px;
+    font-size: 0.7333rem;
     font-family: "JetBrains Mono", var(--font-mono);
     color: var(--text);
     font-weight: 600;
@@ -530,12 +530,12 @@
     color: var(--coral);
   }
   .qiw-reset {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     text-align: center;
   }
   .qpending {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     font-style: italic;
   }
@@ -552,14 +552,14 @@
     border: 1px solid var(--coral-border);
   }
   .qcookie-text {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--coral);
     flex: 1;
     min-width: 0;
     line-height: 1.4;
   }
   .qcookie-btn {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--coral);
     background: var(--coral-bg-strong);
@@ -583,7 +583,7 @@
   .qcookie-edit textarea {
     width: 100%;
     box-sizing: border-box;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-family: "JetBrains Mono", var(--font-mono);
     color: var(--text);
     background: var(--glass-2);
@@ -605,7 +605,7 @@
   }
   .qcookie-save,
   .qcookie-cancel {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 600;
     padding: 4px 14px;
     border-radius: 5px;
@@ -635,7 +635,7 @@
     flex-shrink: 0;
   }
   .qcookie-open {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--amber);
     background: var(--amber-hover);
@@ -652,7 +652,7 @@
     border-color: var(--amber);
   }
   .qcookie-hint {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     margin: 6px 0 0;
     line-height: 1.6;
@@ -660,7 +660,7 @@
 
   /* ── Cookie validation error ── */
   .qcookie-err {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--coral);
     margin: 4px 0 0;
     line-height: 1.5;
@@ -676,11 +676,11 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-dim);
   }
   .qregion-label {
-    font-size: 10px;
+    font-size: 0.6667rem;
     color: var(--text-faint);
   }
 
@@ -703,7 +703,7 @@
   }
   .qsub-credits {
     flex: 0 0 60px;
-    font-size: 10px;
+    font-size: 0.6667rem;
     color: var(--text-dim);
     font-family: "JetBrains Mono", var(--font-mono);
     text-align: right;
@@ -719,7 +719,7 @@
   .qsub-bar { height: 3px; }
   .qsub-pct {
     flex: 0 0 34px;
-    font-size: 9.5px;
+    font-size: 0.6333rem;
     font-family: "JetBrains Mono", var(--font-mono);
     color: var(--text-dim);
     text-align: right;
@@ -728,7 +728,7 @@
 
   /* ── cookie editor region select ── */
   :global(.qregion-select) {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-family: inherit;
     background: var(--glass-2);
     border: 1px solid var(--border-dim);

@@ -229,7 +229,7 @@
   }
 
   .month-label {
-    font-size: 10px;
+    font-size: 0.6667rem;
     fill: var(--text-faint);
     font-family: var(--font-mono);
   }
@@ -241,7 +241,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text);
     pointer-events: none;
     z-index: 1000;
@@ -260,6 +260,6 @@
 
   .tooltip-cost {
     color: var(--amber);
-    font-size: 10px;
+    font-size: 0.6667rem;
   }
 </style>

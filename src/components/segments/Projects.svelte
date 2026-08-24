@@ -261,7 +261,7 @@
     gap: 8px;
   }
   .p-name {
-    font-size: 13px;
+    font-size: 0.8667rem;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -269,7 +269,7 @@
     flex: 1;
   }
   .p-cost {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--amber);
     flex-shrink: 0;
   }
@@ -292,13 +292,13 @@
   }
   .p-pct {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-dim);
     width: 42px;
     text-align: right;
   }
   .pct-u {
-    font-size: 8px;
+    font-size: 0.5333rem;
     margin-left: 1px;
   }
   .p-meta {
@@ -310,17 +310,17 @@
   }
   .p-tokens {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 0.8rem;
     color: var(--text-dim);
   }
   .tku {
-    font-size: 8px;
+    font-size: 0.5333rem;
     color: var(--text-faint);
     margin-left: 2px;
     font-weight: 600;
   }
   .p-days {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-faint);
     text-align: right;
   }
@@ -339,7 +339,7 @@
   .det-val {
     color: var(--text-dim);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 0.6667rem;
     text-align: right;
     flex-shrink: 1;
     min-width: 0;
@@ -365,7 +365,7 @@
     padding: 8px 24px;
     border-radius: 8px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 0.8rem;
     cursor: pointer;
     transition: 0.15s;
   }

@@ -133,7 +133,7 @@
     border-bottom: 2px solid transparent;
     color: var(--text-faint);
     font-family: var(--font-ui);
-    font-size: 13px;
+    font-size: 0.8667rem;
     font-weight: 500;
     padding: 16px 7px 14px;
     cursor: pointer;

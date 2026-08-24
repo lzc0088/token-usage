@@ -82,7 +82,7 @@
     padding: 0;
     width: 24px;
     height: 20px;
-    font-size: 11px;
+    font-size: 0.7333rem;
     cursor: pointer;
     color: var(--text-dim);
     transition: all 0.15s;

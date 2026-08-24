@@ -154,11 +154,11 @@
     padding: 10px 16px 12px;
   }
   .bd-title {
-    font-size: 13px; color: var(--text-dim);
+    font-size: 0.8667rem; color: var(--text-dim);
     display: flex; align-items: center; gap: 7px;
   }
   .bd-count {
-    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    font-family: var(--font-mono); font-size: 0.7333rem; font-weight: 600;
     color: var(--amber); background: var(--amber-bg);
     padding: 1px 8px; border-radius: 10px;
     line-height: 1.4;
@@ -170,7 +170,7 @@
   .bd-sort button {
     background: transparent; border: none;
     color: var(--text-faint);
-    font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+    font-family: var(--font-ui); font-size: 0.7333rem; font-weight: 600;
     padding: 4px 10px; border-radius: 6px;
     cursor: pointer;
   }
@@ -194,13 +194,13 @@
   .rk {
     width: 28px; height: 28px; border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 700; flex-shrink: 0;
+    font-size: 0.8rem; font-weight: 700; flex-shrink: 0;
   }
   .bd-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .bd-name { display: flex; align-items: center; gap: 7px; }
-  .bd-key { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+  .bd-key { font-size: 0.8667rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
   .bd-vendor {
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 600;
     flex-shrink: 0;
     padding: 1px 6px;
@@ -212,13 +212,13 @@
     gap: 3px;
     line-height: 1.5;
   }
-  .bd-cost { font-size: 11px; color: var(--amber); flex-shrink: 0; margin-left: auto; }
+  .bd-cost { font-size: 0.7333rem; color: var(--amber); flex-shrink: 0; margin-left: auto; }
   .bd-meta { display: flex; align-items: center; gap: 7px; }
   .bd-meta :global(.bar) { flex: 1; }
-  .bd-pct { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); width: 42px; text-align: right; }
-  .pct-u { font-size: 8px; margin-left: 1px; }
-  .bd-tokens { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-align: right; }
-  .tku { font-size: 8px; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
+  .bd-pct { font-family: var(--font-mono); font-size: 0.7333rem; color: var(--text-dim); width: 42px; text-align: right; }
+  .pct-u { font-size: 0.5333rem; margin-left: 1px; }
+  .bd-tokens { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); text-align: right; }
+  .tku { font-size: 0.5333rem; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
 
   /* expanded detail — uses shared .bd-detail / .det-* from breakdown.css */
 </style>

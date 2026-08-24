@@ -87,12 +87,12 @@
   .es-title {
     margin: 0;
     color: var(--text-dim);
-    font-size: 13px;
+    font-size: 0.8667rem;
   }
   .es-hint {
     margin: 0;
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: 0.7333rem;
     line-height: 1.5;
   }
   .es-action {
@@ -102,7 +102,7 @@
     color: var(--amber);
     cursor: pointer;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 0.8rem;
     padding: 0;
     text-decoration: underline;
     text-underline-offset: 2px;

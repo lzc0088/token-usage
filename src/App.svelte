@@ -494,7 +494,7 @@
     align-items: center;
     gap: 6px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-faint);
   }
   .ver-tag {
@@ -502,7 +502,7 @@
     align-items: center;
     gap: 4px;
     font-family: "JetBrains Mono", var(--font-mono);
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     background: var(--glass-3);
     border: 1px solid var(--border-dim);
@@ -540,10 +540,10 @@
     50% { box-shadow: 0 0 12px var(--amber); }
   }
   .ver-cur { line-height: 1; }
-  .ver-arrow { font-size: 9px; margin: 0 2px; opacity: 0.7; }
+  .ver-arrow { font-size: 0.6rem; margin: 0 2px; opacity: 0.7; }
   .ver-new { font-weight: 600; color: var(--amber); line-height: 1; }
   .ver-warn {
-    font-size: 9.5px;
+    font-size: 0.6333rem;
     font-weight: 500;
     color: var(--coral);
     background: rgba(234,84,85,0.10);
@@ -568,7 +568,7 @@
     gap: 6px;
     align-items: center;
   }
-  .refresh-feedback { font-size: 10.5px; line-height: 1; }
+  .refresh-feedback { font-size: 0.7rem; line-height: 1; }
   .refresh-feedback.loading { color: var(--text-dim); }
   .refresh-feedback.ok { color: var(--lime); }
   .refresh-feedback.fail { color: var(--coral); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -578,7 +578,7 @@
     color: var(--text-dim);
     padding: 4px 8px;
     border-radius: 6px;
-    font-size: 16px;
+    font-size: 1.067rem;
     line-height: 1;
     cursor: pointer;
     font-family: inherit;
@@ -611,12 +611,12 @@
   .err {
     margin: 16px;
     color: var(--coral);
-    font-size: 12px;
+    font-size: 0.8rem;
   }
   .placeholder {
     margin: 24px 16px;
     color: var(--text-faint);
-    font-size: 12px;
+    font-size: 0.8rem;
   }
 
 </style>

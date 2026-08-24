@@ -235,11 +235,11 @@
     gap: 2px;
   }
   .stat .k {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-faint);
   }
   .stat .v {
-    font-size: 20px;
+    font-size: 1.333rem;
     font-weight: 500;
     color: var(--text);
     display: flex;
@@ -247,12 +247,12 @@
     gap: 2px;
   }
   .stat .v .u {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-faint);
     font-weight: 600;
   }
   .range-label {
-    font-size: 13px;
+    font-size: 0.8667rem;
     color: var(--text);
     font-weight: 400;
     padding: 0 2px;
@@ -275,7 +275,7 @@
     right: 4px;
     transform: translateY(-50%);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 0.6rem;
     color: var(--cyan);
     background: var(--glass-2);
     border: 1px solid rgba(0, 0, 0, 0.2);
@@ -290,13 +290,13 @@
     top: 2px;
     left: 4px;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 0.6rem;
     color: var(--text-faint);
     pointer-events: none;
   }
-  .ymu { font-size: 7px; font-weight: 600; }
+  .ymu { font-size: 0.4667rem; font-weight: 600; }
   .alu {
-    font-size: 7px;
+    font-size: 0.4667rem;
     margin-left: 1px;
     font-weight: 600;
   }
@@ -328,7 +328,7 @@
     top: 4px;
     transform: translateX(-50%);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 0.6rem;
     color: var(--text-faint);
     white-space: nowrap;
   }
@@ -340,7 +340,7 @@
     border: 1px solid var(--border-dim);
     border-radius: 6px;
     padding: 6px 9px;
-    font-size: 10px;
+    font-size: 0.6667rem;
     white-space: nowrap;
     pointer-events: none;
     z-index: 10;
@@ -375,7 +375,7 @@
     border-top: 1px solid var(--border-dim);
   }
   .heatmap-title {
-    font-size: 12px;
+    font-size: 0.8rem;
     color: var(--text-faint);
     margin-bottom: 8px;
   }

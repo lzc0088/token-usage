@@ -81,12 +81,12 @@
     border-radius: 8px;
     background: var(--surface-tint);
   }
-  .df-status { font-size: 12px; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
+  .df-status { font-size: 0.8rem; color: var(--text); margin: 0 0 8px; line-height: 1.5; }
   .df-status.df-ok { color: var(--lime); margin: 0; }
   .df-status.df-err { color: var(--coral); margin: 0; }
   .df-code {
     font-family: "JetBrains Mono", var(--font-mono);
-    font-size: 22px;
+    font-size: 1.467rem;
     font-weight: 700;
     letter-spacing: 4px;
     color: var(--amber);
@@ -97,19 +97,19 @@
     margin-bottom: 8px;
     user-select: all;
   }
-  .df-hint { font-size: 11px; color: var(--text-faint); margin: 0 0 6px; }
+  .df-hint { font-size: 0.7333rem; color: var(--text-faint); margin: 0 0 6px; }
   .df-link {
     background: none;
     border: none;
     color: var(--amber);
     cursor: pointer;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 0.7333rem;
     padding: 0;
     text-decoration: underline;
   }
   .df-polling {
-    font-size: 11px;
+    font-size: 0.7333rem;
     color: var(--text-dim);
     margin: 0;
     animation: df-pulse 1.4s ease-in-out infinite;

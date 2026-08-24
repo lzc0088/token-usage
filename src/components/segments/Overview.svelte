@@ -252,7 +252,7 @@
     border-radius: 10px;
   }
   .sec-h {
-    font-size: 13px; font-weight: 700;
+    font-size: 0.8667rem; font-weight: 700;
     color: var(--text);
     margin-bottom: 10px;
     display: flex; justify-content: space-between; align-items: center;
@@ -262,7 +262,7 @@
     margin-right: 6px; flex-shrink: 0;
   }
   .sec-h .more {
-    color: var(--amber); cursor: pointer; font-size: 13px; font-weight: 600;
+    color: var(--amber); cursor: pointer; font-size: 0.8667rem; font-weight: 600;
     background: none; border: none; padding: 0; font-family: inherit;
   }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -270,12 +270,12 @@
     background: var(--surface-tint); border: 1px solid var(--border-dim);
     border-radius: 9px; padding: 10px 11px;
   }
-  .scell .k { font-size: 11px; color: var(--text-faint); }
+  .scell .k { font-size: 0.7333rem; color: var(--text-faint); }
   .scell .v {
-    font-size: 20px; font-weight: 500; color: var(--text); margin-top: 2px;
+    font-size: 1.333rem; font-weight: 500; color: var(--text); margin-top: 2px;
     display: flex; align-items: baseline; gap: 2px;
   }
-  .scell .v .u { font-size: 11px; color: var(--text-faint); font-weight: 600; }
+  .scell .v .u { font-size: 0.7333rem; color: var(--text-faint); font-weight: 600; }
   /* Token-category colors — shared semantics with detail-composition bars
    * (Sessions / BreakdownList) so each token class reads one color everywhere. */
   .v.tok-in { color: var(--tok-input) !important; }
@@ -293,38 +293,38 @@
   .crow .rk {
     width: 24px; height: 24px; border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; flex-shrink: 0;
+    font-size: 0.7333rem; font-weight: 700; flex-shrink: 0;
     font-style: normal;
   }
   .crow .nm {
-    font-size: 13px; flex: 1; color: var(--text); transition: .15s;
+    font-size: 0.8667rem; flex: 1; color: var(--text); transition: .15s;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .crow .nm .sub {
-    display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px;
+    display: block; font-size: 0.7333rem; color: var(--text-faint); margin-top: 1px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .crow .nm .mvendor {
-    font-size: 10px; font-weight: 600; margin-left: 6px;
+    font-size: 0.6667rem; font-weight: 600; margin-left: 6px;
     padding: 1px 5px; border-radius: 4px;
     background: var(--glass-3);
     border: 1px solid var(--border-dim);
   }
-  .crow .su { font-size: 9px; margin-left: 2px; }
+  .crow .su { font-size: 0.6rem; margin-left: 2px; }
   .crow .br {
     width: 62px; height: 4px; background: var(--bar-track);
     border-radius: 2px; overflow: hidden; flex-shrink: 0;
   }
   .crow .br i { display: block; height: 100%; }
   .crow .pct-label {
-    font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);
+    font-family: var(--font-mono); font-size: 0.7333rem; color: var(--text-faint);
     width: 42px; text-align: right; flex-shrink: 0;
   }
-  .crow .pct-unit { font-size: 7px; margin-left: 1px; }
+  .crow .pct-unit { font-size: 0.4667rem; margin-left: 1px; }
   .crow .vl {
-    font-size: 12px; color: var(--text-dim); width: 50px; text-align: right; flex-shrink: 0;
+    font-size: 0.8rem; color: var(--text-dim); width: 50px; text-align: right; flex-shrink: 0;
   }
-  .crow .vlu { font-size: 8px; color: var(--text-faint); font-weight: 600; margin-left: 2px; }
+  .crow .vlu { font-size: 0.5333rem; color: var(--text-faint); font-weight: 600; margin-left: 2px; }
   .qcard-list {
     display: flex;
     flex-direction: column;

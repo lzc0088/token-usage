@@ -47,7 +47,7 @@
     color: var(--text-faint);
     padding: 4px 9px;
     border-radius: 6px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-family: inherit;
     cursor: pointer;
     transition: 0.15s;

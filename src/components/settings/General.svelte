@@ -534,22 +534,22 @@
 
 
   /* ── rate display ── */
-  .rate-display { font-family: var(--font-mono); font-size: 12px; color: var(--lime); font-weight: 500; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 3px 8px; border-radius: 5px; }
+  .rate-display { font-family: var(--font-mono); font-size: 0.8rem; color: var(--lime); font-weight: 500; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 3px 8px; border-radius: 5px; }
 
   /* ── save button (local variant) ── */
-  .btn-save { background: var(--amber); border: none; color: var(--badge-text); padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; min-width: 60px; height: 32px; }
+  .btn-save { background: var(--amber); border: none; color: var(--badge-text); padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; min-width: 60px; height: 32px; }
   .btn-save:hover { opacity: 0.9; }
   .btn-save:disabled { opacity: 0.5; cursor: default; }
 
   /* ── rate alert ── */
-  .rate-alert { padding: 8px 12px; margin-top: 6px; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 6px; font-size: 11.5px; color: var(--text); animation: slideIn 0.3s ease-out; text-align: center; }
+  .rate-alert { padding: 8px 12px; margin-top: 6px; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 6px; font-size: 0.7667rem; color: var(--text); animation: slideIn 0.3s ease-out; text-align: center; }
   @keyframes slideIn {
     from { opacity: 0; transform: translateY(-5px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
   /* ── version number ── */
-  .ver-num { font-family: var(--font-mono); font-size: 12px; color: var(--lime); font-weight: 600; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 2px 8px; border-radius: 5px; }
+  .ver-num { font-family: var(--font-mono); font-size: 0.8rem; color: var(--lime); font-weight: 600; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 2px 8px; border-radius: 5px; }
 
   /* ── update status ── */
   .update-status { padding: 10px 12px; margin: 6px 0; border-radius: 7px; }
@@ -557,11 +557,11 @@
   .update-status.has-error { background: var(--coral-bg-soft); border: 1px solid rgba(234, 84, 85, 0.3); }
   .update-info { display: flex; flex-direction: column; gap: 6px; }
   .update-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .status-text { font-size: 12px; color: var(--text); }
+  .status-text { font-size: 0.8rem; color: var(--text); }
   .new-ver { font-family: var(--font-mono); font-weight: 600; color: var(--lime); }
-  .update-date { font-size: 10.5px; color: var(--text-faint); }
+  .update-date { font-size: 0.7rem; color: var(--text-faint); }
   .update-changelog {
-    font-size: 11px; color: var(--text-dim); line-height: 1.7;
+    font-size: 0.7333rem; color: var(--text-dim); line-height: 1.7;
     max-height: 160px; overflow-y: auto;
     background: var(--surface-tint); border-radius: 6px; padding: 8px 10px;
     white-space: pre-wrap; word-break: break-word;
@@ -571,7 +571,7 @@
   .btn-download {
     display: inline-flex; align-items: center; justify-content: center;
     background: var(--lime); border: none; color: var(--badge-text);
-    padding: 5px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600;
+    padding: 5px 14px; border-radius: 6px; font-size: 0.7667rem; font-weight: 600;
     cursor: pointer; font-family: inherit; text-decoration: none;
     align-self: flex-start;
   }
@@ -581,7 +581,7 @@
   .install-actions { display: flex; gap: 8px; margin-top: 4px; align-self: flex-start; }
   .btn-outline-sm {
     background: transparent; border: 1px solid var(--glass-3); color: var(--text-dim);
-    padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 500;
+    padding: 5px 12px; border-radius: 6px; font-size: 0.7667rem; font-weight: 500;
     cursor: pointer; font-family: inherit;
   }
   .btn-outline-sm:hover { border-color: var(--text-dim); color: var(--text); }
@@ -591,23 +591,23 @@
     flex: 1; height: 6px; background: var(--bar-track); border-radius: 3px; overflow: hidden; min-width: 120px;
   }
   .progress-fill { height: 100%; background: var(--lime); transition: width 0.2s; }
-  .progress-text { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+  .progress-text { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); white-space: nowrap; }
 
-  .install-status { font-size: 12px; color: var(--lime); font-weight: 500; margin-top: 4px; }
+  .install-status { font-size: 0.8rem; color: var(--lime); font-weight: 500; margin-top: 4px; }
   .install-ready { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; align-items: flex-start; }
-  .install-ready-text { font-size: 12px; color: var(--lime); font-weight: 500; }
+  .install-ready-text { font-size: 0.8rem; color: var(--lime); font-weight: 500; }
   .install-error { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-  .install-err-text { font-size: 11.5px; color: var(--coral); line-height: 1.5; }
+  .install-err-text { font-size: 0.7667rem; color: var(--coral); line-height: 1.5; }
 
   .update-error {
     display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--coral);
+    font-size: 0.8rem; color: var(--coral);
   }
-  .update-err-icon { font-size: 14px; flex-shrink: 0; }
+  .update-err-icon { font-size: 0.9333rem; flex-shrink: 0; }
   .update-err-text { line-height: 1.5; }
 
   /* ── latest alert ── */
-  .latest-alert { padding: 10px 12px; margin: 6px 0; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 7px; font-size: 12px; color: var(--text); text-align: center; animation: slideIn 0.3s ease-out; }
+  .latest-alert { padding: 10px 12px; margin: 6px 0; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 7px; font-size: 0.8rem; color: var(--text); text-align: center; animation: slideIn 0.3s ease-out; }
   @keyframes slideIn {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -617,21 +617,21 @@
   .export-actions { display: flex; gap: 8px; }
   .btn-export-json {
     background: var(--amber); border: none; color: var(--badge-text);
-    padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600;
     cursor: pointer; font-family: inherit; min-width: 80px; height: 32px;
   }
   .btn-export-json:hover { opacity: 0.9; }
   .btn-export-csv {
     background: transparent; border: 1px solid var(--amber); color: var(--amber);
-    padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600;
     cursor: pointer; font-family: inherit; min-width: 80px; height: 32px;
   }
   .btn-export-csv:hover { background: var(--amber-hover); }
-  .export-alert { padding: 8px 12px; margin-top: 6px; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 6px; font-size: 11.5px; color: var(--text); animation: slideIn 0.3s ease-out; text-align: center; }
+  .export-alert { padding: 8px 12px; margin-top: 6px; background: var(--lime-bg-soft); border: 1px solid rgba(108, 199, 116, 0.3); border-radius: 6px; font-size: 0.7667rem; color: var(--text); animation: slideIn 0.3s ease-out; text-align: center; }
 
-  .about-text { font-size: 13px; color: var(--text); line-height: 1.7; margin: 0 0 10px; }
+  .about-text { font-size: 0.8667rem; color: var(--text); line-height: 1.7; margin: 0 0 10px; }
   .about-links { display: flex; gap: 20px; }
-  .alink { font-size: 12px; color: var(--amber); text-decoration: none; transition: color 0.15s; }
+  .alink { font-size: 0.8rem; color: var(--amber); text-decoration: none; transition: color 0.15s; }
   .alink:hover { text-decoration: underline; color: var(--amber-soft); }
 
   /* ── check-update button: match a single export button's width ── */

@@ -192,7 +192,7 @@
     color: var(--text-dim);
     cursor: pointer;
     font-family: inherit;
-    font-size: 14px;
+    font-size: 0.9333rem;
     transition: 0.15s;
     text-align: left;
     -webkit-app-region: no-drag;
@@ -233,7 +233,7 @@
   .loading {
     padding: 32px;
     color: var(--text-faint);
-    font-size: 12px;
+    font-size: 0.8rem;
     text-align: center;
   }
 
@@ -248,7 +248,7 @@
     border: 1px solid var(--border-dim);
     border-radius: 8px;
     color: var(--text-faint);
-    font-size: 16px;
+    font-size: 1.067rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -284,18 +284,18 @@
   :global(.setpanel .sh h3) {
     font-family: var(--font-ui);
     font-weight: 700;
-    font-size: 24px;
+    font-size: 1.6rem;
     margin-bottom: 2px;
     color: var(--text);
   }
   :global(.setpanel .sh .desc) {
-    font-size: 13px;
+    font-size: 0.8667rem;
     color: var(--text-dim);
   }
   :global(.setpanel .group-title) {
     font-family: var(--font-ui);
     font-weight: 700;
-    font-size: 18px;
+    font-size: 1.2rem;
     margin-top: 28px;
     margin-bottom: 3px;
     color: var(--text);

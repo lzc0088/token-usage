@@ -400,7 +400,7 @@
     height: 26px;
     border-radius: 6px;
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: 0.8333rem;
     cursor: pointer;
     transition: all 0.15s;
     white-space: nowrap;
@@ -426,7 +426,7 @@
     padding: 5px 10px;
     border-radius: 7px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 0.8rem;
     cursor: pointer;
     height: 32px;
     box-sizing: border-box;
@@ -444,7 +444,7 @@
   }
   .hk kbd {
     font-family: "JetBrains Mono", var(--font-mono);
-    font-size: 12px;
+    font-size: 0.8rem;
     background: var(--surface-tint-strong);
     border: 1px solid var(--border-dim);
     border-radius: 4px;

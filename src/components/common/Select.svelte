@@ -247,7 +247,7 @@
     padding: 7px 10px;
     border-radius: 5px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 0.8667rem;
     cursor: pointer;
     transition: background 0.1s;
   }

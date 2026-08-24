@@ -458,12 +458,12 @@
     justify-content: center;
     width: 28px; /* match .act/.vis button width */
     height: 28px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     line-height: 1;
   }
   .icon-legend .legend-text {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     white-space: nowrap;
   }
@@ -492,7 +492,7 @@
     will-change: transform;
   }
   .tree-row.child .tree-label { padding-left: 18px; }
-  .tree-row.grandchild .tree-label { padding-left: 36px; font-size: 11px; color: var(--text-dim); }
+  .tree-row.grandchild .tree-label { padding-left: 36px; font-size: 0.7333rem; color: var(--text-dim); }
 
   .tree-left {
     display: flex;
@@ -503,7 +503,7 @@
   }
 
   .tree-label {
-    font-size: 12.5px;
+    font-size: 0.8333rem;
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;

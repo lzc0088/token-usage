@@ -121,13 +121,13 @@
   }
 
   .stat-icon {
-    font-size: 16px;
+    font-size: 1.067rem;
     flex-shrink: 0;
   }
 
   .stat-value {
     font-family: var(--font-mono);
-    font-size: 15px;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text);
     display: flex;
@@ -136,7 +136,7 @@
   }
 
   .stat-unit {
-    font-size: 11px;
+    font-size: 0.7333rem;
     font-weight: 400;
     color: var(--text-faint);
   }

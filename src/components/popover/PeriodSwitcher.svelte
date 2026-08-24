@@ -26,7 +26,7 @@
   }
   .period-lbl {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.7333rem;
     letter-spacing: 0.12em;
     color: var(--text-dim);
     text-transform: uppercase;
@@ -44,7 +44,7 @@
     border: none;
     color: var(--text-dim);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 0.7333rem;
     font-weight: 600;
     padding: 6px 10px;
     border-radius: 6px;

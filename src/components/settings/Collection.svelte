@@ -319,7 +319,7 @@
 
   .fbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
   .fbtn {
-    font-size: 10px;
+    font-size: 0.6667rem;
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 5px;
@@ -390,12 +390,12 @@
     min-width: 0;
     flex: 1;
   }
-  .tname { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .t-diag { font-size: 11px; color: var(--amber); margin-left: 4px; cursor: help; }
+  .tname { font-size: 0.8667rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-diag { font-size: 0.7333rem; color: var(--amber); margin-left: 4px; cursor: help; }
   .tinfo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .trow-meta { display: flex; align-items: center; gap: 6px; }
   .tstatus {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 500;
     padding: 1px 7px;
     border-radius: 5px;
@@ -409,7 +409,7 @@
   .tstatus.s-missing { background: rgba(234,84,85,0.12); color: var(--coral); }
   .tmsg {
     font-family: "JetBrains Mono", var(--font-mono);
-    font-size: 10.5px;
+    font-size: 0.7rem;
     font-weight: 500;
     padding: 2px 7px;
     border-radius: 5px;
@@ -430,14 +430,14 @@
   /* ── basic section ── */
   .box-row.tok-row { align-items: center; }
   .tok-inline { display: flex; align-items: center; gap: 8px; }
-  .tok-loading { font-size: 11px; color: var(--text-faint); }
-  .tok-tag { font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
+  .tok-loading { font-size: 0.7333rem; color: var(--text-faint); }
+  .tok-tag { font-size: 0.7rem; font-weight: 500; padding: 2px 7px; border-radius: 5px; }
   .tok-tag.s-active  { background: rgba(108,199,116,0.12); color: var(--lime); }
   .tok-tag.s-missing { background: rgba(224,108,117,0.12); color: var(--coral); }
-  .tok-ver { font-family: "JetBrains Mono", var(--font-mono); font-size: 12px; color: var(--lime); }
-  .tok-badge { font-size: 10.5px; color: var(--text-dim); background: var(--surface-tint-strong); padding: 2px 7px; border-radius: 5px; }
+  .tok-ver { font-family: "JetBrains Mono", var(--font-mono); font-size: 0.8rem; color: var(--lime); }
+  .tok-badge { font-size: 0.7rem; color: var(--text-dim); background: var(--surface-tint-strong); padding: 2px 7px; border-radius: 5px; }
 
-  .empty { font-size: 11px; color: var(--text-faint); padding: 12px 0; }
+  .empty { font-size: 0.7333rem; color: var(--text-faint); padding: 12px 0; }
 
   .icon-legend {
     display: flex;
@@ -459,12 +459,12 @@
     justify-content: center;
     width: 28px; /* match .ibtn width → aligns with the button column below */
     height: 28px;
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     line-height: 1;
   }
   .icon-legend .legend-text {
-    font-size: 10.5px;
+    font-size: 0.7rem;
     color: var(--text-faint);
     white-space: nowrap;
   }

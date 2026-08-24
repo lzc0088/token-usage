@@ -78,7 +78,7 @@
   }
   .big {
     font-family: "Fraunces", var(--font-ui);
-    font-size: 28px;
+    font-size: 1.867rem;
     font-weight: 600;
     line-height: 1.15;
     color: var(--text);
@@ -93,7 +93,7 @@
     min-width: 0;
   }
   .big-unit {
-    font-size: 12px;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-dim);
     font-family: var(--font-ui);
@@ -101,7 +101,7 @@
     -webkit-user-select: text;
   }
   .cost {
-    font-size: 12px;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--amber);
     white-space: nowrap;
@@ -118,7 +118,7 @@
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    font-size: 11px;
+    font-size: 0.7333rem;
     font-weight: 600;
     font-family: var(--font-ui);
     color: var(--text-dim);
@@ -133,11 +133,11 @@
   .rate:hover { color: var(--amber); border-color: var(--amber); background: var(--amber-hover); }
   .delta {
     margin-left: 8px;
-    font-size: 12px;
+    font-size: 0.8rem;
     font-weight: 600;
     font-family: var(--font-ui);
   }
-  .delta-unit { font-size: 9px; margin-left: 2px; }
+  .delta-unit { font-size: 0.6rem; margin-left: 2px; }
   .delta.up { color: var(--lime); }
   .delta.down { color: var(--coral); }
 </style>
