@@ -3,9 +3,11 @@
   // context from the main popover → loads its own config. Layout follows
   // docs/wireframe.html #settings-section: left nav (170px) + right panel.
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { api, type Config } from "../lib/api";
   import { applyAppearance, initAppearanceListeners } from "../lib/appearance";
   import { setLang, t } from "../lib/i18n.svelte";
+  import { CONFIG_CHANGED } from "../lib/events";
   import General from "../components/settings/General.svelte";
   import MainView from "../components/settings/MainView.svelte";
   import Window from "../components/settings/Window.svelte";
@@ -75,6 +77,21 @@
     }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+  });
+
+  // Listen for config changes from other windows (e.g. main popover).
+  // Without this, the settings window won't update its theme when changed
+  // from another window until it regains focus.
+  $effect(() => {
+    const unlisten = listen<void>(CONFIG_CHANGED, () => {
+      api.getConfig()
+        .then((c) => {
+          cfg = c;
+          applyAppearance(c);
+        })
+        .catch(() => {});
+    });
+    return () => { unlisten.then((fn) => fn()); };
   });
 
   // Reactive nav labels — language-aware via cfg.language prop read.
