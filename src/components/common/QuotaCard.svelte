@@ -296,7 +296,7 @@
           </div>
         {/each}
       </div>
-    {:else if w.resets_at}
+    {:else if !hasSub && w.resets_at}
       <div class="qiw-reset">{formatReset(w.resets_at, nowMs, _lang)}</div>
     {/if}
   </div>
