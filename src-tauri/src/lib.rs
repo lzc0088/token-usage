@@ -169,10 +169,13 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let state = app.state::<AppState>();
         let conn = state.db_read();
-        let is_fixed = config::load(&conn)
-            .map(|c| c.window_display_mode == "fixed")
-            .unwrap_or(false);
-        crate::ui::window::apply_drag_mode(app, is_fixed);
+        let mode = config::load(&conn)
+            .map(|c| c.window_display_mode.clone())
+            .unwrap_or_default();
+        crate::ui::window::apply_window_size_constraints(app, &mode);
+        // Belt-and-braces: main must never be background-movable (header
+        // drag-region is the only move channel; edges belong to resize).
+        crate::ui::window::apply_drag_mode(app, mode == "fixed");
 
         // Position the window next to the tray icon.
         if let Ok(guard) = LAST_TRAY_RECT.lock() {
@@ -740,6 +743,7 @@ pub fn run() {
             commands::window_cmd::frontend_log,
             commands::window_cmd::toggle_main_window,
             commands::window_cmd::set_main_interacting,
+            commands::window_cmd::resize_main_anchored,
             commands::window_cmd::get_floating_data,
             commands::window_cmd::show_floating_panel,
             commands::window_cmd::hide_floating_panel,

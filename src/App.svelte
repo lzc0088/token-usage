@@ -14,6 +14,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config, type Summary } from "./lib/api";
   import { applyAppearance, initAppearanceListeners } from "./lib/appearance";
+  import { startWindowResize } from "./lib/resize";
   import { TODAY_UPDATED, CONFIG_CHANGED, RATE_UPDATED, TRAY_REFRESH, COLLECTION_ERROR, COLLECTION_UPDATED } from "./lib/events";
   import { setLang, t } from "./lib/i18n.svelte";
   import { periodValue } from "./stores/period.svelte";
@@ -262,35 +263,12 @@
     return initAppearanceListeners();
   });
 
-  // ── Input-focus drag toggle ──
-  // Disable native window dragging when the cursor is inside an input field
-  // so the user can type/select text without accidentally dragging the window.
-  $effect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    function onFocusIn(e: FocusEvent) {
-      const el = e.target as HTMLElement;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
-        if (timer) clearTimeout(timer);
-        invoke("set_window_draggable", { label: "main", enabled: false }).catch(() => {});
-      }
-    }
-    function onFocusOut(_e: FocusEvent) {
-      // Delay re-enable to avoid flickering between inputs
-      timer = setTimeout(() => {
-        const active = document.activeElement as HTMLElement | null;
-        if (!active || (active.tagName !== "INPUT" && active.tagName !== "TEXTAREA" && active.tagName !== "SELECT" && !active.isContentEditable)) {
-          invoke("set_window_draggable", { label: "main", enabled: true }).catch(() => {});
-        }
-      }, 100);
-    }
-    document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
-    return () => {
-      document.removeEventListener("focusin", onFocusIn);
-      document.removeEventListener("focusout", onFocusOut);
-      if (timer) clearTimeout(timer);
-    };
-  });
+  // ── Window drag policy ──
+  // The main window is movable ONLY via the header's data-tauri-drag-region.
+  // Native background dragging (MovableByWindowBackground) must stay OFF at
+  // all times — it would make edges/content draggable and fight the JS
+  // resize handles. Text selection safety is inherent: drag.js ignores
+  // mousedowns on INPUT/TEXTAREA/SELECT/clickable elements.
 
   let segment = $derived(segmentValue());
 
@@ -348,6 +326,29 @@
 </script>
 
 <div class="popover" data-testid="popover">
+  <!-- Resize handles: invisible strips at each edge + corners.
+       JS-driven resize (lib/resize.ts) — setSize only changes the window's
+       size, never its origin, so resizing never moves the window. Inert in
+       "fixed" display mode (window size is locked). -->
+  {#if config.window_display_mode !== "fixed"}
+    <!-- svelte-ignore a11y_no_static_element_interactions (mouse-only resize strips) -->
+    <div class="resize-handle resize-n" onpointerdown={(e) => startWindowResize(e, "n")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-s" onpointerdown={(e) => startWindowResize(e, "s")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-e" onpointerdown={(e) => startWindowResize(e, "e")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-w" onpointerdown={(e) => startWindowResize(e, "w")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-ne" onpointerdown={(e) => startWindowResize(e, "ne")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-nw" onpointerdown={(e) => startWindowResize(e, "nw")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-se" onpointerdown={(e) => startWindowResize(e, "se")}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle resize-sw" onpointerdown={(e) => startWindowResize(e, "sw")}></div>
+  {/if}
+
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <header
     class="pop-hero"
@@ -424,14 +425,12 @@
       {/if}
     </div>
     <div class="r">
-      {#if refreshStatus === "loading"}
-        <span class="refresh-feedback loading">{t("hero.refreshing")}</span>
-      {:else if refreshStatus === "ok"}
+      {#if refreshStatus === "ok"}
         <span class="refresh-feedback ok">{refreshMsg}</span>
       {:else if refreshStatus === "fail"}
         <span class="refresh-feedback fail">{t("hero.refreshFail")}</span>
       {/if}
-      <button type="button" class="fbtn" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">
+      <button type="button" class="fbtn {refreshStatus === 'loading' ? 'fbtn-spin' : ''}" onclick={() => refreshData()} disabled={refreshStatus === "loading"} title="刷新" aria-label="刷新">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="21 3 21 9 15 9" />
           <path d="M20.5 15a8.5 8.5 0 1 1-2-8.8L21 9" />
@@ -439,8 +438,8 @@
       </button>
       <button type="button" class="fbtn fbtn-gear" onclick={() => { invoke("open_settings").catch(() => {}); }} title="设置" aria-label="设置">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3.2" />
-          <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" />
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+          <circle cx="12" cy="12" r="3"/>
         </svg>
       </button>
     </div>
@@ -455,6 +454,7 @@
     background: rgba(var(--app-bg), var(--app-bg-opacity));
     border-radius: 15px;
     overflow: hidden;
+    position: relative;
   }
   .pop-hero {
     display: flex;
@@ -569,7 +569,6 @@
     align-items: center;
   }
   .refresh-feedback { font-size: 0.7rem; line-height: 1; }
-  .refresh-feedback.loading { color: var(--text-dim); }
   .refresh-feedback.ok { color: var(--lime); }
   .refresh-feedback.fail { color: var(--coral); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fbtn {
@@ -595,6 +594,37 @@
     color: var(--amber);
     border-color: var(--amber-soft);
   }
+
+  @keyframes spin-icon {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  .fbtn-spin {
+    color: var(--amber);
+    pointer-events: none;
+  }
+  .fbtn-spin svg {
+    animation: spin-icon 0.8s linear infinite;
+  }
+
+  /* ── Invisible resize handles at window edges ──────────────────────
+     JS-driven resize hotspots (pointerdown → lib/resize.ts). They sit
+     above the header drag-region (z-index) so edge grabs resize instead
+     of dragging the window. */
+  .resize-handle {
+    position: absolute;
+    z-index: 50;
+    pointer-events: auto;
+    touch-action: none;
+  }
+  .resize-n  { top: 0; left: 0; right: 0; height: 6px;  cursor: n-resize; }
+  .resize-s  { bottom: 0; left: 0; right: 0; height: 6px;  cursor: s-resize; }
+  .resize-e  { top: 0; right: 0; bottom: 0; width: 6px;  cursor: e-resize; }
+  .resize-w  { top: 0; left: 0; bottom: 0; width: 6px;  cursor: w-resize; }
+  .resize-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: ne-resize; }
+  .resize-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nw-resize; }
+  .resize-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: se-resize; }
+  .resize-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: sw-resize; }
   .seg-scroll {
     flex: 1;
     overflow-y: auto;

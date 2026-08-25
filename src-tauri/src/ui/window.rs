@@ -7,7 +7,7 @@
 use rusqlite::Connection;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, LogicalPosition, Manager};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
 use crate::config;
 
@@ -54,17 +54,56 @@ fn set_app_icon(ns_app: *mut objc::runtime::Object) {
 #[cfg(not(target_os = "macos"))]
 pub fn apply_dock_visibility(_app: &AppHandle, _show: bool) {}
 
-/// Apply the main-window drag mode (macOS only). `fixed=true` locks the
-/// popover position (not draggable); `false` lets the user drag it. Both
-/// modes still snap under the tray on show — only draggability changes.
-/// The settings window is unaffected.
+/// Apply the main-window drag mode (macOS only).
+/// The main popover uses `data-tauri-drag-region` on the header for dragging.
+/// `MovableByWindowBackground` MUST be OFF (0) so the native resize handles
+/// at the window edges receive pointer events — otherwise edge-resize and
+/// window-drag conflict.
 #[cfg(target_os = "macos")]
-pub fn apply_drag_mode(app: &AppHandle, fixed: bool) {
-    let flag: i8 = if fixed { 0 } else { 1 };
+pub fn apply_drag_mode(app: &AppHandle, _fixed: bool) {
+    // Always disable background-drag on main; header drag-region handles it.
+    let flag: i8 = 0;
     set_window_draggable(app, "main", flag != 0);
 }
 #[cfg(not(target_os = "macos"))]
 pub fn apply_drag_mode(_app: &AppHandle, _fixed: bool) {}
+
+/// Size constraints for the main popover, applied per display-mode.
+/// - "fixed": locked to the current outer size (no resize).
+/// - "normal" / "always_on_top": bounded between 340×400 and 500×1100.
+///
+/// Native edge resizing is DISABLED in every mode (set_resizable(false)).
+/// On macOS AppKit anchors the opposite edge when resizing from the top/left,
+/// which moves the window's origin — the user's requirement is that resize
+/// and drag-move stay fully independent. Resizing is driven instead by the
+/// frontend handles (src/lib/resize.ts → setSize), which only ever change
+/// the size, never the origin.
+pub fn apply_window_size_constraints(app: &AppHandle, mode: &str) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    match mode {
+        "fixed" => {
+            // Capture current outer size and pin both min and max to it.
+            let (w, h) = win
+                .outer_size()
+                .map(|s| {
+                    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+                    (s.width as f64 / scale, s.height as f64 / scale)
+                })
+                .unwrap_or((458.0, 871.0));
+            let size = LogicalSize::new(w, h);
+            let _ = win.set_min_size(Some(size));
+            let _ = win.set_max_size(Some(size));
+        }
+        _ => {
+            let _ = win.set_min_size(Some(LogicalSize::new(340.0, 400.0)));
+            let _ = win.set_max_size(Some(LogicalSize::new(500.0, 1100.0)));
+        }
+    }
+    // Native edge-resize off in all modes — frontend handles own resizing.
+    let _ = win.set_resizable(false);
+}
 
 /// Enable or disable native window dragging for any window by label.
 /// Called from the frontend when inputs gain/lose focus, so dragging the
@@ -277,6 +316,7 @@ pub fn apply_window_features(app: &AppHandle, conn: &Connection) {
         }
     };
     apply_drag_mode(app, cfg.window_display_mode == "fixed");
+    apply_window_size_constraints(app, &cfg.window_display_mode);
     apply_hotkey(app, &cfg.hotkey);
     // Repaint tray title immediately (tray_display) instead of waiting for
     // the next collector tick.
@@ -296,6 +336,7 @@ pub fn apply_window_config(app: &AppHandle, conn: &Connection) {
     };
     apply_dock_visibility(app, cfg.show_in_dock);
     apply_drag_mode(app, cfg.window_display_mode == "fixed");
+    apply_window_size_constraints(app, &cfg.window_display_mode);
     apply_hotkey(app, &cfg.hotkey);
     // Main popover always-on-top — floating mode keeps it above other apps.
     if let Some(main) = app.get_webview_window("main") {

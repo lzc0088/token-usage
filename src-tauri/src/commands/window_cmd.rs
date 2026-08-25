@@ -132,6 +132,75 @@ pub fn set_main_interacting(interacting: bool) {
     crate::MAIN_INTERACTING.store(interacting, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Resize the main window from a JS resize handle, anchoring the edges
+/// OPPOSITE to the drag direction so the grabbed edge follows the mouse and
+/// everything else stays put.
+///
+/// Why not plain `setSize`: on macOS `setContentSize:` pins the window's
+/// BOTTOM-LEFT origin (AppKit coordinates), so dragging the bottom edge
+/// instead grows the window upward and dragging the left edge grows it
+/// rightward — the window visibly "moves" while resizing. Here the origin is
+/// compensated per direction after the size change:
+///   - dir contains "s" → keep the top edge fixed (compensate y)
+///   - otherwise        → keep the bottom edge fixed (macOS default)
+///   - dir contains "w" → keep the right edge fixed (compensate x)
+///   - otherwise        → keep the left edge fixed (default)
+/// Tauri positions are top-left based and converted by tao, so the same math
+/// works on Windows/Linux (where setContentSize already pins top-left).
+///
+/// `width`/`height` are logical px (CSS px from the frontend); `dir` is one
+/// of n/s/e/w/ne/nw/se/sw.
+#[tauri::command]
+pub fn resize_main_anchored(
+    app: AppHandle,
+    dir: String,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    const DIRS: [&str; 8] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+    if !DIRS.contains(&dir.as_str()) {
+        return Err(format!("invalid resize direction: {dir}"));
+    }
+    if !(width.is_finite() && height.is_finite()) {
+        return Err("resize size must be finite".into());
+    }
+    let Some(win) = app.get_webview_window("main") else {
+        return Err("main window not found".into());
+    };
+
+    // Pre-resize geometry (physical px, top-left origin).
+    let (cur_w, cur_h, pos_x, pos_y) = match (win.outer_size(), win.outer_position()) {
+        (Ok(s), Ok(p)) => (s.width as f64, s.height as f64, p.x as f64, p.y as f64),
+        _ => return Err("failed to read main window geometry".into()),
+    };
+
+    win.set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+
+    // `setContentSize` pinned the bottom-left; undo the shift for the edges
+    // we want to hold in place. `set_size` moved the top edge by
+    // -(new_h - cur_h) in top-left coordinates.
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let new_w = width * scale;
+    let new_h = height * scale;
+    let mut new_x = pos_x; // left kept by default
+    let mut new_y = pos_y; // top restored (undo the bottom-left pin)
+    if !dir.contains('s') {
+        // keep the bottom edge: let the top follow the resize delta
+        new_y = pos_y - (new_h - cur_h);
+    }
+    if dir.contains('w') {
+        // keep the right edge
+        new_x = pos_x + (cur_w - new_w);
+    }
+    win.set_position(tauri::PhysicalPosition::new(
+        new_x.round() as i32,
+        new_y.round() as i32,
+    ))
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Temporarily enable/disable native window dragging. Used by the frontend
 /// when input fields gain/lose focus — dragging is disabled while the user
 /// is typing or selecting text, then restored when the input loses focus.
@@ -194,14 +263,15 @@ pub fn set_drag_suspended(
     Ok(())
 }
 
-fn drag_baseline(label: &str, main_baseline: bool) -> bool {
+fn drag_baseline(label: &str, _main_baseline: bool) -> bool {
     match label {
         // Settings is background-movable (set at startup in lib.rs); resume
-        // must restore that. There is no startDragging() drag handle in the
-        // frontend — an earlier comment claimed one, and its wrong `false`
-        // baseline is what broke dragging after a row-sort.
+        // must restore that.
         "settings" => true,
-        "main" => main_baseline,
+        // Main window: drag is handled by the frontend's data-tauri-drag-region
+        // on the header. Never set MovableByWindowBackground — it conflicts
+        // with native resize handles at the window edges.
+        "main" => false,
         _ => true,
     }
 }
@@ -314,7 +384,10 @@ mod tests {
 
     #[test]
     fn drag_baseline_tracks_main_baseline() {
-        assert!(drag_baseline("main", true));
+        // Main window uses frontend drag-region (data-tauri-drag-region on the
+        // header), never MovableByWindowBackground — baseline is always false
+        // so resize handles at the window edges remain functional.
+        assert!(!drag_baseline("main", true));
         assert!(!drag_baseline("main", false));
     }
 
