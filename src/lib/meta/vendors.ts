@@ -19,6 +19,7 @@ export const VENDOR_LABELS: Record<string, string> = {
   qoder: "Qoder ( 阿里 )",
   ollama: "Ollama ( Ollama Cloud )",
   cursor: "Cursor ( Anysphere )",
+  workbuddy: "WorkBuddy ( 腾讯 )",
 };
 
 // ── Full vendor definitions for the Account (账号额度) settings page ────
@@ -121,6 +122,17 @@ export const VENDORS: VendorDef[] = [
     ],
     loginLabel: "运行 codex /login",
     enLoginLabel: "Run codex /login",
+  },
+  {
+    id: "workbuddy",
+    label: "WorkBuddy ( 腾讯 )",
+    cat: "subscription",
+    billing: ["订阅"],
+    authType: "detect",
+    desc: "自动检测本机 WorkBuddy（腾讯 CodeBuddy）客户端登录状态，读取 Credits 余额（个人版聚合资源包 / 企业版额度）。请先在 WorkBuddy 客户端登录。",
+    tags: [{ text: "余额", color: "lime" }],
+    loginLabel: "登录 WorkBuddy 客户端",
+    enLoginLabel: "Sign in to WorkBuddy",
   },
   {
     id: "cursor",

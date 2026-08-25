@@ -32,6 +32,7 @@ pub mod scheduler;
 pub mod stepfun;
 pub mod types;
 pub mod volcengine;
+pub mod workbuddy;
 
 pub use types::{Quota, QuotaBalance, QuotaStatus, QuotaWindow};
 
@@ -56,6 +57,7 @@ pub const TRACKED_VENDORS: &[&str] = &[
     "zai_team",
     "qoder",
     "ollama",
+    "workbuddy",
 ];
 
 /// Map vendor string IDs to `VendorId` enum variants.
@@ -79,6 +81,7 @@ pub fn adapter_for(id: &str) -> Option<VendorId> {
         "codex" => Some(VendorId::Codex),
         "grok" => Some(VendorId::Grok),
         "openrouter" => Some(VendorId::Openrouter),
+        "workbuddy" => Some(VendorId::Workbuddy),
         _ => None,
     }
 }
@@ -115,6 +118,7 @@ pub enum VendorId {
     Codex,
     Grok,
     Openrouter,
+    Workbuddy,
 }
 
 impl VendorId {
@@ -138,6 +142,7 @@ impl VendorId {
             VendorId::Grok => "Grok ( xAI )",
             VendorId::Openrouter => "OpenRouter",
             VendorId::Codex => "Codex",
+            VendorId::Workbuddy => "WorkBuddy ( 腾讯 )",
         }
     }
 
@@ -161,7 +166,8 @@ impl VendorId {
             | VendorId::Ollama
             | VendorId::Opencode
             | VendorId::Claude
-            | VendorId::Codex => CredentialCategory::Cookie,
+            | VendorId::Codex
+            | VendorId::Workbuddy => CredentialCategory::Cookie,
         }
     }
 }
@@ -237,6 +243,7 @@ pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorEr
         VendorId::Codex => codex::fetch(credential).await,
         VendorId::Grok => grok::fetch(credential).await,
         VendorId::Openrouter => openrouter::fetch(credential).await,
+        VendorId::Workbuddy => workbuddy::fetch(credential).await,
     }
 }
 
@@ -433,7 +440,7 @@ mod tests {
 
     #[test]
     fn adapter_for_all_tracked_vendors_return_some() {
-        assert_eq!(TRACKED_VENDORS.len(), 18);
+        assert_eq!(TRACKED_VENDORS.len(), 19);
         for vendor in TRACKED_VENDORS {
             assert!(adapter_for(vendor).is_some(), "tracked '{vendor}' must map");
         }

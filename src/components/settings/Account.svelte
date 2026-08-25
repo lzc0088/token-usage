@@ -454,14 +454,22 @@
       .catch(() => {});
   }
 
+  // Per-vendor detect/login error message (shown inline when auto-detect fails).
+  let detectErrorOf = $state<Record<string, string>>({});
+
   // Dispatch login by vendor id. Returns true if a login was started.
   async function startLogin(vendor: string): Promise<boolean> {
-    if (vendor === "claude") {
-      await api.refreshQuota(vendor).then(() => {
+    if (vendor === "claude" || vendor === "workbuddy") {
+      // Auto-detect vendors: try a quota refresh — success means a local
+      // session was found (Claude CLI OAuth / WorkBuddy desktop app login).
+      try {
+        await api.refreshQuota(vendor);
         bound = { ...bound, [vendor]: true };
-      }).catch(() => {
-        /* no CLI credentials found — expected */
-      });
+        detectErrorOf = { ...detectErrorOf, [vendor]: "" };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        detectErrorOf = { ...detectErrorOf, [vendor]: msg };
+      }
       return true;
     }
     return false;
@@ -619,6 +627,9 @@
                     <DeviceFlow vendor="codex" state={codexLoginState} onRetry={() => startCodexLogin()} />
                   {/if}
                 {:else}
+                  {#if detectErrorOf[v.id]}
+                    <p class="panel-err-msg">{detectErrorOf[v.id]}</p>
+                  {/if}
                   <div class="panel-actions">
                     {#if v.authType === "detect"}
                       <button type="button" class="btn-outline" onclick={() => startLogin(v.id)}>{t("account.detect")}</button>
@@ -893,6 +904,7 @@
   .cs-none { color: var(--text-faint); }
   .cookie-mgr-actions { display: flex; gap: 6px; margin-top: 6px; }
   .panel-hint { font-size: 0.7333rem; color: var(--text-faint); margin: 4px 0 10px; line-height: 1.6; }
+  .panel-err-msg { font-size: 0.7333rem; color: var(--coral); margin: 4px 0 10px; line-height: 1.5; }
 
   /* ── Copilot device-flow login ── */
   .device-flow {

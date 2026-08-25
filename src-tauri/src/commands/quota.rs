@@ -200,7 +200,13 @@ pub async fn refresh_quota(
 ) -> Result<(), String> {
     let cred = {
         let conn = state.db_read();
-        credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
+        // Auto-detect vendors (workbuddy) have no stored credential — their
+        // adapter reads the local app session file directly.
+        if vendor == "workbuddy" {
+            String::new()
+        } else {
+            credentials::get(&conn, &vendor).map_err(|e| e.to_string())?
+        }
     };
     let now = chrono::Utc::now();
     let today = now.format("%Y-%m-%d").to_string();

@@ -124,6 +124,7 @@ fn is_cookie_vendor(id: &str) -> bool {
             | "opencode"
             | "claude"
             | "codex"
+            | "workbuddy"
     )
 }
 
@@ -248,10 +249,7 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
                 e.into_inner()
             });
             let cfg = config::load(&conn).unwrap_or_default();
-            (
-                cfg.quota_refresh_interval.clone(),
-                cfg.tray_display.clone(),
-            )
+            (cfg.quota_refresh_interval.clone(), cfg.tray_display.clone())
         };
         let is_adaptive = interval_raw == "adaptive";
         let base_secs = if is_adaptive {
@@ -298,8 +296,7 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
 
         if should_run {
             if try_begin_refresh() {
-                refresh_all_impl(&db, &mut auth_errored, target.as_deref(), Some(&mut burn))
-                    .await;
+                refresh_all_impl(&db, &mut auth_errored, target.as_deref(), Some(&mut burn)).await;
                 REFRESHING.store(false, Ordering::Release);
                 if do_full {
                     last_full_ms = fired_at;
@@ -375,6 +372,11 @@ async fn refresh_all_impl(
         let creds: Vec<(String, String)> = TRACKED_VENDORS
             .iter()
             .filter_map(|id| {
+                // Auto-detect vendors (workbuddy) need no stored credential —
+                // their adapter reads the local app session itself.
+                if *id == "workbuddy" {
+                    return Some(((*id).to_string(), String::new()));
+                }
                 credentials::get(&conn, id)
                     .ok()
                     .map(|c| ((*id).to_string(), c))

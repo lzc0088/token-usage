@@ -296,6 +296,10 @@ const DICT: Record<string, Record<string, string>> = {
   // ── Stats Cards ──
   "stats.days": { zh: "天", en: "days" },
   "stats.messages": { zh: "条", en: "msgs" },
+  "stats.totalTokens": { zh: "总用量", en: "Total Tokens" },
+  "stats.totalCost": { zh: "总费用", en: "Total Cost" },
+  "stats.activeDays": { zh: "活跃天数", en: "Active Days" },
+  "stats.messageCount": { zh: "消息数", en: "Messages" },
 
   // ── Trends Heatmap ──
   "trends.activity": { zh: "活动热力图", en: "Activity Heatmap" },
