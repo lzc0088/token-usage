@@ -54,12 +54,8 @@ pub fn export_json(state: State<AppState>) -> Result<String, String> {
 
     // Get Claude projects dir for session queries
     let claude_projects_dir = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
-    let sessions = query::sessions::query(
-        &conn,
-        claude_projects_dir.as_deref(),
-        Some(500),
-    )
-    .map_err(|e| e.to_string())?;
+    let sessions = query::sessions::query(&conn, claude_projects_dir.as_deref(), Some(500))
+        .map_err(|e| e.to_string())?;
 
     let payload = ExportPayload {
         generated_at: chrono::Utc::now().to_rfc3339(),
@@ -138,8 +134,6 @@ fn csv_escape(value: &str) -> String {
 pub fn copy_to_clipboard(text: String) -> Result<(), String> {
     // Use arboard for clipboard access
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard
-        .set_text(text)
-        .map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())?;
     Ok(())
 }

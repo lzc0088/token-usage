@@ -189,15 +189,17 @@ impl BurnRateTracker {
                 if remaining_pct <= 0.0 {
                     return false;
                 }
-                let d = ((remaining_pct / h.rate_pct_per_min) * 60.0 / SAMPLES_AHEAD).ceil()
-                    as u64;
+                let d = ((remaining_pct / h.rate_pct_per_min) * 60.0 / SAMPLES_AHEAD).ceil() as u64;
                 d.max(URGENCY_FLOOR_SECS) <= horizon
             })
             .map(|((v, _), _)| v.clone())
             .collect();
         vendors.sort();
         vendors.dedup();
-        Some(Urgency { delay_secs: delay, vendors })
+        Some(Urgency {
+            delay_secs: delay,
+            vendors,
+        })
     }
 }
 
@@ -277,7 +279,10 @@ mod tests {
         // remaining = 59%, rate 2.83 → ttl ≈ 20.8min → delay ≈ 312s ≥ baseline.
         // (Just verify the rate survived the quiet gap: urgency still exists.)
         let u = t.urgency(20 * 60_000);
-        assert!(u.is_some(), "decayed rate must stay > 0 after one quiet gap");
+        assert!(
+            u.is_some(),
+            "decayed rate must stay > 0 after one quiet gap"
+        );
     }
 
     #[test]

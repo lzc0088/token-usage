@@ -69,7 +69,9 @@ fn quota_min_title(conn: &Connection) -> String {
             }
         }
     }
-    worst.map(|pct| format!("{}%", pct.round() as u32)).unwrap_or_default()
+    worst
+        .map(|pct| format!("{}%", pct.round() as u32))
+        .unwrap_or_default()
 }
 
 /// Load the `tray_display` config, defaulting to `today_both` on error.
