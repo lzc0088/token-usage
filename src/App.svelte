@@ -177,19 +177,6 @@
     };
   });
 
-  // Prevent any element from being auto-focused when the popover opens.
-  // The browser may focus the first tab button; since we block Tab
-  // navigation, no element should retain focus.
-  $effect(() => {
-    const t = window.setTimeout(() => {
-      const el = document.activeElement;
-      if (el && el !== document.body && "blur" in el) {
-        (el as HTMLElement).blur();
-      }
-    }, 50);
-    return () => window.clearTimeout(t);
-  });
-
   $effect(() => {
     const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
             if (periodValue() === "day") summary = e.payload;
@@ -339,7 +326,12 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (Tab is intentionally blocked in popover) -->
-<div class="popover" data-testid="popover" onkeydown={(e) => { if (e.key === "Tab") { e.preventDefault(); } }}>
+<div
+  class="popover"
+  data-testid="popover"
+  onkeydown={(e) => { if (e.key === "Tab") { e.preventDefault(); } }}
+  onfocusin={(e) => { const t = e.target as HTMLElement | null; if (t && t !== document.body) { t.blur(); } }}
+>
   <!-- Resize handles: invisible strips at each edge + corners.
        JS-driven resize (lib/resize.ts) — setSize only changes the window's
        size, never its origin, so resizing never moves the window. Inert in
@@ -469,6 +461,12 @@
     border-radius: 15px;
     overflow: hidden;
     position: relative;
+  }
+  /* Hide focus rings in the popover — focus is intentionally suppressed
+     (focusin handler immediately blurs, and Tab is blocked). */
+  .popover *:focus,
+  .popover *:focus-visible {
+    outline: none !important;
   }
   .pop-hero {
     display: flex;
