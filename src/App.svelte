@@ -325,7 +325,8 @@
   }
 </script>
 
-<div class="popover" data-testid="popover">
+<!-- svelte-ignore a11y_no_static_element_interactions (Tab is intentionally blocked in popover) -->
+<div class="popover" data-testid="popover" onkeydown={(e) => { if (e.key === "Tab") { e.preventDefault(); } }}>
   <!-- Resize handles: invisible strips at each edge + corners.
        JS-driven resize (lib/resize.ts) — setSize only changes the window's
        size, never its origin, so resizing never moves the window. Inert in
