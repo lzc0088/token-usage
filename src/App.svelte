@@ -464,9 +464,6 @@
     gap: 8px;
     flex-shrink: 0;
     position: relative;
-    /* Drag region: prevent text selection so pointer drags move window. */
-    user-select: none;
-    -webkit-user-select: none;
   }
   /* Ensure interactive elements inside the drag region are clickable
      (override Tauri's injected -webkit-app-region: drag). */
