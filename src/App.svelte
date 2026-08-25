@@ -177,6 +177,19 @@
     };
   });
 
+  // Prevent any element from being auto-focused when the popover opens.
+  // The browser may focus the first tab button; since we block Tab
+  // navigation, no element should retain focus.
+  $effect(() => {
+    const t = window.setTimeout(() => {
+      const el = document.activeElement;
+      if (el && el !== document.body && "blur" in el) {
+        (el as HTMLElement).blur();
+      }
+    }, 50);
+    return () => window.clearTimeout(t);
+  });
+
   $effect(() => {
     const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
             if (periodValue() === "day") summary = e.payload;
