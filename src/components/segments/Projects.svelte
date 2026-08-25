@@ -131,7 +131,7 @@
       {@const st = splitTokens(p.tokens)}
       {@const open = expanded === rowKey}
       <button type="button" class="prow" onclick={() => toggleExpand(rowKey)}>
-        <span class="pk" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+        <span class="pk" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
         <div class="p-main">
           <div class="p-top">
             <span class="p-name">{p.name}</span>
@@ -222,7 +222,7 @@
 
   .prow {
     display: grid;
-    grid-template-columns: 28px 1fr auto;
+    grid-template-columns: 32px 1fr auto;
     align-items: center;
     gap: 12px;
     padding: 9px 16px;
@@ -239,8 +239,8 @@
     background: rgba(232, 176, 75, 0.04);
   }
   .pk {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
