@@ -1,10 +1,11 @@
 <script lang="ts">
   import { api, type Currency, type ProjectDetailRow, type ProjectVm } from "../../lib/api";
   import { PALETTE } from "../../lib/constants";
-  import { formatCost, splitTokens } from "../../lib/format";
+  import { splitTokens } from "../../lib/format";
   import { toolMeta } from "../../lib/meta/tools";
   import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
+  import CostText from "../common/CostText.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import CopyButton from "../common/CopyButton.svelte";
   import EmptyState from "../common/EmptyState.svelte";
@@ -135,7 +136,7 @@
         <div class="p-main">
           <div class="p-top">
             <span class="p-name">{p.name}</span>
-            <span class="p-cost">{formatCost(p.cost_usd, currency, cnyRate)}</span>
+            <span class="p-cost"><CostText usd={p.cost_usd} {currency} {cnyRate} /></span>
           </div>
           <div class="p-bar-row">
             <div class="br">
@@ -316,7 +317,7 @@
   .tku {
     font-size: 0.5333rem;
     color: var(--text-faint);
-    margin-left: 2px;
+    margin-left: 0;
     font-weight: 600;
   }
   .p-days {

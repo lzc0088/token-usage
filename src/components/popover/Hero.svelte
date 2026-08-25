@@ -2,8 +2,9 @@
   // Hero: period label + total tokens (big, with small unit) + cost (CNY first) + delta
   //       + live token-rate readout (click to toggle speed / burn).
   import type { Summary, Currency } from "../../lib/api";
-  import { formatCost, formatTokenRate, splitTokens, splitTokensCN } from "../../lib/format";
+  import { formatTokenRate, splitTokens, splitTokensCN } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
+  import CostText from "../common/CostText.svelte";
 
   let {
     summary,
@@ -56,7 +57,7 @@
   </span>
   <div class="subline">
     {#if summary}
-      <span class="cost">{formatCost(summary.cost_usd, currency, cnyRate)}</span>
+      <span class="cost"><CostText usd={summary.cost_usd} {currency} {cnyRate} /></span>
     {/if}
     {#if rateText}
       <button
@@ -84,7 +85,7 @@
     color: var(--text);
     display: flex;
     align-items: baseline;
-    gap: 3px;
+    gap: 0;
     user-select: text;
     -webkit-user-select: text;
     white-space: nowrap;

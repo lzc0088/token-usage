@@ -2,18 +2,17 @@
   // DAY / MONTH / TOTAL switcher. Writes the global period store; the popover
   // re-queries everything when it changes.
   import { getPeriod, setPeriod } from "../../stores/period.svelte";
-
-  let { lang = "zh" }: { lang?: string } = $props();
+  import { t } from "../../lib/i18n.svelte";
 
   let current = $derived(getPeriod());
 </script>
 
 <div class="period" data-testid="period-switcher">
-  <span class="period-lbl">{lang === "en" ? "Period" : "时段"}</span>
+  <span class="period-lbl">{t("period.label")}</span>
   <div class="seg">
-    <button data-testid="period-day" class:active={current === "day"} onclick={() => setPeriod("day")}>{lang === "en" ? "Today" : "今日"}</button>
-    <button data-testid="period-month" class:active={current === "month"} onclick={() => setPeriod("month")}>{lang === "en" ? "Month" : "本月"}</button>
-    <button data-testid="period-total" class:active={current === "total"} onclick={() => setPeriod("total")}>{lang === "en" ? "Total" : "累计"}</button>
+    <button data-testid="period-day" class:active={current === "day"} onclick={() => setPeriod("day")}>{t("period.day")}</button>
+    <button data-testid="period-month" class:active={current === "month"} onclick={() => setPeriod("month")}>{t("period.month")}</button>
+    <button data-testid="period-total" class:active={current === "total"} onclick={() => setPeriod("total")}>{t("period.total")}</button>
   </div>
 </div>
 

@@ -9,8 +9,8 @@
   import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
   import Select from "./Select.svelte";
-  import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
-  import { formatCost } from "../../lib/format";
+  import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, windowLabel, splitBalance, openPanelUrl } from "../../lib/quota-format";
+  import CostText from "./CostText.svelte";
   import { getLang } from "../../lib/i18n.svelte";
   import type { Quota } from "../../lib/api";
 
@@ -223,16 +223,16 @@
 {#if quota.balance}
   <div class="qitem-balance">
     <span class="qibl-label">{l("余额","Balance")}</span>
-    <span class="qibl-amount">{formatBalance(quota.balance.currency ?? "USD", quota.balance.amount)}</span>
+    <span class="qibl-amount"><span class="qb-cu" aria-hidden="true">{splitBalance(quota.balance.currency ?? "USD", quota.balance.amount).unit}</span>{splitBalance(quota.balance.currency ?? "USD", quota.balance.amount).value}</span>
   </div>
   {#if quota.balance.today_consumption != null}
     <div class="qconsumption">
       <span class="qcons-label">{l("今日","Today")}</span>
-      <span class="qcons-value">{formatCost(quota.balance.today_consumption ?? 0, currency, cnyRate)}</span>
+      <span class="qcons-value"><CostText usd={quota.balance.today_consumption ?? 0} {currency} {cnyRate} /></span>
       {#if quota.balance.month_consumption != null}
         <span class="qcons-sep">·</span>
         <span class="qcons-label">{l("本月","Month")}</span>
-        <span class="qcons-value">{formatCost(quota.balance.month_consumption ?? 0, currency, cnyRate)}</span>
+        <span class="qcons-value"><CostText usd={quota.balance.month_consumption ?? 0} {currency} {cnyRate} /></span>
       {/if}
     </div>
   {/if}
@@ -420,6 +420,11 @@
     font-weight: 600;
     font-family: "JetBrains Mono", var(--font-mono);
     text-align: right;
+  }
+  /* Balance currency symbol: smaller than the digits, flush against them. */
+  .qibl-amount .qb-cu {
+    font-size: 0.75em;
+    font-weight: 700;
   }
   .qconsumption {
     display: flex;

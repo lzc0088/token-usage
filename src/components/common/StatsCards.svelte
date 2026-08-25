@@ -3,17 +3,22 @@
   // Mirrors the Overview IO cells (split2 / scell): small faint label on top,
   // large value below, each card in its own semantic color.
 
-  import type { Summary, TrendPoint } from "../../lib/api";
+  import type { Summary, TrendPoint, Currency } from "../../lib/api";
   import type { Locale } from "../../lib/format";
+  import { splitCost, type CostPart } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
 
   let {
     summary,
     trends,
+    currency = "both",
+    cnyRate = 7.2,
     locale = "en",
   }: {
     summary: Summary;
     trends: TrendPoint[];
+    currency?: Currency;
+    cnyRate?: number;
     locale?: Locale;
   } = $props();
 
@@ -27,15 +32,16 @@
     value: string;
     unit: string;
     color: string;
+    /** Cost card only: (unit, value) pairs rendered unit-first. */
+    costParts?: CostPart[];
   }
 
   const cards = $derived.by((): StatCard[] => {
     const total = splitCompact(summary.total_tokens, locale);
-    const cost = { value: summary.cost_usd.toFixed(2), unit: "USD" };
 
     return [
       { key: "totalTokens", label: t("stats.totalTokens"), ...total, color: "var(--tok-input)" },
-      { key: "totalCost", label: t("stats.totalCost"), ...cost, color: "var(--tok-output)" },
+      { key: "totalCost", label: t("stats.totalCost"), value: "", unit: "", costParts: splitCost(summary.cost_usd, currency, cnyRate), color: "var(--tok-output)" },
       { key: "activeDays", label: t("stats.activeDays"), value: String(activeDays), unit: t("stats.days"), color: "var(--tok-cache-r)" },
       { key: "messages", label: t("stats.messageCount"), value: String(summary.messages), unit: t("stats.messages"), color: "var(--tok-cache-w)" },
     ];
@@ -67,9 +73,18 @@
   {#each cards as card (card.key)}
     <div class="scell">
       <div class="k">{card.label}</div>
-      <div class="v" style="color: {card.color}">
-        {card.value}<span class="u">{card.unit}</span>
-      </div>
+      {#if card.costParts}
+        <!-- Cost: small currency unit LEFT of the amount (both → ¥…/$…). -->
+        <div class="v cost-v" style="color: {card.color}">
+          {#each card.costParts as part, i (i)}
+            {part.sep ?? ""}<span class="cu">{part.unit}</span><span class="cost-val">{part.value}</span>
+          {/each}
+        </div>
+      {:else}
+        <div class="v" style="color: {card.color}">
+          {card.value}<span class="u">{card.unit}</span>
+        </div>
+      {/if}
     </div>
   {/each}
 </div>
@@ -98,11 +113,24 @@
     margin-top: 2px;
     display: flex;
     align-items: baseline;
-    gap: 2px;
+    gap: 0;
   }
   .scell .v .u {
     font-size: 0.7333rem;
     color: var(--text-faint);
     font-weight: 600;
+  }
+  /* Cost card: small currency unit immediately LEFT of the amount. */
+  .cost-v {
+    gap: 0;
+  }
+  .cost-val {
+    font-size: 1.333rem;
+    font-weight: 500;
+  }
+  .cu {
+    font-size: 0.55rem;
+    font-weight: 700;
+    opacity: 0.85;
   }
 </style>

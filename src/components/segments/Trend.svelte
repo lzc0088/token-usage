@@ -6,10 +6,10 @@
   import Skeleton from "../common/Skeleton.svelte";
   import Heatmap from "../common/Heatmap.svelte";
   import StatsCards from "../common/StatsCards.svelte";
-  import { api, type Summary, type Trends } from "../../lib/api";
+  import { api, type Currency, type Summary, type Trends } from "../../lib/api";
   import { COLLECTION_UPDATED } from "../../lib/events";
-  import { t } from "../../lib/i18n.svelte";
-  import { formatTokens, splitTokens } from "../../lib/format";
+  import { t, getLang } from "../../lib/i18n.svelte";
+  import { splitTokens, splitCost } from "../../lib/format";
   import { periodValue } from "../../stores/period.svelte";
 
   let data = $state<Trends | null>(null);
@@ -17,6 +17,8 @@
   let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
   let chartW = $state(320);
+
+  let { currency = "both", cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
   $effect(() => {
     const p = periodValue();
@@ -122,7 +124,7 @@
     <!-- stats cards (above the chart) -->
     {#if summary}
       <div class="stats-section">
-        <StatsCards {summary} trends={points} locale="zh" />
+        <StatsCards {summary} trends={points} locale={getLang()} {currency} {cnyRate} />
       </div>
     {/if}
 
@@ -131,10 +133,18 @@
       <div class="plot" bind:clientWidth={chartW}>
         {#if hoverIdx !== null && points[hoverIdx]}
           {@const pt = points[hoverIdx]}
+          {@const ts = splitTokens(pt.tokens)}
+          {@const cp = splitCost(pt.cost_usd, currency, cnyRate)}
           <div class="tip" style="left:{tipLeft.toFixed(1)}%">
             <div class="tip-date">{fmtDate(pt.date)}</div>
-            <div class="tip-row"><span>{t("trends.usageLabel")}</span><span>{formatTokens(pt.tokens)}</span></div>
-            <div class="tip-row"><span>{t("trends.costLabel")}</span><span>${pt.cost_usd.toFixed(2)}</span></div>
+            <div class="tip-row">
+              <span>{t("trends.usageLabel")}</span>
+              <span>{ts.value}<span class="tu">{ts.unit}</span></span>
+            </div>
+            <div class="tip-row">
+              <span>{t("trends.costLabel")}</span>
+              <span>{#each cp as part, i (i)}{part.sep ?? ""}<span class="cu">{part.unit}</span>{part.value}{/each}</span>
+            </div>
             <div class="tip-row"><span>{t("trends.messagesLabel")}</span><span>{pt.messages}</span></div>
           </div>
         {/if}
@@ -187,7 +197,7 @@
     {#if period === "total" && points.length > 7}
       <div class="heatmap-section">
         <div class="heatmap-title">{t("trends.activity")}</div>
-        <Heatmap {points} locale="zh" />
+        <Heatmap {points} locale={getLang()} {currency} {cnyRate} />
       </div>
     {/if}
   {/if}
@@ -310,6 +320,16 @@
   .tip-row span:last-child {
     color: var(--text-dim);
     font-family: var(--font-mono);
+  }
+  /* Small units inside tooltip values: token unit right, currency left. */
+  .tip-row .tu {
+    font-size: 0.5rem;
+    font-weight: 600;
+    margin-left: 0;
+  }
+  .tip-row .cu {
+    font-size: 0.5rem;
+    font-weight: 700;
   }
 
   /* ── stats cards section (above chart) ── */

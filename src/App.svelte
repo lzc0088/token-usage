@@ -68,21 +68,42 @@
   }
 
   // Auto-hide on blur — settings is now a separate window, so main always
-  // hides when it loses focus.
+  // hides when it loses focus. A short grace period mirrors the Rust-side
+  // Focused(false) handler: momentary webview blurs (e.g. AppKit churn after
+  // a set_config call) cancel on refocus instead of yanking the popover away.
+  const BLUR_HIDE_GRACE_MS = 200;
   const refreshTimeouts = new Set<number>();
   $effect(() => {
     return () => { for (const id of refreshTimeouts) clearTimeout(id); };
   });
   $effect(() => {
-    function hideOnBlur() {
-      appWindow.hide();
+    let hideTimer: number | null = null;
+    function cancelPendingHide(): void {
+      if (hideTimer !== null) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+    }
+    function hideOnBlur(): void {
+      cancelPendingHide();
+      hideTimer = window.setTimeout(() => {
+        hideTimer = null;
+        // Re-check at fire time: a genuine click-away keeps focus elsewhere;
+        // a momentary blur has already refocused the window.
+        if (!document.hasFocus()) appWindow.hide();
+      }, BLUR_HIDE_GRACE_MS);
+    }
+    function hideIfVisible(): void {
+      if (document.hidden) appWindow.hide();
     }
     window.addEventListener("blur", hideOnBlur);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) appWindow.hide();
-    });
+    window.addEventListener("focus", cancelPendingHide);
+    document.addEventListener("visibilitychange", hideIfVisible);
     return () => {
+      cancelPendingHide();
       window.removeEventListener("blur", hideOnBlur);
+      window.removeEventListener("focus", cancelPendingHide);
+      document.removeEventListener("visibilitychange", hideIfVisible);
     };
   });
 
@@ -371,7 +392,7 @@
       onToggleRateMode={toggleRateMode}
     />
     <div class="hero-right">
-      <PeriodSwitcher lang={config.language} />
+      <PeriodSwitcher />
     </div>
   </header>
 
@@ -391,7 +412,7 @@
     {:else if segment === "sess"}
       <Sessions currency={config.currency} {cnyRate} />
     {:else if segment === "trend"}
-      <Trend />
+      <Trend currency={config.currency} {cnyRate} />
     {:else if segment === "limit"}
       <Limits currency={config.currency} {cnyRate} {config} />
     {:else}

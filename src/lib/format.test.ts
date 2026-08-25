@@ -52,24 +52,24 @@ describe("formatTokens", () => {
 
 describe("formatCost", () => {
   it("returns $ prefixed for usd", () => {
-    expect(formatCost(10.5, "usd")).toBe("$ 10.50");
+    expect(formatCost(10.5, "usd")).toBe("$10.50");
   });
   it("returns ¥ prefixed for cny", () => {
-    expect(formatCost(10, "cny", 7.2)).toBe("¥ 72.00");
+    expect(formatCost(10, "cny", 7.2)).toBe("¥72.00");
   });
   it("both mode shows CNY first then USD", () => {
-    expect(formatCost(10, "both", 7.2)).toBe("¥ 72.00 / $ 10.00");
+    expect(formatCost(10, "both", 7.2)).toBe("¥72.00 / $10.00");
   });
   it("defaults usd to 0 for NaN", () => {
-    expect(formatCost(NaN, "usd")).toBe("$ 0.00");
+    expect(formatCost(NaN, "usd")).toBe("$0.00");
   });
   it("defaults cnyRate to 7.2 and usd to 0 when cnyRate is NaN", () => {
     // Guard resets BOTH usd and cnyRate when either is non-finite
-    expect(formatCost(10, "cny", NaN)).toBe("¥ 0.00");
+    expect(formatCost(10, "cny", NaN)).toBe("¥0.00");
   });
   it("formats zero correctly", () => {
-    expect(formatCost(0, "usd")).toBe("$ 0.00");
-    expect(formatCost(0, "cny", 7.2)).toBe("¥ 0.00");
+    expect(formatCost(0, "usd")).toBe("$0.00");
+    expect(formatCost(0, "cny", 7.2)).toBe("¥0.00");
   });
 });
 

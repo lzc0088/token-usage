@@ -16,6 +16,10 @@ use crate::config;
 /// permitted by AppKit. When showing, also set the app icon image so the Dock
 /// displays the real icon (dev builds run outside a .app bundle and would
 /// otherwise show a generic executable icon).
+///
+/// The policy is only SET when it actually changes: re-setting the same value
+/// still makes AppKit deactivate the app briefly, which fires a webview
+/// `blur` and hides the popover (e.g. after any set_config call).
 #[cfg(target_os = "macos")]
 pub fn apply_dock_visibility(_app: &AppHandle, show: bool) {
     use objc::{class, msg_send, sel, sel_impl};
@@ -24,6 +28,10 @@ pub fn apply_dock_visibility(_app: &AppHandle, show: bool) {
     // 0 = NSApplicationActivationPolicyRegular (Dock visible)
     // 1 = NSApplicationActivationPolicyAccessory (Dock hidden)
     let policy: isize = if show { 0 } else { 1 };
+    let current: isize = unsafe { msg_send![ns_app, activationPolicy] };
+    if current == policy {
+        return;
+    }
     let _: () = unsafe { msg_send![ns_app, setActivationPolicy: policy] };
     if show {
         set_app_icon(ns_app);
@@ -125,21 +133,31 @@ pub fn set_window_draggable(_app: &AppHandle, _label: &str, _enabled: bool) {}
 /// Register (or clear) the global show/hide hotkey. Empty string unregisters
 /// everything. The recorded format is e.g. `Meta+Alt+T`; modifiers are mapped
 /// to the accelerator crate's vocabulary (`Meta` → `CommandOrControl`).
+///
+/// Skips the unregister/register cycle when the requested shortcut is already
+/// active — re-registering on every set_config needlessly churns the system
+/// hotkey table.
 pub fn apply_hotkey(app: &AppHandle, hotkey: &str) {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
     let gs = app.global_shortcut();
-    // Always start clean — idempotent if nothing is registered.
+    let Some(accel) = map_accelerator(hotkey.trim()) else {
+        // Empty/invalid → clear everything.
+        if !hotkey.trim().is_empty() {
+            tracing::warn!("window_ctl: invalid hotkey: {hotkey}");
+        }
+        if let Err(e) = gs.unregister_all() {
+            tracing::warn!("window_ctl: unregister_all failed: {e}");
+        }
+        return;
+    };
+    if gs.is_registered(accel.as_str()) {
+        return; // already active — nothing to do
+    }
+    // Start clean, then register the new combination.
     if let Err(e) = gs.unregister_all() {
         tracing::warn!("window_ctl: unregister_all failed: {e}");
     }
-    if hotkey.trim().is_empty() {
-        return;
-    }
-    let Some(accel) = map_accelerator(hotkey.trim()) else {
-        tracing::warn!("window_ctl: invalid hotkey: {hotkey}");
-        return;
-    };
     if let Err(e) = gs.on_shortcut(accel.as_str(), |app, _shortcut, event| {
         if event.state == ShortcutState::Pressed {
             toggle_main(app);

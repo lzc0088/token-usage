@@ -1,7 +1,8 @@
 <script lang="ts">
   import BreakdownBar from "./BreakdownBar.svelte";
+  import CostText from "./CostText.svelte";
   import { PALETTE } from "../../lib/constants";
-  import { formatCost, splitTokens } from "../../lib/format";
+  import { splitTokens } from "../../lib/format";
   import { modelVendor, vendorIdForModel } from "../../lib/meta/models";
   import { toolMeta, vendorIcon } from "../../lib/meta/tools";
   import { t } from "../../lib/i18n.svelte";
@@ -105,7 +106,7 @@
       <div class="bd-name">
         <span class="bd-key">{meta.label}</span>
         {#if mv}<span class="bd-vendor" style="color:{mv.color}">{mv.vendor}</span>{/if}
-        <span class="bd-cost">{formatCost(e.cost_usd, currency, cnyRate)}</span>
+        <span class="bd-cost"><CostText usd={e.cost_usd} {currency} {cnyRate} /></span>
       </div>
       <div class="bd-meta">
         <BreakdownBar pct={e.token_pct} color={PALETTE[i % PALETTE.length]} />
@@ -218,7 +219,7 @@
   .bd-pct { font-family: var(--font-mono); font-size: 0.7333rem; color: var(--text-dim); width: 42px; text-align: right; }
   .pct-u { font-size: 0.5333rem; margin-left: 1px; }
   .bd-tokens { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); text-align: right; }
-  .tku { font-size: 0.5333rem; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
+  .tku { font-size: 0.5333rem; color: var(--text-faint); margin-left: 0; font-weight: 600; }
 
   /* expanded detail — uses shared .bd-detail / .det-* from breakdown.css */
 </style>

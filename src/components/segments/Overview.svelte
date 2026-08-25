@@ -5,9 +5,10 @@
   import { api, type Breakdown, type Currency, type Quota, type Summary } from "../../lib/api";
   import { QUOTA_UPDATED } from "../../lib/events";
   import { PALETTE } from "../../lib/constants";
-  import { formatCost, splitTokens } from "../../lib/format";
+  import { splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
+  import CostText from "../common/CostText.svelte";
   import QuotaCard from "../common/QuotaCard.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
@@ -185,7 +186,7 @@
             {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("tools")}>
               <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
-              <span class="nm">{meta.label}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {s.value}<span class="su">{s.unit}</span></span></span>
+              <span class="nm">{meta.label}<span class="sub"><CostText usd={e.cost_usd} {currency} {cnyRate} /> / {s.value}<span class="su">{s.unit}</span></span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[i % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
@@ -207,7 +208,7 @@
             {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("models")}>
               <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
-              <span class="nm">{meta.label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub">{formatCost(e.cost_usd, currency, cnyRate)} / {e.messages}{t("overview.msgs")}</span></span>
+              <span class="nm">{meta.label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub"><CostText usd={e.cost_usd} {currency} {cnyRate} /> / {e.messages}{t("overview.msgs")}</span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[(i + 2) % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
@@ -273,7 +274,7 @@
   .scell .k { font-size: 0.7333rem; color: var(--text-faint); }
   .scell .v {
     font-size: 1.333rem; font-weight: 500; color: var(--text); margin-top: 2px;
-    display: flex; align-items: baseline; gap: 2px;
+    display: flex; align-items: baseline; gap: 0;
   }
   .scell .v .u { font-size: 0.7333rem; color: var(--text-faint); font-weight: 600; }
   /* Token-category colors — shared semantics with detail-composition bars
@@ -310,7 +311,7 @@
     background: var(--glass-3);
     border: 1px solid var(--border-dim);
   }
-  .crow .su { font-size: 0.6rem; margin-left: 2px; }
+  .crow .su { font-size: 0.6rem; margin-left: 0; }
   .crow .br {
     width: 62px; height: 4px; background: var(--bar-track);
     border-radius: 2px; overflow: hidden; flex-shrink: 0;
@@ -324,7 +325,7 @@
   .crow .vl {
     font-size: 0.8rem; color: var(--text-dim); width: 50px; text-align: right; flex-shrink: 0;
   }
-  .crow .vlu { font-size: 0.5333rem; color: var(--text-faint); font-weight: 600; margin-left: 2px; }
+  .crow .vlu { font-size: 0.5333rem; color: var(--text-faint); font-weight: 600; margin-left: 0; }
   .qcard-list {
     display: flex;
     flex-direction: column;

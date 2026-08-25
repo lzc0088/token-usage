@@ -17,16 +17,34 @@ pub fn get_config(state: State<AppState>) -> Result<Config, String> {
 #[tauri::command]
 pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Result<(), String> {
     let conn = db(&state);
+    let prev = crate::config::load(&conn).unwrap_or_default();
     crate::config::save(&conn, &config).map_err(|e| e.to_string())?;
     // Update the cached config so the scheduler picks up changes without a DB read.
     state.update_config_cache(config.clone());
-    // Apply window-behaviour settings live (dock, drag, hotkey, tray, floating).
-    crate::ui::window::apply_window_config(&app, &conn);
-    crate::ui::floating::sync_floating(&app, &conn);
+    // Apply window-behaviour settings live (dock, drag, hotkey, tray, floating)
+    // — but ONLY when one of the fields those appliers actually reads changed.
+    // Blindly re-applying churns AppKit state (activation policy, window
+    // level, size constraints), which can make the main popover resign key
+    // focus and auto-hide (e.g. after a mere token-rate-mode toggle).
+    if window_behaviour_changed(&prev, &config) {
+        crate::ui::window::apply_window_config(&app, &conn);
+        crate::ui::floating::sync_floating(&app, &conn);
+    }
     // Notify all windows (e.g. the main popover) so layout/currency changes
     // apply live without waiting for a manual refresh.
     let _ = app.emit("config:changed", ());
     Ok(())
+}
+
+/// Fields consumed by `apply_window_config` / `sync_floating`. Everything else
+/// (currency, language, layout, rate mode, …) needs no window surgery.
+fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
+    prev.show_in_dock != next.show_in_dock
+        || prev.window_display_mode != next.window_display_mode
+        || prev.hotkey != next.hotkey
+        || prev.floating_enabled != next.floating_enabled
+        || prev.floating_display != next.floating_display
+        || prev.floating_position != next.floating_position
 }
 
 /// Check if a vendor has a stored credential (encrypted in the local DB).

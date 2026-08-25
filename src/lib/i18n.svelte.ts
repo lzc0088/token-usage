@@ -31,6 +31,7 @@ const DICT: Record<string, Record<string, string>> = {
 
   // ── Period switcher ──
   "period.area": { zh: "时段", en: "Period" },
+  "period.label": { zh: "时段", en: "Period" },
   "period.day": { zh: "今日", en: "Today" },
   "period.month": { zh: "本月", en: "Month" },
   "period.total": { zh: "累计", en: "Total" },

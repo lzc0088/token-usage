@@ -8,7 +8,7 @@ import {
   expiryUrgency,
   fmtCredits,
   formatReset,
-  formatBalance,
+  splitBalance,
 } from "./quota-format";
 
 describe("windowLabel", () => {
@@ -135,14 +135,14 @@ describe("formatReset", () => {
   });
 });
 
-describe("formatBalance", () => {
+describe("splitBalance", () => {
   it("formats CNY with ¥ symbol", () => {
-    expect(formatBalance("CNY", 1234.56)).toBe("¥1234.56");
+    expect(splitBalance("CNY", 1234.56)).toEqual({ unit: "¥", value: "1234.56" });
   });
   it("formats USD with $ symbol", () => {
-    expect(formatBalance("USD", 99.99)).toBe("$99.99");
+    expect(splitBalance("USD", 99.99)).toEqual({ unit: "$", value: "99.99" });
   });
   it("returns bare number for unknown currency", () => {
-    expect(formatBalance("EUR", 50)).toBe("50.00");
+    expect(splitBalance("EUR", 50)).toEqual({ unit: "", value: "50.00" });
   });
 });

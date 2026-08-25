@@ -99,17 +99,40 @@ function trim(v: number, decimals = 2): string {
   return Number(v.toFixed(decimals)).toString();
 }
 
-/** Format cost in the chosen currency. USD/CNY/双显 (CNY first per user preference). */
+/** Format cost in the chosen currency. USD/CNY/双显 (CNY first per user preference).
+ *  No spaces between symbol and value (unit sits flush against the amount). */
 export function formatCost(usd: number, currency: Currency, cnyRate = 7.2): string {
   // Guard non-finite (NaN/Infinity) the same way formatTokens does.
   if (!Number.isFinite(usd) || !Number.isFinite(cnyRate)) {
     usd = 0;
     cnyRate = Number.isFinite(cnyRate) ? cnyRate : 7.2;
   }
-  if (currency === "usd") return `$ ${usd.toFixed(2)}`;
-  if (currency === "cny") return `¥ ${(usd * cnyRate).toFixed(2)}`;
-  // CNY first
-  return `¥ ${(usd * cnyRate).toFixed(2)} / $ ${usd.toFixed(2)}`;
+  if (currency === "usd") return `$${usd.toFixed(2)}`;
+  if (currency === "cny") return `¥${(usd * cnyRate).toFixed(2)}`;
+  // CNY first; " / " separator at digit size (matches splitCost's sep)
+  return `¥${(usd * cnyRate).toFixed(2)} / $${usd.toFixed(2)}`;
+}
+
+/** Cost split into (unit, value) pairs so UIs can render the currency symbol
+ *  smaller and to the LEFT of the amount: usd → [$, 1.23]; cny → [¥, 8.87];
+ *  both → [¥, 8.87] + [" / ", $, 1.23] — the separator renders at DIGIT size
+ *  (part.sep), the symbol stays small. */
+export interface CostPart {
+  /** Separator before this part's unit, rendered at digit size (" / " in both mode). */
+  sep?: string;
+  unit: string;
+  value: string;
+}
+
+export function splitCost(usd: number, currency: Currency, cnyRate = 7.2): CostPart[] {
+  if (!Number.isFinite(usd) || !Number.isFinite(cnyRate)) {
+    usd = 0;
+    cnyRate = Number.isFinite(cnyRate) ? cnyRate : 7.2;
+  }
+  if (currency === "usd") return [{ unit: "$", value: usd.toFixed(2) }];
+  const cny = (usd * cnyRate).toFixed(2);
+  if (currency === "cny") return [{ unit: "¥", value: cny }];
+  return [{ unit: "¥", value: cny }, { sep: " / ", unit: "$", value: usd.toFixed(2) }];
 }
 
 /** Split a token count into numeric value and compact unit（B / M / K / ""）.

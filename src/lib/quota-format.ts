@@ -137,8 +137,9 @@ export function translateCookieError(msg: string, lang = "zh"): string {
   return (lang === "en" ? EN : ZH)[msg] ?? msg;
 }
 
-/** Balance → "¥1,234.56" / "$99.99". */
-export function formatBalance(currency: string, amount: number): string {
+/** Balance split into {unit, value} so the UI renders the currency symbol
+ *  smaller and to the LEFT of the amount (popover unit rules). */
+export function splitBalance(currency: string, amount: number): { unit: string; value: string } {
   const sym = currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
-  return `${sym}${amount.toFixed(2)}`;
+  return { unit: sym, value: amount.toFixed(2) };
 }

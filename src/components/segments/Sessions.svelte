@@ -1,10 +1,11 @@
 <script lang="ts">
   import { api, type Currency, type SessionDetailRow, type SessionRoundVm, type SessionVm } from "../../lib/api";
-  import { formatCost, splitTokens } from "../../lib/format";
+  import { splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
   import { listen } from "@tauri-apps/api/event";
   import { t } from "../../lib/i18n.svelte";
+  import CostText from "../common/CostText.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import CopyButton from "../common/CopyButton.svelte";
   import EmptyState from "../common/EmptyState.svelte";
@@ -173,7 +174,7 @@
               </div>
             </div>
             <div class="rd-right">
-              <span class="rd-cost">{formatCost(r.cost_usd, currency, cnyRate)}</span>
+              <span class="rd-cost"><CostText usd={r.cost_usd} {currency} {cnyRate} /></span>
               <span class="rd-tokens">{ts.value}<span class="tku">{ts.unit}</span></span>
             </div>
           </div>
@@ -229,7 +230,7 @@
           </div>
           <div class="s-right">
             <div class="s-meta">
-              <span class="s-cost">{formatCost(s.cost_usd, currency, cnyRate)}</span>
+              <span class="s-cost"><CostText usd={s.cost_usd} {currency} {cnyRate} /></span>
               <span class="s-tokens">{st.value}<span class="tku">{st.unit}</span></span>
             </div>
             {#if (DETAIL_CAPABLE_TOOLS as readonly string[]).includes(s.tool)}
@@ -263,7 +264,7 @@
                     <ToolIcon tool={dr.model} badge={false} size={11} />
                     <span class="det-model-name">{dm.label}</span>
                     <span class="det-model-tokens">{splitTokens(dr.tokens).value}<span class="tku">{splitTokens(dr.tokens).unit}</span></span>
-                    <span class="det-model-cost">{formatCost(dr.cost_usd, currency, cnyRate)}</span>
+                    <span class="det-model-cost"><CostText usd={dr.cost_usd} {currency} {cnyRate} /></span>
                   </div>
                   {#each composeDetail(dr) as cd (`${dr.model}-${cd.label}`)}
                     {@const cds = splitTokens(cd.tokens)}
@@ -310,7 +311,7 @@
   .s-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
   .s-cost { font-size: 0.7333rem; color: var(--amber); user-select: text; -webkit-user-select: text; }
   .s-tokens { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); user-select: text; -webkit-user-select: text; }
-  .tku { font-size: 0.5333rem; color: var(--text-faint); margin-left: 2px; font-weight: 600; }
+  .tku { font-size: 0.5333rem; color: var(--text-faint); margin-left: 0; font-weight: 600; }
   .s-arr {
     background: none; border: none; color: var(--text-faint);
     font-size: 1.2rem; line-height: 1; cursor: pointer;

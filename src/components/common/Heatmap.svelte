@@ -3,16 +3,22 @@
   // Shows daily token usage intensity over a rolling year.
 
   import type { TrendPoint } from "../../lib/api";
-  import { formatCompact, type Locale } from "../../lib/format";
+  import { splitTokens, splitCost, type Locale } from "../../lib/format";
+  import type { Currency } from "../../lib/api";
+  import { t } from "../../lib/i18n.svelte";
 
   let {
     points,
     locale = "en",
+    currency = "both",
+    cnyRate = 7.2,
     cellSize = 11,
     gap = 2,
   }: {
     points: TrendPoint[];
     locale?: Locale;
+    currency?: Currency;
+    cnyRate?: number;
     cellSize?: number;
     gap?: number;
   } = $props();
@@ -47,6 +53,7 @@
     intensity: number;
     tokens: number;
     cost: number;
+    messages: number;
     col: number;
     row: number;
     x: number;
@@ -63,12 +70,14 @@
     const intensityMap = new Map<string, number>();
     const tokensMap = new Map<string, number>();
     const costMap = new Map<string, number>();
+    const messagesMap = new Map<string, number>();
     let maxTokens = 0;
 
     for (const p of sorted) {
       if (p.date >= startDate) {
         tokensMap.set(p.date, p.tokens);
         costMap.set(p.date, p.cost_usd);
+        messagesMap.set(p.date, p.messages);
         maxTokens = Math.max(maxTokens, p.tokens);
       }
     }
@@ -99,6 +108,7 @@
         intensity: intensityMap.get(key) ?? 0,
         tokens: tokensMap.get(key) ?? 0,
         cost: costMap.get(key) ?? 0,
+        messages: messagesMap.get(key) ?? 0,
         col,
         row: dow,
         x: col * (cellSize + gap),
@@ -144,7 +154,7 @@
         labels.push({
           col: cell.col,
           sepCol: isFirst ? -1 : cell.col,
-          label: locale === "en" ? `M${mon}` : `${mon}月`,
+          label: locale === "en" ? `${mon}M` : `${mon}月`,
         });
       }
       prevMonth = m;
@@ -177,7 +187,7 @@
   const TIP_H = 60;
   const PAD = 8;
 
-  let tooltip = $state<{ left: number; top: number; date: string; tokens: number; cost: number } | null>(null);
+  let tooltip = $state<{ left: number; top: number; date: string; tokens: number; cost: number; messages: number } | null>(null);
 
   function showTooltip(cell: HeatmapCell, e: MouseEvent): void {
     const rect = (e.target as SVGElement).getBoundingClientRect();
@@ -190,7 +200,7 @@
     const above = cy - TIP_H - 4 >= PAD;
     const top = above ? cy - TIP_H - 4 : cy + rect.height + 4;
 
-    tooltip = { left, top, date: cell.date, tokens: cell.tokens, cost: cell.cost };
+    tooltip = { left, top, date: cell.date, tokens: cell.tokens, cost: cell.cost, messages: cell.messages };
   }
 
   function hideTooltip(): void {
@@ -250,11 +260,17 @@
       style="left: {tooltip.left}px; top: {tooltip.top}px;"
     >
       <div class="tooltip-date">{tooltip.date}</div>
-      <div class="tooltip-value">
-        {formatCompact(tooltip.tokens, locale)} tokens
+      <div class="tooltip-row">
+        <span>{t("trends.usageLabel")}</span>
+        <span class="row-val">{splitTokens(tooltip.tokens).value}<span class="tu">{splitTokens(tooltip.tokens).unit}</span></span>
       </div>
-      <div class="tooltip-cost">
-        ${tooltip.cost.toFixed(2)}
+      <div class="tooltip-row">
+        <span>{t("trends.costLabel")}</span>
+        <span class="row-val">{#each splitCost(tooltip.cost, currency, cnyRate) as part, i (i)}{part.sep ?? ""}<span class="cu">{part.unit}</span>{part.value}{/each}</span>
+      </div>
+      <div class="tooltip-row">
+        <span>{t("trends.messagesLabel")}</span>
+        <span class="row-val">{tooltip.messages}</span>
       </div>
     </div>
   {/if}
@@ -326,16 +342,30 @@
   }
 
   .tooltip-date {
+    font-family: var(--font-mono);
     font-weight: 600;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
   }
 
-  .tooltip-value {
-    color: var(--lime);
+  /* Row layout mirrors the Trend line-chart tooltip (.tip-row): faint label
+   * left, mono value right. */
+  .tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    color: var(--text-faint);
   }
-
-  .tooltip-cost {
-    color: var(--amber);
-    font-size: 0.6667rem;
+  .tooltip-row .row-val {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+  /* Small units inside tooltip values: token unit right, currency left. */
+  .tooltip-row .tu {
+    font-size: 0.5rem;
+    font-weight: 600;
+  }
+  .tooltip-row .cu {
+    font-size: 0.5rem;
+    font-weight: 700;
   }
 </style>
