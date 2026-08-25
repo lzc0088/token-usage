@@ -464,6 +464,18 @@
     gap: 8px;
     flex-shrink: 0;
     position: relative;
+    /* Drag region: prevent text selection so pointer drags move window. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Ensure interactive elements inside the drag region are clickable
+     (override Tauri's injected -webkit-app-region: drag). */
+  .pop-hero :global(button),
+  .pop-hero :global(a),
+  .pop-hero :global(input),
+  .pop-hero :global(textarea),
+  .pop-hero :global(select) {
+    -webkit-app-region: no-drag;
   }
   .pop-hero::after {
     content: "";

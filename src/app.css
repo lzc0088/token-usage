@@ -162,12 +162,10 @@
 
 * {
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
-/* Allow text selection on data elements users may want to copy. */
-.copyable {
+/* Allow text selection on interactive / data elements users may want to copy. */
+button, a, input, textarea, select, [role="button"], .copyable {
   user-select: text;
   -webkit-user-select: text;
 }
@@ -194,7 +192,6 @@ body {
   font-family: var(--font-ui);
   font-size: var(--font-size-base, 15px);
   -webkit-font-smoothing: antialiased;
-  user-select: none;
   /* Clip the entire webview so all four corners are rounded. */
   border-radius: 15px;
   overflow: hidden;
