@@ -186,6 +186,20 @@ fn ts_ms_to_iso(v: Option<&serde_json::Value>) -> Option<String> {
     epoch_to_iso(n)
 }
 
+/// Parse a datetime string like `"2026-08-31 23:59:59"` (no timezone, treat
+/// as UTC) into RFC3339.  Returns `None` on parse failure.
+fn parse_dt_str(s: &str) -> Option<String> {
+    use chrono::NaiveDateTime;
+    let dt = NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%d %H:%M:%S").ok()?;
+    Some(dt.and_utc().to_rfc3339())
+}
+
+/// Try epoch-millis first, then fall back to a formatted datetime string
+/// (the real API returns `CycleEndTime` as `"YYYY-MM-DD HH:MM:SS"`).
+fn parse_expiry(v: Option<&serde_json::Value>) -> Option<String> {
+    ts_ms_to_iso(v).or_else(|| v?.as_str().and_then(parse_dt_str))
+}
+
 /// Aggregate of the active (Status=0) personal resource packages.
 #[derive(Debug, Default, PartialEq)]
 struct PersonalUsage {
@@ -267,7 +281,7 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
             used: safe_used,
             total: safe_total,
             pct,
-            expires_at: ts_ms_to_iso(pick(&res, &[
+            expires_at: parse_expiry(pick(&res, &[
                 "CycleEndTime", "cycleEndTime",
                 "expireTime", "expire_time", "expiresAt", "expires_at",
                 "validUntil", "valid_until", "endTime", "end_time",
@@ -750,6 +764,28 @@ mod tests {
         assert_eq!(usage.used, 20.0);        // 100 - 80, NOT 90
         assert_eq!(usage.remaining, 80.0);   // from RemainPrecise
         assert_eq!(usage.items[0].pct, 20.0); // used/total = 20/100
+    }
+
+    #[test]
+    fn parse_expiry_handles_datetime_string_and_epoch_millis() {
+        // Real API returns CycleEndTime as "YYYY-MM-DD HH:MM:SS" string.
+        assert_eq!(
+            parse_expiry(Some(&serde_json::Value::String("2026-08-31 23:59:59".into()))),
+            Some("2026-08-31T23:59:59+00:00".into())
+        );
+        // Epoch millis still work (backward compat).
+        assert_eq!(
+            parse_expiry(Some(&serde_json::Value::String("1765900800000".into()))),
+            Some("2025-12-16T16:00:00+00:00".into())
+        );
+        // Numeric epoch millis.
+        assert_eq!(
+            parse_expiry(Some(&serde_json::json!(1788220800000i64))),
+            Some("2026-09-01T00:00:00+00:00".into())
+        );
+        // Null / empty → None.
+        assert!(parse_expiry(Some(&serde_json::Value::Null)).is_none());
+        assert!(parse_expiry(Some(&serde_json::Value::String("".into()))).is_none());
     }
 
     #[test]
