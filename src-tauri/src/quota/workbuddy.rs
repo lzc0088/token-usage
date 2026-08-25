@@ -237,33 +237,25 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
             }
         }
         candidates += 1;
-        let total = num(pick(
-            &res,
-            &["CycleCapacitySizePrecise", "cycleCapacitySizePrecise"],
-        ));
-        // NOTE: WorkBuddy API field semantics are counter-intuitive:
-        //   CycleCapacityRemainPrecise → 实际返回的是**已使用量**
-        //   CycleCapacityUsedPrecise  → 实际返回的是**剩余量**
-        // We treat them accordingly below.
-        let api_remain_field = num(
+        // API field semantics (confirmed against real data):
+        //   CycleCapacityRemainPrecise → 剩余额度
+        //   CycleCapacitySizePrecise   → 总量上限
+        // 已使用 = total - remaining (不信任 CycleCapacityUsedPrecise)。
+        let raw_remaining = num(
             pick(&res, &["CycleCapacityRemainPrecise", "cycleCapacityRemainPrecise"]),
         );
-        let (Some(total), Some(api_remain)) = (total, api_remain_field) else {
+        let raw_total = num(
+            pick(&res, &["CycleCapacitySizePrecise", "cycleCapacitySizePrecise"]),
+        );
+        let (Some(total), Some(remaining)) = (raw_total, raw_remaining) else {
             continue;
         };
-        if total < 0.0 || api_remain < 0.0 {
+        if total < 0.0 || remaining < 0.0 {
             continue;
         }
         let safe_total = total;
-        // RemainPrecise 实际是 used：cap at total.
-        let safe_used = api_remain.min(safe_total);
-        // UsedPrecise 实际是 remaining：trust it when present, else derive.
-        let reported_remaining = num(
-            pick(&res, &["CycleCapacityUsedPrecise", "cycleCapacityUsedPrecise"]),
-        );
-        let safe_remaining = reported_remaining
-            .map(|r| r.clamp(0.0, safe_total))
-            .unwrap_or((safe_total - safe_used).max(0.0));
+        let safe_remaining = remaining.min(safe_total); // defensive cap
+        let safe_used = (safe_total - safe_remaining).max(0.0); // always derived
 
         let pct = if safe_total > 0.0 {
             safe_used / safe_total * 100.0
@@ -271,11 +263,15 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
             0.0
         };
         usage.items.push(QuotaWindowSubItem {
-            name: format!("资源包 {}", valid + 1),
+            name: format!("Credits {}", valid + 1),
             used: safe_used,
             total: safe_total,
             pct,
-            expires_at: ts_ms_to_iso(pick(&res, &["CycleEndTime", "cycleEndTime"])),
+            expires_at: ts_ms_to_iso(pick(&res, &[
+                "CycleEndTime", "cycleEndTime",
+                "expireTime", "expire_time", "expiresAt", "expires_at",
+                "validUntil", "valid_until", "endTime", "end_time",
+            ])),
         });
         usage.limit += safe_total;
         usage.remaining += safe_remaining;
@@ -301,6 +297,7 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
 struct EnterpriseUsage {
     used: f64,
     limit: Option<f64>,
+    remaining: Option<f64>,
     resets_at: Option<String>,
 }
 
@@ -323,6 +320,11 @@ fn parse_enterprise_usage(body: &serde_json::Value) -> Result<EnterpriseUsage, V
     if used < 0.0 {
         return Err(VendorError::Parse("invalid usage value".into()));
     }
+    // remaining derived from limit - used (API returns credit = used).
+    let remaining = match limit_raw {
+        -1.0 => None,
+        limit => Some((limit - used).max(0.0)),
+    };
     Ok(EnterpriseUsage {
         used,
         limit: if limit_raw == -1.0 {
@@ -330,6 +332,7 @@ fn parse_enterprise_usage(body: &serde_json::Value) -> Result<EnterpriseUsage, V
         } else {
             Some(limit_raw.max(0.0))
         },
+        remaining,
         resets_at: ts_ms_to_iso(pick(usage, &["cycleResetTime", "cycle_reset_time"])),
     })
 }
@@ -467,6 +470,8 @@ fn build_personal_quota(usage: PersonalUsage) -> Quota {
     } else {
         0.0
     };
+    // Earliest expiry among all sub-items, for the window-level reset display.
+    let window_resets_at = usage.items.iter().filter_map(|i| i.expires_at.as_deref()).min();
     Quota {
         vendor: "workbuddy".into(),
         status: QuotaStatus::from_used_pct(used_pct),
@@ -476,12 +481,8 @@ fn build_personal_quota(usage: PersonalUsage) -> Quota {
             used_pct,
             used_value: Some(usage.used),
             total_value: Some(usage.limit),
-            resets_at: None,
-            sub_items: if usage.items.len() > 1 {
-                Some(usage.items)
-            } else {
-                None
-            },
+            resets_at: window_resets_at.map(|s| s.into()),
+            sub_items: Some(usage.items),
         }],
         balance: None,
         refreshed_at: None,
@@ -594,36 +595,40 @@ mod tests {
         serde_json::json!({
             "code": 0,
             "data": { "Response": { "Data": { "Accounts": [
+                // status=0, remain=70, size=100 → used=30, pct=30%
                 {
                     "Status": 0,
-                    // RemainPrecise=70 is actually USED, UsedPrecise=30 is actually REMAINING
                     "CycleCapacitySizePrecise": 100,
                     "CycleCapacityRemainPrecise": 70,
-                    "CycleCapacityUsedPrecise": 30
+                    "CycleCapacityUsedPrecise": 90,
+                    "CycleEndTime": 1765900800000i64  // → 2025-12-16T16:00:00Z
                 },
+                // status=3 (exhausted) → skipped
                 {
-                    "Status": 3,  // exhausted — skipped entirely
+                    "Status": 3,
                     "CycleCapacitySizePrecise": 50,
-                    "CycleCapacityRemainPrecise": 50,
-                    "CycleCapacityUsedPrecise": 0
+                    "CycleCapacityRemainPrecise": 0
                 },
+                // status=0, remain=150, size=200 → used=50, pct=25%
                 {
                     "Status": 0,
                     "CycleCapacitySizePrecise": 200,
                     "CycleCapacityRemainPrecise": "150",
-                    "CycleCapacityUsedPrecise": "50",
+                    "cycleEndTime": 1788220800000i64  // → 2026-09-01T00:00:00Z
                 },
+                // status=1 (free), remain=10, size=50 → used=40, pct=80%
                 {
-                    "Status": 1,  // free package — included
+                    "Status": 1,
                     "CycleCapacitySizePrecise": 50,
-                    "CycleCapacityRemainPrecise": 0,
-                    "CycleCapacityUsedPrecise": 50
+                    "CycleCapacityRemainPrecise": 10,
+                    "expireTime": 1767225600000i64  // → 2026-01-01T00:00:00Z
                 },
+                // status=2 (gifted), remain=80, size=100 → used=20, pct=20%
                 {
-                    "Status": 2,  // gifted package — included
+                    "Status": 2,
                     "CycleCapacitySizePrecise": 100,
-                    "CycleCapacityRemainPrecise": 20,
-                    "CycleCapacityUsedPrecise": 80
+                    "CycleCapacityRemainPrecise": 80,
+                    "expires_at": 1798761600000i64  // 2027-01-01
                 },
             ] } } }
         })
@@ -681,12 +686,17 @@ mod tests {
     #[test]
     fn parse_personal_aggregates_active_packages() {
         let usage = parse_personal_usage(&personal_body()).unwrap();
-        // 4 valid packages (status 3 excluded).
-        // RemainPrecise = used, UsedPrecise = remaining (fields are swapped).
-        assert_eq!(usage.limit, 450.0);     // 100 + 200 + 50 + 100
-        assert_eq!(usage.used, 240.0);      // 70 + 150 + 0 + 20
-        assert_eq!(usage.remaining, 210.0); // 30 + 50 + 50 + 80
+        // Correct semantics: CycleCapacityRemainPrecise = remaining,
+        // CycleCapacitySizePrecise = total. used = total - remaining.
+        assert_eq!(usage.limit, 450.0);     // 100+200+50+100
+        assert_eq!(usage.used, 140.0);      // (100-70)+(200-150)+(50-10)+(100-80)
+        assert_eq!(usage.remaining, 310.0); // 70+150+10+80
         assert_eq!(usage.items.len(), 4);
+        // Expiry parsed from various field name variants.
+        assert_eq!(usage.items[0].expires_at, Some("2025-12-16T16:00:00+00:00".into()));
+        assert_eq!(usage.items[1].expires_at, Some("2026-09-01T00:00:00+00:00".into()));
+        assert_eq!(usage.items[2].expires_at, Some("2026-01-01T00:00:00+00:00".into())); // expireTime
+        assert_eq!(usage.items[3].expires_at, Some("2027-01-01T00:00:00+00:00".into()));
     }
 
     #[test]
@@ -707,6 +717,7 @@ mod tests {
     #[test]
     fn parse_personal_includes_nonzero_status_excludes_exhausted() {
         // Status 1 (free) and 2 (gifted) are included; only 3 (exhausted) is skipped.
+        // Correct field semantics: RemainPrecise = remaining, SizePrecise = total.
         let v = serde_json::json!({
             "data": { "Response": { "Data": { "Accounts": [
                 {"Status": 1, "CycleCapacitySizePrecise": 10, "CycleCapacityRemainPrecise": 10},
@@ -716,11 +727,29 @@ mod tests {
             ] } } }
         });
         let usage = parse_personal_usage(&v).unwrap();
-        // RemainPrecise = used (swapped semantics), UsedPrecise absent → remaining = total - used
+        // used = total - remaining for each package
         assert_eq!(usage.limit, 60.0);      // 10+20+30 (status 3 excluded)
-        assert_eq!(usage.used, 50.0);       // 10+15+25
-        assert_eq!(usage.remaining, 10.0);  // (10-10)+(20-15)+(30-25)
+        assert_eq!(usage.used, 10.0);       // (10-10)+(20-15)+(30-25)
+        assert_eq!(usage.remaining, 50.0);  // 10+15+25
         assert_eq!(usage.items.len(), 3);
+    }
+
+    #[test]
+    fn parse_personal_remaining_always_derived_not_trusted() {
+        // CycleCapacityUsedPrecise claims 90 used, but the correct used
+        // is total - remaining (RemainPrecise = remaining = 80).
+        // The adapter must ignore the API's UsedPrecise field.
+        let v = serde_json::json!({
+            "Response": { "Data": { "Accounts": [
+                {"Status": 0, "CycleCapacitySizePrecise": 100,
+                 "CycleCapacityRemainPrecise": 80,   // remaining = 80
+                 "CycleCapacityUsedPrecise": 90},    // API lies: says used=90
+            ] } }
+        });
+        let usage = parse_personal_usage(&v).unwrap();
+        assert_eq!(usage.used, 20.0);        // 100 - 80, NOT 90
+        assert_eq!(usage.remaining, 80.0);   // from RemainPrecise
+        assert_eq!(usage.items[0].pct, 20.0); // used/total = 20/100
     }
 
     #[test]
@@ -803,12 +832,20 @@ mod tests {
         assert_eq!(q.windows.len(), 1);
         let w = &q.windows[0];
         assert_eq!(w.label, "Credits");
-        // 4 packages: 100+200+50+100 = 450 total; used = 70+150+0+20 = 240
+        // 4 packages: 100+200+50+100 = 450 total; used = (100-70)+(200-150)+(50-10)+(100-80) = 140
         assert_eq!(w.total_value, Some(450.0));
-        assert_eq!(w.used_value, Some(240.0));
-        assert!((w.used_pct - 53.333).abs() < 0.01);
+        assert_eq!(w.used_value, Some(140.0));
+        assert!((w.used_pct - 31.111).abs() < 0.01);
         assert!(w.sub_items.is_some());
         assert_eq!(w.sub_items.as_ref().unwrap().len(), 4);
+        // Expiry times parsed from various field name variants.
+        let items = w.sub_items.as_ref().unwrap();
+        assert_eq!(items[0].expires_at, Some("2025-12-16T16:00:00+00:00".into())); // CycleEndTime
+        assert_eq!(items[1].expires_at, Some("2026-09-01T00:00:00+00:00".into())); // cycleEndTime
+        assert_eq!(items[2].expires_at, Some("2026-01-01T00:00:00+00:00".into())); // expireTime // expireTime
+        assert_eq!(items[3].expires_at, Some("2027-01-01T00:00:00+00:00".into())); // expires_at
+        // Window-level resets_at = earliest sub-item expiry.
+        assert_eq!(w.resets_at, Some("2025-12-16T16:00:00+00:00".into()));
         assert!(http
             .captured_url
             .lock()
@@ -861,21 +898,29 @@ mod tests {
     // ── quota builders ──
 
     #[test]
-    fn build_personal_quota_single_package_no_subitems() {
+    fn build_personal_quota_single_package_has_subitems() {
         let usage = PersonalUsage {
             used: 10.0,
             limit: 100.0,
             remaining: 90.0,
             items: vec![QuotaWindowSubItem {
-                name: "资源包 1".into(),
+                name: "Credits 1".into(),
                 used: 10.0,
                 total: 100.0,
                 pct: 10.0,
-                expires_at: None,
+                expires_at: Some("2026-01-01T00:00:00+00:00".into()),
             }],
         };
         let q = build_personal_quota(usage);
-        assert!(q.windows[0].sub_items.is_none()); // 1 item → aggregate only
+        // Single-package now shows sub-items (and its expiry) — consistent with Qoder.
+        assert!(q.windows[0].sub_items.is_some());
+        assert_eq!(q.windows[0].sub_items.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            q.windows[0].sub_items.as_ref().unwrap()[0].expires_at,
+            Some("2026-01-01T00:00:00+00:00".into())
+        );
+        // Window-level resets_at mirrors the earliest (and only) sub-item expiry.
+        assert_eq!(q.windows[0].resets_at, Some("2026-01-01T00:00:00+00:00".into()));
         assert_eq!(q.status, QuotaStatus::Ok);
     }
 
@@ -884,6 +929,7 @@ mod tests {
         let q = build_enterprise_quota(EnterpriseUsage {
             used: 999.0,
             limit: None,
+            remaining: None,
             resets_at: None,
         });
         assert_eq!(q.status, QuotaStatus::Ok);

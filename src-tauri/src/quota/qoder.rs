@@ -115,7 +115,7 @@ impl Bucket {
                 .and_then(|v| v.as_str())
                 .map(|s| match s {
                     "PLAN" => "订阅".into(),
-                    "RESOURCE_PACKAGE_SOURCE_BONUS" => "资源包".into(),
+                    "RESOURCE_PACKAGE_SOURCE_BONUS" => "Credits".into(),
                     other => other.into(),
                 })
                 .unwrap_or_default();
@@ -321,7 +321,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     };
 
     // ── Build windows ────────────────────────────────────────────────
-    // Both 订阅 and 资源包 follow the same shape: a summary window whose
+    // Both 订阅 and Credits follow the same shape: a summary window whose
     // `used_value`/`total_value` render as a caption under the bar, plus
     // expandable `sub_items` (each with its own expiry caption). A bucket is
     // shown when it carries meaningful data (limit > 0 or any sub-item).
@@ -347,7 +347,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     let pkg_meaningful = parsed.has_pkg && (parsed.pkg.total > 0.0 || !parsed.pkg_items.is_empty());
     if pkg_meaningful {
         windows.push(QuotaWindow {
-            label: "资源包".into(),
+            label: "Credits".into(),
             used_pct: parsed.pkg.usage_pct,
             resets_at: None,
             used_value: Some(parsed.pkg.used),
@@ -570,8 +570,8 @@ mod tests {
         assert_eq!(plan_items[0].used, 20.0);
         assert_eq!(plan_items[0].total, 100.0);
         assert!(plan_items[0].expires_at.is_some());
-        // Window 1: 资源包
-        assert_eq!(q.windows[1].label, "资源包");
+        // Window 1: Credits
+        assert_eq!(q.windows[1].label, "Credits");
         assert!((q.windows[1].used_pct - 10.0).abs() < 1e-6);
         assert_eq!(q.windows[1].used_value, Some(50.0));
         assert_eq!(q.windows[1].total_value, Some(500.0));
@@ -602,9 +602,9 @@ mod tests {
             }
         }
         let q = fetch_with(&Mock, r#"{"cookie":"c=1","site":"global"}"#).unwrap();
-        // Only 资源包 window (plan limit=0 → skipped)
+        // Only Credits window (plan limit=0 → skipped)
         assert_eq!(q.windows.len(), 1);
-        assert_eq!(q.windows[0].label, "资源包");
+        assert_eq!(q.windows[0].label, "Credits");
         assert_eq!(q.plan_label.as_deref(), Some("Community Edition"));
     }
 

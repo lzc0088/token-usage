@@ -9,7 +9,7 @@
   import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
   import Select from "./Select.svelte";
-  import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, formatShortExpiry, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
+  import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, windowLabel, formatBalance, openPanelUrl } from "../../lib/quota-format";
   import { formatCost } from "../../lib/format";
   import { getLang } from "../../lib/i18n.svelte";
   import type { Quota } from "../../lib/api";
@@ -241,7 +241,12 @@
 {#each quota.windows as w (w.label)}
   {@const showPct = progressMode === "用量" ? Math.round(w.used_pct) : Math.round(100 - w.used_pct)}
   {@const showLabel = progressMode === "用量" ? l("用量","Usage") : l("剩余","Remaining")}
-  {@const summaryCredits = w.used_value != null && w.total_value != null ? `${fmtCredits(w.used_value)} / ${fmtCredits(w.total_value)}` : null}
+  {@const displayUsed = progressMode === "用量"
+        ? w.used_value
+        : w.total_value != null && w.used_value != null
+          ? w.total_value - w.used_value
+          : null}
+  {@const summaryCredits = displayUsed != null && w.total_value != null ? `${fmtCredits(displayUsed)} / ${fmtCredits(w.total_value)}` : null}
   {@const hasSub = w.sub_items && w.sub_items.length > 0}
   {@const subExpanded = expandedWindows.get(w.label) ?? false}
   <div class="qitem-window">
@@ -277,13 +282,13 @@
         {#each w.sub_items! as item (item.name + (item.expires_at ?? ''))}
           {@const itemShowPct = progressMode === "用量" ? Math.round(item.pct) : Math.round(100 - item.pct)}
           <div class="qsub-row">
-            <span class="qsub-credits">{fmtCredits(item.used)} / {fmtCredits(item.total)}</span>
+            <span class="qsub-credits">{fmtCredits(progressMode === "用量" ? item.used : item.total - item.used)} / {fmtCredits(item.total)}</span>
             <span class="qiw-bar-col">
               <span class="qiw-bar qsub-bar">
                 <span class="qiw-fill f-{itemShowPct <= 20 ? 'danger' : itemShowPct <= 50 ? 'low' : 'ok'}" style="width:{Math.min(100, Math.max(0, itemShowPct))}%"></span>
               </span>
               {#if item.expires_at}
-                <span class="qiw-bar-caption">{formatShortExpiry(item.expires_at)}{l("到期","expires")}</span>
+                <span class="qiw-bar-caption">{formatReset(item.expires_at, nowMs, _lang)}</span>
               {/if}
             </span>
             <span class="qsub-tag-spacer"></span>
