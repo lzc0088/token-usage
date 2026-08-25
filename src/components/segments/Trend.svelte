@@ -119,6 +119,13 @@
     <!-- period title (first row, larger font) -->
     <div class="range-label">{rangeLabel}</div>
 
+    <!-- stats cards (above the chart) -->
+    {#if summary}
+      <div class="stats-section">
+        <StatsCards {summary} trends={points} locale="zh" />
+      </div>
+    {/if}
+
     <!-- line chart with axes -->
     <div class="chart-grid">
       <div class="plot" bind:clientWidth={chartW}>
@@ -175,13 +182,6 @@
         {/each}
       </div>
     </div>
-
-    <!-- stats cards -->
-    {#if summary}
-      <div class="stats-section">
-        <StatsCards {summary} trends={points} locale="zh" />
-      </div>
-    {/if}
 
     <!-- activity heatmap (only for total period) -->
     {#if period === "total" && points.length > 7}
@@ -312,9 +312,9 @@
     font-family: var(--font-mono);
   }
 
-  /* ── stats cards section ── */
+  /* ── stats cards section (above chart) ── */
   .stats-section {
-    margin-top: 4px;
+    margin-bottom: 4px;
   }
 
   /* ── heatmap section ── */
