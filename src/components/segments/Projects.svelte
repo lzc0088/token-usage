@@ -225,8 +225,8 @@
     display: grid;
     grid-template-columns: 32px 1fr auto;
     align-items: center;
-    gap: 12px;
-    padding: 9px 16px;
+    gap: 8px;
+    padding: 9px 12px;
     cursor: pointer;
     /* button reset FIRST, then re-declare the divider so `border:none` shorthand
        doesn't clobber border-bottom (which wiped the row dividers). */
