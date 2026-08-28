@@ -117,10 +117,12 @@ pub fn get_quotas(state: State<'_, AppState>) -> Result<Vec<Quota>, String> {
 /// in the background. Call this from "刷新" buttons.
 #[tauri::command]
 pub async fn refresh_quotas(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
-    scheduler::refresh_all(&state.db).await;
+    scheduler::refresh_all(&state).await;
     // `refresh_all` has no AppHandle so it can't emit; notify the frontend here
     // so Overview/Limits re-fetch the updated quota cache right away.
     let _ = app.emit("quota:updated", ());
+    // Dispatch notifications for any newly-eligible quota windows.
+    let _ = scheduler::dispatch_notifications(&app).await;
     Ok(())
 }
 
@@ -156,7 +158,7 @@ pub async fn refresh_quotas_if_stale(
     }
 
     // Decide staleness from the freshest cache row + the configured interval.
-    let (stale, db) = {
+    let stale = {
         let conn = state.db_read();
         let cfg = config::load(&conn).unwrap_or_default();
         let interval = scheduler::parse_interval_secs(&cfg.quota_refresh_interval);
@@ -175,18 +177,16 @@ pub async fn refresh_quotas_if_stale(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        (
-            scheduler::is_stale(min_fetched, interval, now_ms),
-            state.db.clone(),
-        )
+        scheduler::is_stale(min_fetched, interval, now_ms)
     };
 
     if !stale {
         return Ok(false);
     }
     let _guard = StaleRefreshGuard;
-    scheduler::refresh_all(&db).await;
+    scheduler::refresh_all(&state).await;
     let _ = app.emit("quota:updated", ());
+    let _ = scheduler::dispatch_notifications(&app).await;
     Ok(true)
 }
 

@@ -44,6 +44,7 @@ const DICT: Record<string, Record<string, string>> = {
   "seg.sessions": { zh: "会话", en: "Sessions" },
   "seg.trends": { zh: "趋势", en: "Trends" },
   "seg.limits": { zh: "额度", en: "Quota" },
+  "seg.status": { zh: "状态", en: "Status" },
 
   // ── Overview segment ──
   "overview.title": { zh: "总览", en: "Overview" },
@@ -197,6 +198,8 @@ const DICT: Record<string, Record<string, string>> = {
   "account.adaptive": { zh: "自适应", en: "Adaptive" },
   "account.progressMode": { zh: "进度显示", en: "Progress Mode" },
   "account.progressModeHint": { zh: "进度条与百分比显示方式", en: "Progress display mode" },
+  "account.quotaNotify": { zh: "额度耗尽", en: "Quota Exhaustion" },
+  "account.quotaNotifyHint": { zh: "额度剩余 ≤20% 或预计 2 小时内耗尽时发送系统通知", en: "Notify when quota ≤20% remaining or projected to exhaust within 2 hours" },
   "account.usage": { zh: "用量", en: "Usage" },
   "account.remaining": { zh: "剩余", en: "Remaining" },
   "account.vendorMgmt": { zh: "厂商管理", en: "Vendor Management" },
@@ -502,6 +505,17 @@ const DICT: Record<string, Record<string, string>> = {
   "mainview.dragHint": { zh: "拖拽排序", en: "Drag to reorder" },
   "mainview.show": { zh: "显示", en: "Show" },
   "mainview.pageLayout": { zh: "页面布局", en: "Page Layout" },
+
+  // ── Status segment ──
+  "status.heading": { zh: "工具状态", en: "Tool Status" },
+  "status.never": { zh: "尚未采集", en: "Never" },
+  "status.active": { zh: "采集中", en: "Active" },
+  "status.messages": { zh: "{n} 条消息", en: "{n} messages" },
+  "status.lastSeen": { zh: "{n} 前采集", en: "Last seen {n} ago" },
+  "status.refresh": { zh: "重新检测", en: "Re-check" },
+  "status.checking": { zh: "检测中…", en: "Checking…" },
+  "status.scanFailed": { zh: "检测失败", en: "Detection failed" },
+  "status.noActive": { zh: "暂无正在采集的工具", en: "No tools currently collecting" },
 
 };
 

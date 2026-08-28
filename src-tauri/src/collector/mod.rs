@@ -4,6 +4,7 @@
 //! the binary (three-tier strategy), spawns it, and tolerantly parses its JSON.
 
 pub mod anchor;
+pub mod health;
 pub mod project_snapshot;
 pub mod runtime;
 pub mod scheduler;

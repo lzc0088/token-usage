@@ -3,8 +3,8 @@
   import CostText from "./CostText.svelte";
   import { PALETTE } from "../../lib/constants";
   import { splitTokens } from "../../lib/format";
-  import { modelVendor, vendorIdForModel } from "../../lib/meta/models";
-  import { toolMeta, vendorIcon } from "../../lib/meta/tools";
+  import { modelVendor } from "../../lib/meta/models";
+  import { toolMeta } from "../../lib/meta/tools";
   import { t } from "../../lib/i18n.svelte";
   import ToolIcon from "../../components/ui/ToolIcon.svelte";
   import { api, type Breakdown, type BreakdownEntry, type Currency, type Dimension } from "../../lib/api";
@@ -97,11 +97,8 @@
   {@const open = expanded.has(e.key)}
   {@const st = splitTokens(e.tokens)}
   {@const mv = dim === "model" ? modelVendor(e.key) : null}
-  {@const vid = vendorIdForModel(e.key)}
-  {@const rkIcon = (dim === "model" && vid) ? vendorIcon(vid) : meta.icon}
-  {@const rkBg = (dim === "model" && vid && mv) ? mv.color : meta.color}
   <button type="button" class="bd-row" onclick={() => toggleExpand(e.key)}>
-    <span class="rk" style="background:{rkBg};color:var(--badge-text)" title={meta.label}>{@html rkIcon}</span>
+    <ToolIcon tool={e.key} badge={false} size={20} />
     <div class="bd-main">
       <div class="bd-name">
         <span class="bd-key">{meta.label}</span>
@@ -192,11 +189,6 @@
   }
   .bd-row:hover { background: rgba(232,176,75,.04); }
 
-  .rk {
-    width: 28px; height: 28px; border-radius: 7px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 700; flex-shrink: 0;
-  }
   .bd-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .bd-name { display: flex; align-items: center; gap: 7px; }
   .bd-key { font-size: 0.8667rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }

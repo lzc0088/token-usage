@@ -170,13 +170,20 @@
    though text selection is disabled globally. */
 #app button,
 #app a,
-#app input,
-#app textarea,
 #app select,
 #app [role="button"] {
   -webkit-app-region: no-drag;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Text-entry fields keep text selection enabled — without it the caret and
+   select/copy inside the field break on WebKit (cookie editor etc.). */
+#app input,
+#app textarea {
+  -webkit-app-region: no-drag;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Global focus-visible: keyboard navigation accessibility. */

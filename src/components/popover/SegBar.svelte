@@ -22,6 +22,7 @@
     { key: "projects", label: label("项目", "Projects") },
     { key: "sess", label: label("会话", "Sessions") },
     { key: "trend", label: label("趋势", "Trends") },
+    { key: "status", label: label("状态", "Status") },
     { key: "limit", label: label("额度", "Quota") },
   ]);
 
@@ -33,6 +34,7 @@
     projects: "projects",
     sessions: "sess",
     trends: "trend",
+    status: "status",
     quotas: "limit",
   };
 

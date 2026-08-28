@@ -61,6 +61,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
         used_value: Some(used),
         total_value: if limit > 0.0 { Some(limit) } else { None },
         sub_items: None,
+        projected_exhaustion_at: None,
     };
     Ok(Quota {
         site: None,

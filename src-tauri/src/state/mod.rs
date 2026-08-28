@@ -20,6 +20,7 @@ use rusqlite::Connection;
 use tokio::sync::mpsc;
 
 use crate::config::Config;
+use crate::quota::burn_rate::BurnRateTracker;
 use crate::storage;
 
 pub struct AppState {
@@ -53,6 +54,13 @@ pub struct AppState {
     /// can force a scan instead of waiting on the watcher / history timer.
     pub(crate) collector_tick: Mutex<Option<mpsc::Sender<()>>>,
     pub(crate) collector_history: Mutex<Option<mpsc::Sender<()>>>,
+    /// Shared burn-rate tracker for adaptive quota refresh. The scheduler loop
+    /// records rates on each cycle; manual refreshes read it so projections
+    /// and notifications persist across restarts (within the tracker's TTL).
+    pub(crate) burn_rate_tracker: Mutex<BurnRateTracker>,
+    /// Shared quota-notification dedup. Process-wide so manual refreshes don't
+    /// re-notify for a window the scheduler already alerted.
+    pub(crate) notify_dedup: Mutex<crate::quota::notify::NotifyDedup>,
 }
 
 impl AppState {
@@ -72,6 +80,8 @@ impl AppState {
             last_today: Mutex::new(None),
             collector_tick: Mutex::new(None),
             collector_history: Mutex::new(None),
+            burn_rate_tracker: Mutex::new(BurnRateTracker::new()),
+            notify_dedup: Mutex::new(crate::quota::notify::NotifyDedup::default()),
         })
     }
 
@@ -144,6 +154,8 @@ impl AppState {
             last_today: Mutex::new(None),
             collector_tick: Mutex::new(None),
             collector_history: Mutex::new(None),
+            burn_rate_tracker: Mutex::new(BurnRateTracker::new()),
+            notify_dedup: Mutex::new(crate::quota::notify::NotifyDedup::default()),
         }
     }
 }

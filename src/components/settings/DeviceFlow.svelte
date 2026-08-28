@@ -1,4 +1,4 @@
-<script module>
+<script module lang="ts">
   /** Shared OAuth state used by both DeviceFlow display and Account login fns. */
   type OAuthPhase = "idle" | "requesting" | "authorize" | "polling" | "success" | "error";
 

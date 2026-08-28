@@ -11,6 +11,7 @@
 //! reference; other adapters land incrementally. Dispatch is by [`VendorId`]
 //! (no trait objects, no async-trait dep).
 
+pub mod bailian;
 pub mod burn_rate;
 pub mod claude;
 pub mod codex;
@@ -24,6 +25,7 @@ pub mod iflytek;
 pub mod kimi;
 pub mod mimo;
 pub mod minimax;
+pub mod notify;
 pub mod ollama;
 pub mod opencode;
 pub mod openrouter;
@@ -58,6 +60,7 @@ pub const TRACKED_VENDORS: &[&str] = &[
     "qoder",
     "ollama",
     "workbuddy",
+    "bailian",
 ];
 
 /// Map vendor string IDs to `VendorId` enum variants.
@@ -82,6 +85,7 @@ pub fn adapter_for(id: &str) -> Option<VendorId> {
         "grok" => Some(VendorId::Grok),
         "openrouter" => Some(VendorId::Openrouter),
         "workbuddy" => Some(VendorId::Workbuddy),
+        "bailian" => Some(VendorId::Bailian),
         _ => None,
     }
 }
@@ -119,6 +123,7 @@ pub enum VendorId {
     Grok,
     Openrouter,
     Workbuddy,
+    Bailian,
 }
 
 impl VendorId {
@@ -143,6 +148,7 @@ impl VendorId {
             VendorId::Openrouter => "OpenRouter",
             VendorId::Codex => "Codex",
             VendorId::Workbuddy => "WorkBuddy ( 腾讯 )",
+            VendorId::Bailian => "百炼 ( 阿里 )",
         }
     }
 
@@ -167,6 +173,7 @@ impl VendorId {
             | VendorId::Opencode
             | VendorId::Claude
             | VendorId::Codex
+            | VendorId::Bailian
             | VendorId::Workbuddy => CredentialCategory::Cookie,
         }
     }
@@ -244,6 +251,7 @@ pub async fn fetch(vendor: VendorId, credential: &str) -> Result<Quota, VendorEr
         VendorId::Grok => grok::fetch(credential).await,
         VendorId::Openrouter => openrouter::fetch(credential).await,
         VendorId::Workbuddy => workbuddy::fetch(credential).await,
+        VendorId::Bailian => bailian::fetch(credential).await,
     }
 }
 
@@ -440,7 +448,7 @@ mod tests {
 
     #[test]
     fn adapter_for_all_tracked_vendors_return_some() {
-        assert_eq!(TRACKED_VENDORS.len(), 19);
+        assert_eq!(TRACKED_VENDORS.len(), 20);
         for vendor in TRACKED_VENDORS {
             assert!(adapter_for(vendor).is_some(), "tracked '{vendor}' must map");
         }

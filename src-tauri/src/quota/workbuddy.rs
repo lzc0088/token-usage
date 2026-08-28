@@ -255,12 +255,14 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
         //   CycleCapacityRemainPrecise → 剩余额度
         //   CycleCapacitySizePrecise   → 总量上限
         // 已使用 = total - remaining (不信任 CycleCapacityUsedPrecise)。
-        let raw_remaining = num(
-            pick(&res, &["CycleCapacityRemainPrecise", "cycleCapacityRemainPrecise"]),
-        );
-        let raw_total = num(
-            pick(&res, &["CycleCapacitySizePrecise", "cycleCapacitySizePrecise"]),
-        );
+        let raw_remaining = num(pick(
+            &res,
+            &["CycleCapacityRemainPrecise", "cycleCapacityRemainPrecise"],
+        ));
+        let raw_total = num(pick(
+            &res,
+            &["CycleCapacitySizePrecise", "cycleCapacitySizePrecise"],
+        ));
         let (Some(total), Some(remaining)) = (raw_total, raw_remaining) else {
             continue;
         };
@@ -281,11 +283,21 @@ fn parse_personal_usage(body: &serde_json::Value) -> Result<PersonalUsage, Vendo
             used: safe_used,
             total: safe_total,
             pct,
-            expires_at: parse_expiry(pick(&res, &[
-                "CycleEndTime", "cycleEndTime",
-                "expireTime", "expire_time", "expiresAt", "expires_at",
-                "validUntil", "valid_until", "endTime", "end_time",
-            ])),
+            expires_at: parse_expiry(pick(
+                &res,
+                &[
+                    "CycleEndTime",
+                    "cycleEndTime",
+                    "expireTime",
+                    "expire_time",
+                    "expiresAt",
+                    "expires_at",
+                    "validUntil",
+                    "valid_until",
+                    "endTime",
+                    "end_time",
+                ],
+            )),
         });
         usage.limit += safe_total;
         usage.remaining += safe_remaining;
@@ -485,7 +497,11 @@ fn build_personal_quota(usage: PersonalUsage) -> Quota {
         0.0
     };
     // Earliest expiry among all sub-items, for the window-level reset display.
-    let window_resets_at = usage.items.iter().filter_map(|i| i.expires_at.as_deref()).min();
+    let window_resets_at = usage
+        .items
+        .iter()
+        .filter_map(|i| i.expires_at.as_deref())
+        .min();
     Quota {
         vendor: "workbuddy".into(),
         status: QuotaStatus::from_used_pct(used_pct),
@@ -497,6 +513,7 @@ fn build_personal_quota(usage: PersonalUsage) -> Quota {
             total_value: Some(usage.limit),
             resets_at: window_resets_at.map(|s| s.into()),
             sub_items: Some(usage.items),
+            ..Default::default()
         }],
         balance: None,
         refreshed_at: None,
@@ -517,6 +534,7 @@ fn build_enterprise_quota(usage: EnterpriseUsage) -> Quota {
             total_value: None,
             resets_at: usage.resets_at.clone(),
             sub_items: None,
+            projected_exhaustion_at: None,
         },
         Some(limit) => {
             let used_pct = if limit > 0.0 {
@@ -531,6 +549,7 @@ fn build_enterprise_quota(usage: EnterpriseUsage) -> Quota {
                 total_value: Some(limit),
                 resets_at: usage.resets_at.clone(),
                 sub_items: None,
+                projected_exhaustion_at: None,
             }
         }
     };
@@ -702,15 +721,27 @@ mod tests {
         let usage = parse_personal_usage(&personal_body()).unwrap();
         // Correct semantics: CycleCapacityRemainPrecise = remaining,
         // CycleCapacitySizePrecise = total. used = total - remaining.
-        assert_eq!(usage.limit, 450.0);     // 100+200+50+100
-        assert_eq!(usage.used, 140.0);      // (100-70)+(200-150)+(50-10)+(100-80)
+        assert_eq!(usage.limit, 450.0); // 100+200+50+100
+        assert_eq!(usage.used, 140.0); // (100-70)+(200-150)+(50-10)+(100-80)
         assert_eq!(usage.remaining, 310.0); // 70+150+10+80
         assert_eq!(usage.items.len(), 4);
         // Expiry parsed from various field name variants.
-        assert_eq!(usage.items[0].expires_at, Some("2025-12-16T16:00:00+00:00".into()));
-        assert_eq!(usage.items[1].expires_at, Some("2026-09-01T00:00:00+00:00".into()));
-        assert_eq!(usage.items[2].expires_at, Some("2026-01-01T00:00:00+00:00".into())); // expireTime
-        assert_eq!(usage.items[3].expires_at, Some("2027-01-01T00:00:00+00:00".into()));
+        assert_eq!(
+            usage.items[0].expires_at,
+            Some("2025-12-16T16:00:00+00:00".into())
+        );
+        assert_eq!(
+            usage.items[1].expires_at,
+            Some("2026-09-01T00:00:00+00:00".into())
+        );
+        assert_eq!(
+            usage.items[2].expires_at,
+            Some("2026-01-01T00:00:00+00:00".into())
+        ); // expireTime
+        assert_eq!(
+            usage.items[3].expires_at,
+            Some("2027-01-01T00:00:00+00:00".into())
+        );
     }
 
     #[test]
@@ -742,9 +773,9 @@ mod tests {
         });
         let usage = parse_personal_usage(&v).unwrap();
         // used = total - remaining for each package
-        assert_eq!(usage.limit, 60.0);      // 10+20+30 (status 3 excluded)
-        assert_eq!(usage.used, 10.0);       // (10-10)+(20-15)+(30-25)
-        assert_eq!(usage.remaining, 50.0);  // 10+15+25
+        assert_eq!(usage.limit, 60.0); // 10+20+30 (status 3 excluded)
+        assert_eq!(usage.used, 10.0); // (10-10)+(20-15)+(30-25)
+        assert_eq!(usage.remaining, 50.0); // 10+15+25
         assert_eq!(usage.items.len(), 3);
     }
 
@@ -761,8 +792,8 @@ mod tests {
             ] } }
         });
         let usage = parse_personal_usage(&v).unwrap();
-        assert_eq!(usage.used, 20.0);        // 100 - 80, NOT 90
-        assert_eq!(usage.remaining, 80.0);   // from RemainPrecise
+        assert_eq!(usage.used, 20.0); // 100 - 80, NOT 90
+        assert_eq!(usage.remaining, 80.0); // from RemainPrecise
         assert_eq!(usage.items[0].pct, 20.0); // used/total = 20/100
     }
 
@@ -770,7 +801,9 @@ mod tests {
     fn parse_expiry_handles_datetime_string_and_epoch_millis() {
         // Real API returns CycleEndTime as "YYYY-MM-DD HH:MM:SS" string.
         assert_eq!(
-            parse_expiry(Some(&serde_json::Value::String("2026-08-31 23:59:59".into()))),
+            parse_expiry(Some(&serde_json::Value::String(
+                "2026-08-31 23:59:59".into()
+            ))),
             Some("2026-08-31T23:59:59+00:00".into())
         );
         // Epoch millis still work (backward compat).
@@ -876,11 +909,23 @@ mod tests {
         assert_eq!(w.sub_items.as_ref().unwrap().len(), 4);
         // Expiry times parsed from various field name variants.
         let items = w.sub_items.as_ref().unwrap();
-        assert_eq!(items[0].expires_at, Some("2025-12-16T16:00:00+00:00".into())); // CycleEndTime
-        assert_eq!(items[1].expires_at, Some("2026-09-01T00:00:00+00:00".into())); // cycleEndTime
-        assert_eq!(items[2].expires_at, Some("2026-01-01T00:00:00+00:00".into())); // expireTime // expireTime
-        assert_eq!(items[3].expires_at, Some("2027-01-01T00:00:00+00:00".into())); // expires_at
-        // Window-level resets_at = earliest sub-item expiry.
+        assert_eq!(
+            items[0].expires_at,
+            Some("2025-12-16T16:00:00+00:00".into())
+        ); // CycleEndTime
+        assert_eq!(
+            items[1].expires_at,
+            Some("2026-09-01T00:00:00+00:00".into())
+        ); // cycleEndTime
+        assert_eq!(
+            items[2].expires_at,
+            Some("2026-01-01T00:00:00+00:00".into())
+        ); // expireTime // expireTime
+        assert_eq!(
+            items[3].expires_at,
+            Some("2027-01-01T00:00:00+00:00".into())
+        ); // expires_at
+           // Window-level resets_at = earliest sub-item expiry.
         assert_eq!(w.resets_at, Some("2025-12-16T16:00:00+00:00".into()));
         assert!(http
             .captured_url
@@ -956,7 +1001,10 @@ mod tests {
             Some("2026-01-01T00:00:00+00:00".into())
         );
         // Window-level resets_at mirrors the earliest (and only) sub-item expiry.
-        assert_eq!(q.windows[0].resets_at, Some("2026-01-01T00:00:00+00:00".into()));
+        assert_eq!(
+            q.windows[0].resets_at,
+            Some("2026-01-01T00:00:00+00:00".into())
+        );
         assert_eq!(q.status, QuotaStatus::Ok);
     }
 

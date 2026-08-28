@@ -69,6 +69,12 @@ export const VENDOR_PANEL: Record<string, VendorPanel> = {
     hint: "在浏览器打开 Qoder 用量页面并登录（区分国际站 qoder.com / 中国站 qoder.com.cn），打开 DevTools（F12 或 Cmd+Opt+I）→ Network，刷新页面，找到 big_model_credits 请求，复制其请求头 Cookie 字段完整值粘贴到下方。",
     enHint: "Open Qoder usage page and log in (global: qoder.com / China: qoder.com.cn). DevTools (F12) → Network, refresh, find big_model_credits request, copy the full Cookie header.",
   },
+  bailian:    {
+    url: "https://bailian.console.aliyun.com/?tab=plan#/efm/subscription/token-plan",
+    pageLabel: "百炼控制台", enPageLabel: "Bailian Console",
+    hint: "阿里云百炼 Token Plan（个人版）额度通过控制台 Cookie 读取。获取步骤：1) 在浏览器打开百炼控制台的 Token Plan 页面（上方按钮）并登录；2) 打开 DevTools（F12 或 Cmd+Opt+I）→ Network，刷新页面；3) 找到任意 data/api.json 请求（域名为 bailian-cs.console.aliyun.com），右键 → Copy → Copy request headers，或到 Application → Cookies 复制全部 Cookie；4) 粘贴完整 Cookie 字符串（需包含 XSRF-TOKEN 与登录态 Cookie）到下方，点击保存。",
+    enHint: "Bailian Token Plan (personal) quota via console cookie. Steps: 1) Open the Token Plan page (button above) and log in; 2) DevTools (F12) → Network, refresh; 3) Find any data/api.json request on bailian-cs.console.aliyun.com and copy the full Cookie header; 4) Paste below (must include XSRF-TOKEN) and save.",
+  },
   ollama:     {
     url: "https://ollama.com/settings",
     pageLabel: "Ollama Cloud", enPageLabel: "Ollama Cloud",

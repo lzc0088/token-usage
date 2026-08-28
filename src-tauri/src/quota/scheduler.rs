@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Datelike;
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::Duration;
 use tracing::{debug, warn};
 
@@ -89,20 +89,127 @@ pub fn write_cache(conn: &Connection, vendor: &str, q: &Quota, fetched_at: i64) 
     }
 }
 
+/// Read all cached quotas from `quota_cache`. Returns `None` on any DB error
+/// (best-effort — callers should tolerate silent skip).
+fn read_cached_quotas(conn: &Connection) -> Option<Vec<Quota>> {
+    let mut stmt = conn.prepare("SELECT data FROM quota_cache").ok()?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0)).ok()?;
+    let mut out = Vec::new();
+    for row in rows {
+        let data = row.ok()?;
+        if let Ok(q) = serde_json::from_str::<Quota>(&data) {
+            out.push(q);
+        }
+    }
+    Some(out)
+}
+
+/// Evaluate cached quotas against the notification triggers and dispatch
+/// system notifications for newly-worthy windows. Best-effort: all failures
+/// are logged and silently skipped. Honors the `quota_notify_enabled` config
+/// switch; dedups via the shared AppState guard so repeated refreshes don't
+/// re-notify for the same window.
+pub async fn dispatch_notifications(app: &AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+
+    // Read config (switch + language) and the cached quotas in one short lock.
+    let (enabled, lang_zh, quotas) = {
+        let conn = state.db_read();
+        let cfg = config::load(&conn).unwrap_or_default();
+        (
+            cfg.quota_notify_enabled,
+            cfg.language != "en",
+            read_cached_quotas(&conn).unwrap_or_default(),
+        )
+    };
+    if !enabled {
+        return;
+    }
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let Ok(mut dedup) = state.notify_dedup.lock() else {
+        return;
+    };
+
+    for quota in quotas {
+        let candidates = crate::quota::notify::evaluate(&quota, now_ms);
+        for cand in candidates {
+            if dedup.should_notify(&cand) {
+                send_notification(
+                    app,
+                    crate::quota::notify::build_title(lang_zh),
+                    &crate::quota::notify::build_body(&cand, now_ms, lang_zh),
+                );
+                tracing::debug!(vendor = %cand.vendor, window = %cand.window_label, "notification dispatched");
+            }
+        }
+    }
+}
+
+/// Fire one system notification.
+///
+/// macOS: the tauri-plugin-notification backend (notify-rust →
+/// mac-notification-sys) is unusable here — it swizzles
+/// `NSBundle.bundleIdentifier` process-wide (breaking keychain/identity reads
+/// for the rest of the app's lifetime) and drives the long-removed
+/// `NSUserNotificationCenter` API. Spawning `osascript` in a child process is
+/// fully isolated: it can never block or corrupt this process.
+#[cfg(target_os = "macos")]
+fn send_notification(app: &AppHandle, title: &str, body: &str) {
+    use crate::quota::notify::escape_applescript;
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        escape_applescript(body),
+        escape_applescript(title)
+    );
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let _ = app; // AppHandle unused on macOS; kept for signature parity.
+}
+
+/// Non-macOS: the plugin's toast (Windows) / dbus (Linux) backends are safe.
+#[cfg(not(target_os = "macos"))]
+fn send_notification(app: &AppHandle, title: &str, body: &str) {
+    // Best-effort: any failure (plugin not ready, permission denied, etc.)
+    // is silently skipped — notifications are non-critical.
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 /// Fetch all bound vendors' quotas and cache them. Called for manual refresh.
 /// Clears the persisted silenced set so all vendors are retried.
 /// Returns false if another refresh was already in progress.
-pub async fn refresh_all(db: &Arc<Mutex<Connection>>) -> bool {
+pub async fn refresh_all(state: &crate::state::AppState) -> bool {
     if !try_begin_refresh() {
         debug!("manual refresh skipped — another refresh already in progress");
         return false;
     }
     // Manual refresh: clear the persisted silenced set so all vendors retry.
+    let db = state.db.clone();
     if let Ok(conn) = db.lock() {
         let _ = config::set_json(&conn, SILENCED_KEY, &Vec::<String>::new());
     }
     let mut silenced = HashSet::new();
-    refresh_all_impl(db, &mut silenced, None, None).await;
+    // Clone the burn tracker so the MutexGuard is not held across an .await
+    // (MutexGuard is not Send, which violates Tauri command handler bounds).
+    let mut burn = state
+        .burn_rate_tracker
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    refresh_all_impl(&db, &mut silenced, None, Some(&mut burn)).await;
+    // Merge the updated clone back into the shared tracker.
+    if let Ok(mut g) = state.burn_rate_tracker.lock() {
+        *g = burn;
+    }
     REFRESHING.store(false, Ordering::Release);
     true
 }
@@ -239,6 +346,7 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
         REFRESHING.store(false, Ordering::Release);
     }
     let _ = app.emit("quota:updated", ());
+    dispatch_notifications(&app).await;
 
     loop {
         // Read current config on each loop iteration: the interval (and the
@@ -307,6 +415,7 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             // Notify windows so the "updated" time and quota cards refresh live
             // without the user re-opening the page.
             let _ = app.emit("quota:updated", ());
+            dispatch_notifications(&app).await;
             // quota_min tray mode reads the quota cache — repaint so the
             // tightest percentage stays live between collector ticks.
             if tray_mode == "quota_min" {
@@ -477,6 +586,17 @@ async fn refresh_all_impl(
             FetchOutcome::Success(id, mut q) => {
                 silenced.remove(id.as_str());
                 q.refreshed_at = Some(now_rfc.clone());
+                // Feed the burn-rate tracker BEFORE writing cache so projected
+                // exhaustion timestamps are available to persist on each window.
+                if let Some(t) = burn.as_deref_mut() {
+                    t.record(&id, &q, now_ms);
+                    for w in &mut q.windows {
+                        w.projected_exhaustion_at = t
+                            .projected_exhaustion_ms(&id, &w.label, now_ms)
+                            .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
+                            .map(|dt| dt.to_rfc3339());
+                    }
+                }
                 if let Ok(conn) = db.lock() {
                     if q.balance.is_some() {
                         let today_c = query_consumption(&conn, &id, &today);
@@ -488,11 +608,6 @@ async fn refresh_all_impl(
                         });
                     }
                     write_cache(&conn, &id, &q, now_ms);
-                }
-                // Feed the burn-rate tracker ONLY from committed probes of
-                // this runtime (see refresh_all_impl doc comment).
-                if let Some(t) = burn.as_deref_mut() {
-                    t.record(&id, &q, now_ms);
                 }
             }
             FetchOutcome::Failed(id, e) => {

@@ -39,6 +39,7 @@ pub fn parse(body: &str) -> Result<Quota, VendorError> {
             used_value: Some(total),
             total_value: None,
             sub_items: None,
+            projected_exhaustion_at: None,
         }],
         balance: Some(QuotaBalance {
             amount: total,

@@ -23,6 +23,7 @@ import kiroIcon from "../icons/tools/kiro.svg?raw";
 import qoderIcon from "../icons/tools/qoder.svg?raw";
 import traeIcon from "../icons/tools/trae.svg?raw";
 import workbuddyIcon from "../icons/tools/workbuddy.svg?raw";
+import bailianIcon from "../icons/tools/bailian.svg?raw";
 import codebuddyIcon from "../icons/tools/codebuddy.svg?raw";
 import aideIcon from "../icons/tools/aide.svg?raw";
 import crushIcon from "../icons/tools/crush.svg?raw";
@@ -86,6 +87,7 @@ const ICONS: Record<string, string> = {
   qoder: qoderIcon,
   trae: traeIcon,
   workbuddy: workbuddyIcon,
+  bailian: bailianIcon,
   codebuddy: codebuddyIcon,
   aide: aideIcon,
   crush: crushIcon,
@@ -159,8 +161,9 @@ const KNOWN: Record<string, { label: string; icon: string; color: string }> = {
   kiro:      { label: "Kiro",         icon: ICONS.kiro,      color: "var(--text-dim)" },
   qoder:     { label: "Qoder ( 阿里 )",        icon: ICONS.qoder,     color: "var(--amber)" },
   trae:      { label: "Trae",         icon: ICONS.trae,      color: "var(--lime)" },
-  workbuddy: { label: "WorkBuddy",    icon: ICONS.workbuddy, color: "#64b4ff" },
-  codebuddy: { label: "CodeBuddy",    icon: ICONS.codebuddy, color: "var(--lime)" },
+  workbuddy: { label: "WorkBuddy",    icon: ICONS.workbuddy, color: "var(--lime)" },
+  bailian:   { label: "百炼 ( 阿里 )", icon: ICONS.bailian, color: "var(--amber)" },
+  codebuddy: { label: "CodeBuddy",    icon: ICONS.codebuddy, color: "var(--violet)" },
   aide:      { label: "Aide",         icon: ICONS.aide,      color: "var(--violet)" },
   crush:     { label: "Crush",        icon: ICONS.crush,     color: "var(--amber)" },
   pieces:    { label: "Pieces",       icon: ICONS.pieces,    color: "var(--cyan)" },

@@ -341,6 +341,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             } else {
                 Some(parsed.plan_items)
             },
+            ..Default::default()
         });
     }
 
@@ -357,6 +358,7 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
             } else {
                 Some(parsed.pkg_items)
             },
+            ..Default::default()
         });
     }
 

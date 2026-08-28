@@ -11,6 +11,7 @@
   import Sessions from "./components/segments/Sessions.svelte";
   import Trend from "./components/segments/Trend.svelte";
   import Limits from "./components/segments/Limits.svelte";
+  import Status from "./components/segments/Status.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { api, type Config, type Summary } from "./lib/api";
   import { applyAppearance, initAppearanceListeners } from "./lib/appearance";
@@ -351,7 +352,15 @@
   class="popover"
   data-testid="popover"
   onkeydown={(e) => { if (e.key === "Tab") { e.preventDefault(); } }}
-  onfocusin={(e) => { const t = e.target as HTMLElement | null; if (t && t !== document.body) { t.blur(); } }}
+  onfocusin={(e) => {
+    // Suppress retained focus (focus rings) on non-editable elements only.
+    // Text-entry elements (cookie editor textarea, inputs) MUST keep focus —
+    // blurring them makes typing/pasting impossible.
+    const t = e.target as HTMLElement | null;
+    if (!t || t === document.body) return;
+    if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable) return;
+    t.blur();
+  }}
 >
   <!-- Resize handles: invisible strips at each edge + corners.
        JS-driven resize (lib/resize.ts) — setSize only changes the window's
@@ -413,6 +422,8 @@
       <Sessions currency={config.currency} {cnyRate} />
     {:else if segment === "trend"}
       <Trend currency={config.currency} {cnyRate} />
+    {:else if segment === "status"}
+      <Status {config} />
     {:else if segment === "limit"}
       <Limits currency={config.currency} {cnyRate} {config} />
     {:else}

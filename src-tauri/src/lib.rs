@@ -403,6 +403,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
         .setup(|app| {
             // Initialize structured logging inside setup (after tao init).
@@ -474,6 +475,31 @@ pub fn run() {
             // HTTP client (reqwest updater, ureq check-update/rate/quota) routes
             // through it. Must run before any network request.
             utils::proxy::sync_system_proxy();
+
+            // ── One-time layout migration ────────────────────────────────
+            // Inject the new "status" segment into existing users' stored
+            // layout_modules so the Status tab is visible by default (fresh
+            // installs get it via the default list). Idempotent + guarded by
+            // config.status_module_migrated. Runs before any window reads the
+            // layout so the tab is present on first paint of this version.
+            {
+                let state = app.state::<AppState>();
+                let mut cfg = state.load_config().unwrap_or_default();
+                if crate::config::migrate_layout_modules(&mut cfg) {
+                    // Scoped guard: released before update_config_cache so the
+                    // cache write never contends with the write lock.
+                    let saved = {
+                        let conn = &*state.db_write();
+                        crate::config::save(conn, &cfg).is_ok()
+                    };
+                    if saved {
+                        tracing::info!("layout migration: injected 'status' into layout_modules");
+                        // Refresh the in-memory cache so later readers (window
+                        // layout, settings preview) see the new list.
+                        state.update_config_cache(cfg);
+                    }
+                }
+            }
 
             // ── Dock visibility (must be set BEFORE any window is created) ──
             // macOS: NSApplicationActivationPolicy must be chosen during
@@ -714,6 +740,7 @@ pub fn run() {
             commands::query::get_projects, // accepts period arg
             commands::status::get_tools_status,
             commands::status::get_tokscale_status,
+            commands::status::get_collection_health,
             commands::collection::get_archived_session_count,
             commands::collection::clear_archived_sessions,
             commands::collection::collect_now,

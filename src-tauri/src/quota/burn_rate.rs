@@ -75,7 +75,7 @@ pub struct Urgency {
 /// after two samples — persisting it would seed rates measured across a
 /// session gap, which is exactly the "offline consumption in a second"
 /// artifact token-monitor guards against.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BurnRateTracker {
     history: HashMap<(String, String), WindowHistory>,
 }
@@ -200,6 +200,29 @@ impl BurnRateTracker {
             delay_secs: delay,
             vendors,
         })
+    }
+
+    /// Projected absolute exhaustion timestamp (unix ms) for a specific
+    /// (vendor, window-label) pair, or `None` when the rate is too stale,
+    /// zero, or the window is already exhausted.
+    ///
+    /// The projection is `last_sample_time + ttl`, where
+    ///   ttl = remaining% / burnRate(%/min)   [converted to ms]
+    pub fn projected_exhaustion_ms(&self, vendor: &str, label: &str, now_ms: i64) -> Option<i64> {
+        let h = self.history.get(&(vendor.to_string(), label.to_string()))?;
+        if h.rate_pct_per_min <= 0.0 {
+            return None;
+        }
+        if now_ms - h.last_at_ms > (ADAPTIVE_BASE_SECS as i64) * 1000 {
+            return None;
+        }
+        let remaining_pct = (100.0 - h.last_used_pct).max(0.0);
+        if remaining_pct <= 0.0 {
+            return None;
+        }
+        let ttl_min = remaining_pct / h.rate_pct_per_min;
+        let ttl_ms = (ttl_min * 60_000.0) as i64;
+        Some(h.last_at_ms + ttl_ms)
     }
 }
 
@@ -342,5 +365,58 @@ mod tests {
         t.record("glm", &quota_with("5h", 90.0), 10 * 60_000);
         t.forget("glm");
         assert!(t.urgency(10 * 60_000).is_none());
+    }
+
+    // ── projected_exhaustion_ms ─────────────────────────────────────────
+
+    #[test]
+    fn stable_burn_projects_correct_exhaustion() {
+        let mut t = BurnRateTracker::new();
+        // 50% → 90% in 10min = 4 %/min. Remaining after 2nd sample: 10%.
+        // ttl = 10 / 4 = 2.5min → projection at 10min + 2.5min = 12.5min.
+        t.record("glm", &quota_with("5h", 50.0), 0);
+        t.record("glm", &quota_with("5h", 90.0), 10 * 60_000);
+        let proj = t.projected_exhaustion_ms("glm", "5h", 10 * 60_000);
+        assert!(proj.is_some());
+        let proj_ms = proj.unwrap();
+        // 2.5min = 150_000ms → 10min + 150s = 750s → 750_000ms
+        assert!((proj_ms - 750_000).abs() < 1_000, "proj = {proj_ms}");
+    }
+
+    #[test]
+    fn idle_window_returns_none() {
+        let mut t = BurnRateTracker::new();
+        t.record("glm", &quota_with("5h", 50.0), 0);
+        // Window reset (usage drop) → rate 0 → None.
+        t.record("glm", &quota_with("5h", 20.0), 10 * 60_000);
+        assert!(t
+            .projected_exhaustion_ms("glm", "5h", 10 * 60_000)
+            .is_none());
+    }
+
+    #[test]
+    fn exhausted_window_returns_none() {
+        let mut t = BurnRateTracker::new();
+        t.record("glm", &quota_with("5h", 50.0), 0);
+        t.record("glm", &quota_with("5h", 100.0), 5 * 60_000);
+        assert!(t.projected_exhaustion_ms("glm", "5h", 5 * 60_000).is_none());
+    }
+
+    #[test]
+    fn stale_sample_returns_none() {
+        let mut t = BurnRateTracker::new();
+        t.record("glm", &quota_with("5h", 50.0), 0);
+        t.record("glm", &quota_with("5h", 90.0), 10 * 60_000);
+        // now = 10min + 6min = past the 5min stale threshold → None.
+        let now = 10 * 60_000 + 6 * 60_000;
+        assert!(t.projected_exhaustion_ms("glm", "5h", now).is_none());
+    }
+
+    #[test]
+    fn first_sample_returns_none() {
+        let mut t = BurnRateTracker::new();
+        t.record("glm", &quota_with("5h", 50.0), 1_000_000);
+        // Only one sample → rate is 0 → no projection.
+        assert!(t.projected_exhaustion_ms("glm", "5h", 1_000_000).is_none());
     }
 }

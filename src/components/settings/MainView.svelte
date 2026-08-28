@@ -16,11 +16,11 @@
     children?: TreeItem[];
   }
 
-  const DEFAULT_MODULES = ["overview", "tools", "models", "projects", "trends", "sessions", "quotas"];
+  const DEFAULT_MODULES = ["overview", "tools", "models", "projects", "trends", "sessions", "status", "quotas"];
   const DEFAULT_OVERVIEW_SUB = ["overview_io", "overview_tools", "overview_models", "overview_quotas"];
 
   function modLabel(key: string): string {
-    const m: Record<string,string> = { overview: t("seg.overview"), tools: t("seg.tools"), models: t("seg.models"), projects: t("seg.projects"), trends: t("seg.trends"), sessions: t("seg.sessions"), quotas: t("seg.limits") };
+    const m: Record<string,string> = { overview: t("seg.overview"), tools: t("seg.tools"), models: t("seg.models"), projects: t("seg.projects"), trends: t("seg.trends"), sessions: t("seg.sessions"), status: t("seg.status"), quotas: t("seg.limits") };
     return m[key] ?? key;
   }
   function subLabel(key: string): string {
@@ -66,6 +66,7 @@
             codex: "Codex ( OpenAI )", opencode: "OpenCode ( OpenCode AI )",
             qoder: "Qoder ( 阿里 )", ollama: "Ollama ( Ollama Cloud )", cursor: "Cursor ( Anysphere )",
             grok: "Grok ( xAI )", openrouter: "OpenRouter",
+            workbuddy: "WorkBuddy ( 腾讯 )", bailian: "百炼 ( 阿里 )",
           };
           const enMap: Record<string, string> = {
             deepseek: "DeepSeek", glm: "GLM", minimax: "MiniMax", kimi: "Kimi",
@@ -73,6 +74,7 @@
             copilot: "GitHub Copilot", zai_team: "GLM Team", claude: "Claude Code",
             codex: "Codex", opencode: "OpenCode", qoder: "Qoder", ollama: "Ollama",
             cursor: "Cursor", grok: "Grok", openrouter: "OpenRouter",
+            workbuddy: "WorkBuddy", bailian: "Bailian",
           };
           const src = l === "en" ? enMap : zhMap;
           for (const v of q) {
@@ -326,7 +328,7 @@
           <span class="grip" title={t("mainview.dragHint")}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
           </span>
-            {#if !["overview","tools","models","projects","trends","sessions","quotas"].includes(item.key)}
+            {#if !["overview","tools","models","projects","trends","sessions","status","quotas"].includes(item.key)}
               <ToolIcon vendor={item.key} badge={false} size={14} />
             {/if}
             <span class="tree-label">{item.label}</span>

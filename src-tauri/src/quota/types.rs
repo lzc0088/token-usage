@@ -106,6 +106,12 @@ pub struct QuotaWindow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub sub_items: Option<Vec<QuotaWindowSubItem>>,
+    /// Projected absolute exhaustion time (RFC3339) computed by the burn-rate
+    /// tracker on the last successful probe. `None` when the rate is too stale,
+    /// zero, or the window is already exhausted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub projected_exhaustion_at: Option<String>,
 }
 
 /// An individual quota item within a window (e.g. one resource package bonus).

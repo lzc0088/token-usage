@@ -8,6 +8,7 @@
   import { splitTokens } from "../../lib/format";
   import { modelVendor } from "../../lib/meta/models";
   import { toolMeta } from "../../lib/meta/tools";
+import ToolIcon from "../ui/ToolIcon.svelte";
   import CostText from "../common/CostText.svelte";
   import QuotaCard from "../common/QuotaCard.svelte";
   import EmptyState from "../common/EmptyState.svelte";
@@ -185,7 +186,7 @@
             {@const s = splitTokens(e.tokens)}
             {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("tools")}>
-              <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
+              <ToolIcon tool={e.key} badge={false} size={20} />
               <span class="nm">{meta.label}<span class="sub"><CostText usd={e.cost_usd} {currency} {cnyRate} /> / {s.value}<span class="su">{s.unit}</span></span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[i % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
@@ -207,7 +208,7 @@
             {@const mv = modelVendor(e.key)}
             {@const meta = toolMeta(e.key)}
             <button type="button" class="crow" onclick={() => setSegment("models")}>
-              <span class="rk" style="background:{meta.color};color:var(--badge-text)">{@html meta.icon}</span>
+              <ToolIcon tool={e.key} badge={false} size={20} />
               <span class="nm">{meta.label}{#if mv}<span class="mvendor" style="color:{mv.color}">{mv.vendor}</span>{/if}<span class="sub"><CostText usd={e.cost_usd} {currency} {cnyRate} /> / {e.messages}{t("overview.msgs")}</span></span>
               <div class="br"><i style="width:{Math.max(2, e.token_pct).toFixed(1)}%;background:{palette[(i + 2) % palette.length]}"></i></div>
               <span class="pct-label">{e.token_pct.toFixed(1)}<span class="pct-unit">%</span></span>
@@ -284,19 +285,13 @@
   .v.tok-cr { color: var(--tok-cache-r) !important; }
   .v.tok-cw { color: var(--tok-cache-w) !important; }
   .crow {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 10px;
     padding: 8px 0; cursor: pointer;
     background: none; border: none; font-family: inherit; text-align: left; width: 100%;
     border-bottom: 1px dashed var(--border-dim);
   }
   .crow:last-child { border-bottom: none; }
   .crow:hover .nm { color: var(--amber); }
-  .crow .rk {
-    width: 24px; height: 24px; border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.7333rem; font-weight: 700; flex-shrink: 0;
-    font-style: normal;
-  }
   .crow .nm {
     font-size: 0.8667rem; flex: 1; color: var(--text); transition: .15s;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

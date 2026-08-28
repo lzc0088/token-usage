@@ -15,6 +15,13 @@ export default defineConfig(async () => {
       include: ["src/**/*.{test,spec}.{ts,js}"],
       environment: "jsdom",
     },
+    // Dependency scan: only the real app entry. Without this the scanner
+    // crawls every HTML it can find (docs/, assets/ design scripts, even
+    // src-tauri/target build artifacts), which is slow and breaks on files
+    // that aren't part of the app bundle.
+    optimizeDeps: {
+      entries: ["index.html"],
+    },
     envPrefix: ["VITE_"],
     env,
 

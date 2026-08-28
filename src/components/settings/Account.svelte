@@ -729,6 +729,18 @@
         onchange={(v) => updateConfig({ quota_progress_mode: v as Config["quota_progress_mode"] })}
       />
     </div>
+    <div class="box-row">
+      <div class="lab">{t("account.quotaNotify")}<div class="hint">{t("account.quotaNotifyHint")}</div></div>
+      <button
+        type="button"
+        class="tg"
+        class:on={config?.quota_notify_enabled ?? true}
+        role="switch"
+        aria-checked={config?.quota_notify_enabled ?? true}
+        aria-label={t("account.quotaNotify")}
+        onclick={() => updateConfig({ quota_notify_enabled: !(config?.quota_notify_enabled ?? true) })}
+      ></button>
+    </div>
   </div>
 
   <div class="section-box" style="margin-top:12px">
@@ -1161,4 +1173,5 @@
     color: var(--text-faint);
     white-space: nowrap;
   }
+
 </style>

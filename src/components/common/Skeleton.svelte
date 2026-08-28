@@ -7,8 +7,8 @@
     rows = 3,
   }: {
     /** Layout shape matching the segment that's loading. */
-    type?: "list" | "cards" | "chart" | "overview";
-    /** Row count for list/cards/overview layouts. */
+    type?: "list" | "cards" | "chart" | "overview" | "status";
+    /** Row count for list/cards/overview/status layouts. */
     rows?: number;
   } = $props();
 
@@ -82,6 +82,29 @@
       <div class="skel-line w25"></div>
       <div class="skel-card"><div class="skel-card-head"><div class="skel-icon"></div><div class="skel-line w40"></div></div><div class="skel-bar"></div></div>
     </div>
+  </div>
+{:else if type === "status"}
+  <!-- Status: header (title + count chip + re-check button) then rows shaped
+       like the real ones — 28px icon left, name line + smaller meta line,
+       status chip right -->
+  <div class="sk skel-status">
+    <div class="skel-status-head">
+      <div class="skel-head-left">
+        <div class="skel-line w-name"></div>
+        <div class="skel-count"></div>
+      </div>
+      <div class="skel-btn"></div>
+    </div>
+    {#each rowIndices as i (i)}
+      <div class="skel-status-row">
+        <div class="skel-icon-xl"></div>
+        <div class="skel-main">
+          <div class="skel-line w-name"></div>
+          <div class="skel-line w-meta sm"></div>
+        </div>
+        <div class="skel-chip"></div>
+      </div>
+    {/each}
   </div>
 {/if}
 
@@ -161,4 +184,63 @@
   .skel-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .skel-mini-list { display: flex; flex-direction: column; margin-top: 10px; }
   .skel-overview .skel-row { padding: 8px 0; }
+
+  /* ── status layout (Status segment) ──
+     Mirrors the real rows: header with title + count pill + button; rows with
+     a 28px rounded icon left, name line over a smaller meta line, and a
+     status chip on the right. Same paddings/borders as the live list so the
+     skeleton→content swap doesn't shift. */
+  .skel-status { display: flex; flex-direction: column; }
+  .skel-status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0 8px;
+  }
+  .skel-head-left { display: flex; align-items: center; gap: 6px; }
+  .skel-count {
+    width: 18px;
+    height: 14px;
+    border-radius: 20px;
+    background: var(--surface-tint-strong);
+    animation: skel-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .skel-btn {
+    width: 64px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--surface-tint-strong);
+    animation: skel-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .skel-status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--border-dim);
+  }
+  .skel-status-row:last-child { border-bottom: none; }
+  /* Push the status chip to the row's right edge, like the live layout. */
+  .skel-status-row .skel-main { flex: 1; }
+  .skel-icon-xl {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--surface-tint-strong);
+    animation: skel-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .skel-line.sm { height: 8px; }
+  .w-name { width: 90px; }
+  .w-meta { width: 140px; }
+  .skel-chip {
+    width: 48px;
+    height: 18px;
+    border-radius: 5px;
+    background: var(--surface-tint-strong);
+    animation: skel-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
 </style>

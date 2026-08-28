@@ -203,40 +203,86 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
     // so we can rate-limit it (the rebuild runs ~4s of tokscale calls).
     let mut last_project_snapshot = Instant::now() - PROJECT_SNAPSHOT_MIN_INTERVAL;
 
+    // Health record (状态 segment): seeded from persistence, advanced on every
+    // scan success/failure below, best-effort written back to collection_state.
+    let mut health = {
+        let conn = db.lock().unwrap_or_else(|e| {
+            tracing::warn!("db mutex poisoned in consumer startup, recovering: {e}");
+            e.into_inner()
+        });
+        super::health::load_health(&conn)
+    };
+
+    /// Advance + persist + announce the health record. Best-effort: a write
+    /// failure only means the 状态 page serves the in-memory value.
+    ///
+    /// ⚠ MUST only be invoked while NOT holding the DB lock — it locks the DB
+    /// itself, and std::sync::Mutex is non-reentrant (nested lock = permanent
+    /// self-deadlock that freezes the whole app).
+    macro_rules! advance_health {
+        ($next:expr) => {{
+            health = $next;
+            if let Ok(conn) = db.lock() {
+                if let Err(e) = super::health::save_health(&conn, &health) {
+                    tracing::warn!(error = %e, "save_health failed");
+                }
+            }
+            let _ = app.emit("collection:health", ());
+        }};
+    }
+
     tauri::async_runtime::spawn(async move {
         let _watch_guard = watch_guard; // keep the watcher alive for the app's lifetime
         while let Some(ev) = ev_rx.recv().await {
             match ev {
                 scheduler::CollectionEvent::Graph(v) => {
-                    if let Ok(mut conn) = db.lock() {
-                        match storage::daily_usage::ingest_graph(&mut conn, &v) {
-                            Ok(_) => {
-                                let _ = app.emit("collection:updated", ());
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "ingest_graph failed");
-                                let _ = app
-                                    .emit("collection:error", format!("graph ingest failed: {e}"));
-                            }
+                    // Ingest inside the lock, then advance health AFTER the
+                    // guard is released — advance_health! locks the DB itself,
+                    // and re-locking a non-reentrant std::sync::Mutex while
+                    // already holding it self-deadlocks the consumer (and, by
+                    // holding the DB lock forever, freezes every IPC command).
+                    let outcome = db
+                        .lock()
+                        .ok()
+                        .map(|mut conn| storage::daily_usage::ingest_graph(&mut conn, &v));
+                    match outcome {
+                        Some(Ok(_)) => {
+                            advance_health!(super::health::record_history(
+                                &health,
+                                crate::utils::time::now_ms()
+                            ));
+                            let _ = app.emit("collection:updated", ());
                         }
+                        Some(Err(e)) => {
+                            tracing::warn!(error = %e, "ingest_graph failed");
+                            let _ =
+                                app.emit("collection:error", format!("graph ingest failed: {e}"));
+                        }
+                        None => {} // lock unavailable — skip; the next tick retries
                     }
                 }
                 scheduler::CollectionEvent::Sessions(v) => {
                     // Phase 1: ingest sessions batch (fast upsert) — keep the
-                    // lock as short as possible.
-                    if let Ok(mut conn) = db.lock() {
-                        match storage::sessions::ingest_sessions(&mut conn, &v) {
-                            Ok(_) => {
-                                let _ = app.emit("collection:updated", ());
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "ingest_sessions failed");
-                                let _ = app.emit(
-                                    "collection:error",
-                                    format!("sessions ingest failed: {e}"),
-                                );
-                            }
+                    // lock as short as possible. Health advances after the
+                    // guard is released (see Graph branch note).
+                    let outcome = db
+                        .lock()
+                        .ok()
+                        .map(|mut conn| storage::sessions::ingest_sessions(&mut conn, &v));
+                    match outcome {
+                        Some(Ok(_)) => {
+                            advance_health!(super::health::record_history(
+                                &health,
+                                crate::utils::time::now_ms()
+                            ));
+                            let _ = app.emit("collection:updated", ());
                         }
+                        Some(Err(e)) => {
+                            tracing::warn!(error = %e, "ingest_sessions failed");
+                            let _ = app
+                                .emit("collection:error", format!("sessions ingest failed: {e}"));
+                        }
+                        None => {} // lock unavailable — skip; the next tick retries
                     }
 
                     // Phase 2: backfill project_path + prune — spawned off the
@@ -305,6 +351,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     // Ingest today's per-client/model entries into daily_usage
                     // so breakdown/trends reflect live data (not 15-min stale).
                     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    advance_health!(super::health::record_today(
+                        &health,
+                        &v,
+                        crate::utils::time::now_ms()
+                    ));
                     if let Ok(mut conn) = db.lock() {
                         if let Err(e) =
                             storage::daily_usage::ingest_today_entries(&mut conn, &v, &today)
@@ -344,6 +395,11 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                 scheduler::CollectionEvent::ScanError(msg) => {
                     // Surface scan failures to the frontend so the UI can show
                     // a degraded state instead of silently stale data.
+                    advance_health!(super::health::record_error(
+                        &health,
+                        &msg,
+                        crate::utils::time::now_ms()
+                    ));
                     let _ = app.emit("collection:error", msg);
                 }
             }

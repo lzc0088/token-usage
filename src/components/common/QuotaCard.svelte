@@ -249,6 +249,20 @@
   {@const summaryCredits = displayUsed != null && w.total_value != null ? `${fmtCredits(displayUsed)} / ${fmtCredits(w.total_value)}` : null}
   {@const hasSub = w.sub_items && w.sub_items.length > 0}
   {@const subExpanded = expandedWindows.get(w.label) ?? false}
+  {@const etaStr = (() => {
+      if (!w.projected_exhaustion_at) return null;
+      const eta = Date.parse(w.projected_exhaustion_at);
+      if (isNaN(eta)) return null;
+      const diffMs = eta - nowMs;
+      if (diffMs <= 0) return null;
+      const totalMins = Math.floor(diffMs / 60000);
+      if (totalMins < 60) return l(`{m}分钟后耗尽`, `{m}m until exhausted`).replace("{m}", String(totalMins));
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      return m > 0
+        ? l(`{h}h{m}m后耗尽`, `{h}h{m}m until exhausted`).replace("{h}", String(h)).replace("{m}", String(m))
+        : l(`{h}小时后耗尽`, `{h}h until exhausted`).replace("{h}", String(h));
+    })()}
   <div class="qitem-window">
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
@@ -299,11 +313,21 @@
     {:else if !hasSub && w.resets_at}
       <div class="qiw-reset">{formatReset(w.resets_at, nowMs, _lang)}</div>
     {/if}
+    {#if etaStr}
+      <div class="qiw-eta">{etaStr}</div>
+    {/if}
   </div>
 {/each}
 
 {#if quota.windows.length === 0 && !quota.balance && !quota.cookie_error}
-  <div class="qpending">{l("额度读取待实现","Quota fetch pending")}</div>
+  <!-- A completed fetch with no windows/balance means the account has no
+       active plan (expired / cancelled) — distinguish from a fetch that has
+       simply not produced data yet (refreshed_at absent). -->
+  {#if quota.refreshed_at}
+    <div class="qpending">{l("无法获取相关套餐额度","No plan quota available")}</div>
+  {:else}
+    <div class="qpending">{l("额度读取待实现","Quota fetch pending")}</div>
+  {/if}
 {/if}
 </div>
 
@@ -543,6 +567,16 @@
     font-size: 0.7rem;
     color: var(--text-faint);
     text-align: center;
+  }
+  .qiw-eta {
+    font-size: 0.65rem;
+    color: var(--amber);
+    text-align: center;
+    font-family: "JetBrains Mono", var(--font-mono);
+    /* Keep breathing room between the 耗尽 reminder and the credits/剩余
+       caption (or reset line) above it, and the next window below. */
+    margin: 4px 0 2px;
+    line-height: 1.5;
   }
   .qpending {
     font-size: 0.7rem;

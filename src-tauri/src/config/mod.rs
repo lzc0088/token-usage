@@ -112,6 +112,12 @@ pub struct Config {
     /// Layout: visible top-level segment keys in order (None = all default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_modules: Option<Vec<String>>,
+    /// One-time migration guard: whether the "status" module has been injected
+    /// into an existing `layout_modules` list (so the Status tab is visible to
+    /// existing users once). Fresh installs and post-customization lists are
+    /// left alone after this is set.
+    #[serde(default = "default_false")]
+    pub status_module_migrated: bool,
     /// Layout: visible overview sub-item keys in order (None = all default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_overview_sub: Option<Vec<String>>,
@@ -127,6 +133,10 @@ pub struct Config {
     /// Floating widget screen edge: "left" | "right".
     #[serde(default = "default_floating_position")]
     pub floating_position: String,
+    /// Send a system notification when a quota window is nearing exhaustion.
+    /// Triggered when remaining ≤ 20% OR projected exhaustion is within 2 h.
+    #[serde(default = "default_true")]
+    pub quota_notify_enabled: bool,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -164,11 +174,13 @@ impl Default for Config {
             collection_visible: None,
             collection_ordered: None,
             layout_modules: None,
+            status_module_migrated: default_false(),
             layout_overview_sub: None,
             overview_quota_vendors: None,
             floating_enabled: default_false(),
             floating_display: default_floating_display(),
             floating_position: default_floating_position(),
+            quota_notify_enabled: default_true(),
         }
     }
 }
@@ -272,6 +284,37 @@ pub fn with_config(conn: &Connection, f: impl FnOnce(&mut Config)) -> Result<(),
     let mut cfg = load(conn)?;
     f(&mut cfg);
     save(conn, &cfg)
+}
+
+/// One-time migration: inject the new "status" module into an existing user's
+/// `layout_modules` list so the Status tab is visible to old users by default.
+///
+/// Idempotent, guarded by `status_module_migrated`:
+///   - Already migrated, or an untouched list (`None`, fresh install) → no-op.
+///   - List already contains "status" → mark migrated, no change.
+///   - Otherwise insert "status" before "quotas" (falling back to append) and
+///     mark migrated.
+///
+/// Returns `true` when the list actually changed (caller persists).
+pub fn migrate_layout_modules(cfg: &mut Config) -> bool {
+    if cfg.status_module_migrated {
+        return false;
+    }
+    cfg.status_module_migrated = true;
+    match &mut cfg.layout_modules {
+        None => false,
+        Some(list) => {
+            if list.iter().any(|m| m == "status") {
+                false
+            } else if let Some(pos) = list.iter().position(|m| m == "quotas") {
+                list.insert(pos, "status".into());
+                true
+            } else {
+                list.push("status".into());
+                true
+            }
+        }
+    }
 }
 
 // ── raw kv helpers (also used by credentials-adjacent / scheduler state) ────
@@ -419,5 +462,77 @@ mod tests {
         let got: Vec<String> = get_json(&c, "enabled").unwrap().unwrap();
         assert_eq!(got, list);
         assert!(get_json::<Vec<String>>(&c, "missing").unwrap().is_none());
+    }
+
+    // ── status_module migration ────────────────────────────────────────────
+
+    fn modules(items: &[&str]) -> Option<Vec<String>> {
+        Some(items.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn migration_injects_status_before_quotas() {
+        let mut cfg = Config {
+            layout_modules: modules(&["overview", "tools", "quotas"]),
+            ..Config::default()
+        };
+        assert!(migrate_layout_modules(&mut cfg));
+        assert_eq!(
+            cfg.layout_modules,
+            modules(&["overview", "tools", "status", "quotas"])
+        );
+        assert!(cfg.status_module_migrated);
+    }
+
+    #[test]
+    fn migration_noop_once_flag_set() {
+        // Second run (already migrated) must not re-inject — the user may have
+        // since hidden Status on purpose.
+        let mut cfg = Config {
+            status_module_migrated: true,
+            layout_modules: modules(&["overview", "tools", "quotas"]),
+            ..Config::default()
+        };
+        assert!(!migrate_layout_modules(&mut cfg));
+        assert_eq!(
+            cfg.layout_modules,
+            modules(&["overview", "tools", "quotas"])
+        );
+    }
+
+    #[test]
+    fn migration_noop_for_fresh_install() {
+        // untouched list (None) → defaults already include "status"; just flag.
+        let mut cfg = Config::default();
+        assert!(!migrate_layout_modules(&mut cfg));
+        assert!(cfg.status_module_migrated);
+        assert_eq!(cfg.layout_modules, None);
+    }
+
+    #[test]
+    fn migration_appends_when_no_quotas() {
+        let mut cfg = Config {
+            layout_modules: modules(&["overview", "tools"]),
+            ..Config::default()
+        };
+        assert!(migrate_layout_modules(&mut cfg));
+        assert_eq!(
+            cfg.layout_modules,
+            modules(&["overview", "tools", "status"])
+        );
+    }
+
+    #[test]
+    fn migration_noop_when_status_already_present() {
+        let mut cfg = Config {
+            layout_modules: modules(&["overview", "status", "quotas"]),
+            ..Config::default()
+        };
+        assert!(!migrate_layout_modules(&mut cfg));
+        assert_eq!(
+            cfg.layout_modules,
+            modules(&["overview", "status", "quotas"])
+        );
+        assert!(cfg.status_module_migrated);
     }
 }

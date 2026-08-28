@@ -20,6 +20,7 @@ export const VENDOR_LABELS: Record<string, string> = {
   ollama: "Ollama ( Ollama Cloud )",
   cursor: "Cursor ( Anysphere )",
   workbuddy: "WorkBuddy ( 腾讯 )",
+  bailian: "百炼 ( 阿里 )",
 };
 
 // ── Full vendor definitions for the Account (账号额度) settings page ────
@@ -372,6 +373,18 @@ export const VENDORS: VendorDef[] = [
     fields: [
       { key: "site", label: "站点", enLabel: "Site", placeholder: "", enPlaceholder: "", type: "select", options: ["global", "cn"], default: "cn" },
       { key: "cookie", label: "Cookie", enLabel: "Cookie", placeholder: "粘贴仪表盘 Cookie…", enPlaceholder: "Paste dashboard Cookie…", type: "textarea" },
+    ],
+  },
+  {
+    id: "bailian",
+    label: "百炼 ( 阿里 )",
+    cat: "cookie",
+    billing: ["Token Plan"],
+    authType: "cookie",
+    desc: "阿里云百炼 Token Plan（个人版），读取每周用量占比与重置时间、套餐到期日",
+    tags: [
+      { text: "周窗口", color: "amber" },
+      { text: "订阅", color: "lime" },
     ],
   },
   {

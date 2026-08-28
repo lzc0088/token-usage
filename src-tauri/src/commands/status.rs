@@ -1,8 +1,11 @@
 //! Tool-collection status (M3 T3.1). Async — spawns `tokscale clients`.
 
 use serde::{Deserialize, Serialize};
+use tauri::State;
 
+use crate::collector::health::{self, CollectionHealth};
 use crate::collector::tokscale;
+use crate::state::AppState;
 use crate::utils::paths;
 use crate::utils::probe;
 
@@ -25,6 +28,21 @@ pub struct ClientDiagnostic {
     pub code: String,
     pub severity: String,
     pub message: String,
+}
+
+/// Map tokscale diagnostics to frontend diagnostics, dropping purely
+/// informational notices (`severity == "info"`). E.g. Claude's
+/// stats-cache.json notice explains a deliberate tokscale limitation (no
+/// double counting) — it is not actionable and must not surface as an error.
+fn client_diagnostics(dis: &[paths::Diagnostic]) -> Vec<ClientDiagnostic> {
+    dis.iter()
+        .filter(|d| d.severity != "info")
+        .map(|d| ClientDiagnostic {
+            code: d.code.clone(),
+            severity: d.severity.clone(),
+            message: d.message.clone(),
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -53,15 +71,7 @@ pub async fn get_tools_status(app: tauri::AppHandle) -> Result<Vec<ClientStatus>
                 label: c.label,
                 status,
                 message_count: c.message_count,
-                diagnostics: c
-                    .diagnostics
-                    .iter()
-                    .map(|d| ClientDiagnostic {
-                        code: d.code.clone(),
-                        severity: d.severity.clone(),
-                        message: d.message.clone(),
-                    })
-                    .collect(),
+                diagnostics: client_diagnostics(&c.diagnostics),
             }
         })
         .collect())
@@ -71,6 +81,15 @@ pub async fn get_tools_status(app: tauri::AppHandle) -> Result<Vec<ClientStatus>
 pub struct TokscaleStatus {
     pub installed: bool,
     pub version: Option<String>,
+}
+
+/// Persisted collection health (状态 segment): last scan success/failure
+/// timestamps + per-tool last-seen info. Fast — pure DB read, no tokscale
+/// spawn. Complements the live `get_tools_status` probe.
+#[tauri::command]
+pub fn get_collection_health(state: State<'_, AppState>) -> Result<CollectionHealth, String> {
+    let conn = state.db_read();
+    Ok(health::load_health(&conn))
 }
 
 #[tauri::command]
@@ -188,6 +207,40 @@ mod tests {
         let json = serde_json::to_value(&cs).unwrap();
         let diags = &json["diagnostics"][0];
         assert_eq!(diags["code"], "UNUSED_STATS_CACHE");
+    }
+
+    // ── client_diagnostics severity filter ─────────────────────────────
+
+    fn diag(code: &str, severity: &str) -> paths::Diagnostic {
+        paths::Diagnostic {
+            code: code.into(),
+            severity: severity.into(),
+            message: "m".into(),
+            paths: vec![],
+        }
+    }
+
+    #[test]
+    fn client_diagnostics_drops_info_severity() {
+        // Claude's stats-cache notice is severity=info — a deliberate
+        // tokscale limitation note, not an error. It must be filtered out.
+        let out = client_diagnostics(&[
+            diag("claude_stats_cache_not_imported", "info"),
+            diag("sessions_dir_unreadable", "warn"),
+        ]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].code, "sessions_dir_unreadable");
+    }
+
+    #[test]
+    fn client_diagnostics_keeps_warn_and_error() {
+        let out = client_diagnostics(&[diag("a", "warn"), diag("b", "error")]);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn client_diagnostics_empty_input() {
+        assert!(client_diagnostics(&[]).is_empty());
     }
 
     // ── TokscaleStatus serialization ──────────────────────────────────────

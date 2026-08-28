@@ -140,6 +140,26 @@ export interface TokscaleStatus {
   version: string | null;
 }
 
+/** Per-tool last-seen info, from the persisted collection health record. */
+export interface ClientHealth {
+  last_seen_ms: number;
+  message_count: number;
+}
+
+/** A recorded scan failure (message + unix-ms timestamp). */
+export interface HealthError {
+  message: string;
+  at_ms: number;
+}
+
+/** Persisted collection health: global scan timestamps + per-tool last-seen. */
+export interface CollectionHealth {
+  last_today_ms?: number | null;
+  last_history_ms?: number | null;
+  last_error?: HealthError | null;
+  clients: Record<string, ClientHealth>;
+}
+
 /** Phase 1 result from copilot_login: user code + verification URL. */
 export interface CopilotLoginStart {
   user_code: string;
@@ -162,6 +182,8 @@ export interface QuotaWindow {
   total_value?: number;
   /** Individual quota items within this window (e.g. each resource package). */
   sub_items?: QuotaWindowSubItem[];
+  /** Projected exhaustion time (RFC3339/ISO-8601), computed from burn rate. */
+  projected_exhaustion_at?: string;
 }
 
 export interface QuotaWindowSubItem {
@@ -262,6 +284,8 @@ export interface Config {
   collection_ordered?: string[] | null;
   /** Layout: visible top-level segment keys in order. */
   layout_modules?: string[] | null;
+  /** Whether to show system notifications when quota is nearly exhausted. */
+  quota_notify_enabled?: boolean;
   /** Layout: visible overview sub-item keys in order. */
   layout_overview_sub?: string[] | null;
   /** Overview: quota vendor IDs to show, in order. */
@@ -387,6 +411,7 @@ export const api = {
   codexLogin: () => invoke<void>("codex_login"),
 
   getTokscaleStatus: () => invoke<TokscaleStatus>("get_tokscale_status"),
+  getCollectionHealth: () => invoke<CollectionHealth>("get_collection_health"),
 
   getArchivedSessionCount: () => invoke<number>("get_archived_session_count"),
 
