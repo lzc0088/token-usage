@@ -69,7 +69,7 @@ fn auth_directories() -> Vec<PathBuf> {
                 dirs.push(d);
             }
         }
-        return dirs;
+        dirs
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Vec::new()
