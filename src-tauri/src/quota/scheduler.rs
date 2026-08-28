@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 use chrono::Datelike;
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "macos"))]
+use tauri_plugin_notification::NotificationExt;
 use tokio::time::Duration;
 use tracing::{debug, warn};
 
