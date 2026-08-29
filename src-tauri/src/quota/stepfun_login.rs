@@ -19,6 +19,7 @@
 //! "oasis-token is embezzled".
 
 use super::VendorError;
+use tracing::debug;
 
 const PLATFORM_URL: &str = "https://platform.stepfun.com";
 const REGISTER_DEVICE_URL: &str =
@@ -250,8 +251,12 @@ impl PassportHttp for UreqPassportHttp {
                     ));
                 }
                 if code == 401 || code == 403 || (300..400).contains(&code) {
-                    // Keep the surface identical to the dashboard path so the
-                    // retry ladder (refresh → re-login) recognises it.
+                    // Log the response body for debugging — 401s from
+                    // SignInByPassword can carry useful detail (e.g. expired
+                    // anonymous token) that would otherwise be lost.
+                    if !body.is_empty() {
+                        debug!(?code, ?body, "stepfun passport auth status");
+                    }
                     return Err(VendorError::Network(format!("status code {code}")));
                 }
                 Err(VendorError::Api { status: code, body })

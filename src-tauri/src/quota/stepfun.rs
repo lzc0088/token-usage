@@ -394,10 +394,9 @@ fn fetch_account_mode(
 
     let attempt = |combined: &str| -> Result<Quota, VendorError> {
         let webid = crate::quota::stepfun_login::webid_for_token(combined);
-        let cookie = format!(
-            "Oasis-Token={}; Oasis-Webid={webid}",
-            crate::quota::stepfun_login::access_half(combined)
-        );
+        // Dashboard endpoints expect the full combined token in Oasis-Token,
+        // matching the browser's own cookie format (access...refresh).
+        let cookie = format!("Oasis-Token={combined}; Oasis-Webid={webid}");
         query_dashboard(http, &cookie, &webid)
     };
 
@@ -666,13 +665,14 @@ mod tests {
             _webid: &str,
             _body: &str,
         ) -> Result<String, VendorError> {
-            let token = if url.contains("RefreshToken") {
-                &self.refresh_token
+            let (access, refresh) = if url.contains("RefreshToken") {
+                (&self.refresh_token, &self.refresh_token)
             } else {
-                &self.login_token
+                (&self.login_token, &self.refresh_token)
             };
             Ok(serde_json::json!({
-                "accessToken": {"raw": token},
+                "accessToken": {"raw": access},
+                "refreshToken": {"raw": refresh},
             })
             .to_string())
         }
@@ -703,6 +703,48 @@ mod tests {
         // (the mock's responses would still work, but the cache is asserted
         // via cached_token directly).
         assert!(cached_token("u@test").is_some());
+    }
+
+    /// Dashboard requests must carry the full combined token (access...refresh)
+    /// in the Oasis-Token cookie — the access half alone gets CODE_TOKEN_ILLEGAL.
+    #[test]
+    fn account_mode_sends_full_combined_token_to_dashboard() {
+        clear_token_cache();
+        struct CapturingHttp {
+            calls: std::sync::Mutex<Vec<String>>,
+            response: String,
+        }
+        impl Http for CapturingHttp {
+            fn connect_rpc(
+                &self,
+                _url: &str,
+                cookie: &str,
+                _webid: &str,
+            ) -> Result<String, VendorError> {
+                self.calls.lock().unwrap().push(cookie.to_string());
+                Ok(self.response.clone())
+            }
+        }
+        let http = CapturingHttp {
+            calls: std::sync::Mutex::new(Vec::new()),
+            response: SAMPLE_BALANCE.to_string(),
+        };
+        let passport = LoginPassport {
+            login_token: jwt_for("dev-login"),
+            refresh_token: jwt_for("dev-refresh"),
+        };
+        let cred = r#"{"username":"u@fulltoken","password":"pw"}"#;
+        fetch_with(&http, &passport, cred).unwrap();
+        let calls = http.calls.lock().unwrap();
+        assert_eq!(calls.len(), 3, "should make three dashboard calls (balance, plan, rate-limit)");
+        for cookie in calls.iter() {
+            let token_val = cookie.split("Oasis-Token=").nth(1).unwrap().split(';').next().unwrap();
+            assert!(
+                token_val.contains("..."),
+                "Oasis-Token must be full combined token (access...refresh), got: {token_val}"
+            );
+            assert!(cookie.contains("Oasis-Webid=dev-refresh"), "webid from refresh half");
+        }
     }
 
     #[test]
