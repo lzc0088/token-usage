@@ -58,11 +58,11 @@ fn menu_just_closed() -> bool {
     (now - last).abs() < 500
 }
 
-/// Build a 44×44 RGBA template icon: rounded-rect border enclosing a bold
-/// centred "T". Supersampled 4×, then box-filtered to 44×44.
+/// Build a 32×32 RGBA template icon: rounded-rect border enclosing a bold
+/// centred "T". Supersampled 4×, then box-filtered to 32×32.
 fn build_tray_icon() -> tauri::image::Image<'static> {
     const SF: usize = 4; // supersampling factor
-    const HW: usize = 44 * SF; // 176×176 hires canvas
+    const HW: usize = 32 * SF; // 128×128 hires canvas
     let mut hi = vec![0u8; HW * HW]; // alpha only
 
     // ── helper: is (fx, fy) inside a rounded rectangle? ────────────────
@@ -85,19 +85,19 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
 
     let sf = SF as f64;
 
-    // Outer rounded rect: border starts at margin 1.5px, extends 4px thick
-    let ol = 1.5 * sf;
-    let ot = 1.5 * sf;
-    let or_ = (44.0 - 1.5) * sf;
-    let ob = (44.0 - 1.5) * sf;
-    let rad_o = 11.0 * sf; // outer corner radius
+    // Outer rounded rect: border starts at margin 1px, extends 3px thick
+    let ol = 1.0 * sf;
+    let ot = 1.0 * sf;
+    let or_ = (32.0 - 1.0) * sf;
+    let ob = (32.0 - 1.0) * sf;
+    let rad_o = 8.0 * sf; // outer corner radius
 
-    // Inner rounded rect (hole): border is 4px thick
-    let il = (1.5 + 4.0) * sf;
-    let it_ = (1.5 + 4.0) * sf;
-    let ir = (44.0 - 1.5 - 4.0) * sf;
-    let ib = (44.0 - 1.5 - 4.0) * sf;
-    let rad_i = f64::max(11.0 - 4.0, 0.0) * sf; // inner radius
+    // Inner rounded rect (hole): border is 3px thick
+    let il = (1.0 + 3.0) * sf;
+    let it_ = (1.0 + 3.0) * sf;
+    let ir = (32.0 - 1.0 - 3.0) * sf;
+    let ib = (32.0 - 1.0 - 3.0) * sf;
+    let rad_i = f64::max(8.0 - 3.0, 0.0) * sf; // inner radius
 
     // Draw border
     for y in 0..HW {
@@ -133,9 +133,9 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
         }
     }
 
-    // ── down-sample 4× → 44×44 RGBA ────────────────────────────────────
-    let ow = 44usize;
-    let oh = 44usize;
+    // ── down-sample 4× → 32×32 RGBA ────────────────────────────────────
+    let ow = 32usize;
+    let oh = 32usize;
     let mut rgba = vec![0u8; ow * oh * 4];
     let block = SF * SF;
     for oy in 0..oh {
