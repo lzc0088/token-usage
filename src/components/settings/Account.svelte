@@ -312,6 +312,20 @@
         }
       }
     }
+    // StepFun either/or: account (username+password) or cookie — at least one
+    // complete combination must be filled.
+    if (vendor === "stepfun") {
+      const u = (inputs[vendor]?.username ?? "").trim();
+      const p = (inputs[vendor]?.password ?? "").trim();
+      const c = (inputs[vendor]?.cookie ?? "").trim();
+      const accountHalf = (u ? 1 : 0) + (p ? 1 : 0);
+      if (accountHalf === 1) {
+        // One of username/password filled without the other.
+        errors[u ? "password" : "username"] = t("account.fieldRequired");
+      } else if (accountHalf === 0 && !c) {
+        errors.username = t("account.fieldRequired");
+      }
+    }
     if (Object.keys(errors).length > 0) {
       fieldErrors = { ...fieldErrors, [vendor]: errors };
       return false;

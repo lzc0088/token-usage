@@ -32,6 +32,7 @@ pub mod openrouter;
 pub mod qoder;
 pub mod scheduler;
 pub mod stepfun;
+pub mod stepfun_login;
 pub mod types;
 pub mod volcengine;
 pub mod workbuddy;

@@ -308,28 +308,10 @@ fn build_quota(
 
 // ── Fetch ───────────────────────────────────────────────────────────────────
 
-pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorError> {
-    let raw_cookie = serde_json::from_str::<serde_json::Value>(credential)
-        .ok()
-        .and_then(|v| {
-            v.get("cookie")
-                .and_then(|c| c.as_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| credential.to_string());
-    let cookie = normalize_cookie(&raw_cookie);
-    let oasis_token = cookie_value(&cookie, "Oasis-Token")
-        .ok_or_else(|| VendorError::Parse("Cookie 中缺少 Oasis-Token（未登录）".into()))?;
-    let oasis_webid = cookie_value(&cookie, "Oasis-Webid")
-        .ok_or_else(|| VendorError::Parse("Cookie 中缺少 Oasis-Webid".into()))?;
-
-    // Only send the two essential cookies — extras (GA, tracking, etc.) can
-    // interfere with the API. Oasis-Token has a ~6 month TTL so there is no
-    // need for a session touch; the token remains valid across scheduler ticks.
-    let cookie = format!("Oasis-Token={oasis_token}; Oasis-Webid={oasis_webid}");
-
+/// Query the three dashboard endpoints with a ready-made cookie+webid pair.
+fn query_dashboard(http: &dyn Http, cookie: &str, oasis_webid: &str) -> Result<Quota, VendorError> {
     let call = |url: &str| -> Result<String, VendorError> {
-        let body = http.connect_rpc(url, &cookie, &oasis_webid)?;
+        let body = http.connect_rpc(url, cookie, oasis_webid)?;
         // When the session cookie is stale, stepfun.com returns 200 with a
         // login-page HTML redirect instead of a proper HTTP 401. Detect that
         // early so the scheduler surfaces a cookie_error rather than a
@@ -358,11 +340,127 @@ pub fn fetch_with(http: &dyn Http, credential: &str) -> Result<Quota, VendorErro
     Ok(build_quota(balance, credit, plan, &limits))
 }
 
+/// Process-lifetime token cache for account-mode logins, keyed by username.
+/// Persisting to the credential store would be nicer, but the adapter's fetch
+/// path has no DB access — one extra login per app launch is acceptable.
+static TOKEN_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, String>>,
+> = std::sync::OnceLock::new();
+
+fn cached_token(username: &str) -> Option<String> {
+    let map = TOKEN_CACHE.get_or_init(Default::default);
+    map.lock().ok()?.get(username).cloned()
+}
+
+fn set_cached_token(username: &str, token: &str) {
+    if let Some(map) = TOKEN_CACHE.get() {
+        if let Ok(mut m) = map.lock() {
+            m.insert(username.to_string(), token.to_string());
+        }
+    }
+}
+
+/// Test hook: drop cached tokens so tests don't leak state into each other.
+#[cfg(test)]
+fn clear_token_cache() {
+    if let Some(map) = TOKEN_CACHE.get() {
+        if let Ok(mut m) = map.lock() {
+            m.clear();
+        }
+    }
+}
+
+/// An error worth retrying with a refreshed/re-issued token.
+fn is_authish(e: &VendorError) -> bool {
+    matches!(e, VendorError::Auth(_)) || super::is_auth_error(e)
+}
+
+/// Account mode: own session via passport login + refresh-token renewal.
+/// Retry ladder: cached token → (auth failure) → RefreshToken → full login.
+fn fetch_account_mode(
+    http: &dyn Http,
+    passport: &dyn crate::quota::stepfun_login::PassportHttp,
+    username: &str,
+    password: &str,
+) -> Result<Quota, VendorError> {
+    let seed = match cached_token(username) {
+        Some(t) => t,
+        None => {
+            let t = crate::quota::stepfun_login::full_login(passport, username, password)?;
+            set_cached_token(username, &t);
+            t
+        }
+    };
+
+    let attempt = |combined: &str| -> Result<Quota, VendorError> {
+        let webid = crate::quota::stepfun_login::webid_for_token(combined);
+        let cookie = format!(
+            "Oasis-Token={}; Oasis-Webid={webid}",
+            crate::quota::stepfun_login::access_half(combined)
+        );
+        query_dashboard(http, &cookie, &webid)
+    };
+
+    match attempt(&seed) {
+        Err(e) if is_authish(&e) => {
+            // Token revoked (session rotation): renew, or re-login if renewal
+            // itself failed (e.g. the refresh half expired).
+            let fresh = crate::quota::stepfun_login::refresh(passport, &seed).or_else(|_| {
+                crate::quota::stepfun_login::full_login(passport, username, password)
+            })?;
+            set_cached_token(username, &fresh);
+            attempt(&fresh)
+        }
+        other => other,
+    }
+}
+
+pub fn fetch_with(
+    http: &dyn Http,
+    passport: &dyn crate::quota::stepfun_login::PassportHttp,
+    credential: &str,
+) -> Result<Quota, VendorError> {
+    let v: Option<serde_json::Value> = serde_json::from_str(credential).ok();
+    let field = |name: &str| -> Option<String> {
+        v.as_ref()
+            .and_then(|x| x.get(name))
+            .and_then(|c| c.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let username = field("username");
+    let password = field("password");
+
+    if let (Some(u), Some(p)) = (username, password) {
+        return fetch_account_mode(http, passport, &u, &p);
+    }
+
+    // Legacy browser-cookie mode. The console rotates its session server-side,
+    // so pasted tokens die within minutes — account mode above is preferred.
+    let raw_cookie = field("cookie").unwrap_or_else(|| credential.to_string());
+    let cookie = normalize_cookie(&raw_cookie);
+    let oasis_token = cookie_value(&cookie, "Oasis-Token")
+        .ok_or_else(|| VendorError::Parse("Cookie 中缺少 Oasis-Token（未登录）".into()))?;
+    let oasis_webid = cookie_value(&cookie, "Oasis-Webid")
+        .ok_or_else(|| VendorError::Parse("Cookie 中缺少 Oasis-Webid".into()))?;
+
+    // Only send the two essential cookies — extras (GA, tracking, etc.) can
+    // interfere with the API.
+    let cookie = format!("Oasis-Token={oasis_token}; Oasis-Webid={oasis_webid}");
+    query_dashboard(http, &cookie, &oasis_webid)
+}
+
 pub async fn fetch(credential: &str) -> Result<Quota, VendorError> {
     let cred = credential.to_string();
-    tokio::task::spawn_blocking(move || fetch_with(UreqHttp::instance(), &cred))
-        .await
-        .map_err(|e| VendorError::Network(format!("join: {e}")))?
+    tokio::task::spawn_blocking(move || {
+        fetch_with(
+            UreqHttp::instance(),
+            &crate::quota::stepfun_login::UreqPassportHttp,
+            &cred,
+        )
+    })
+    .await
+    .map_err(|e| VendorError::Network(format!("join: {e}")))?
 }
 
 struct UreqHttp {
@@ -488,8 +586,21 @@ mod tests {
     }
 
     // ── Mock Http for fetch_with tests ──────────────────────────────────
+    /// Sequence-aware dashboard mock: each `connect_rpc` call pops the next
+    /// response, so retry-ladder tests can fail-then-succeed.
     struct MockHttp {
-        rpc_body: String,
+        rpc_responses: std::sync::Mutex<Vec<Result<String, VendorError>>>,
+    }
+    impl MockHttp {
+        fn always(body: &str) -> Self {
+            Self {
+                rpc_responses: std::sync::Mutex::new(vec![
+                    Ok(body.to_string()),
+                    Ok(body.to_string()),
+                    Ok(body.to_string()),
+                ]),
+            }
+        }
     }
 
     impl Http for MockHttp {
@@ -499,31 +610,191 @@ mod tests {
             _cookie: &str,
             _webid: &str,
         ) -> Result<String, VendorError> {
-            if self.rpc_body.is_empty() {
-                Err(VendorError::Network("mock error".into()))
-            } else {
-                Ok(self.rpc_body.clone())
-            }
+            self.rpc_responses.lock().unwrap().remove(0)
+        }
+    }
+
+    /// Passport mock that never gets called (legacy-cookie tests).
+    struct UnusedPassport;
+    impl crate::quota::stepfun_login::PassportHttp for UnusedPassport {
+        fn get_set_cookies(&self, _url: &str) -> Result<Vec<String>, VendorError> {
+            Err(VendorError::Network("unused".into()))
+        }
+        fn post_json(
+            &self,
+            _url: &str,
+            _cookie: &str,
+            _webid: &str,
+            _body: &str,
+        ) -> Result<String, VendorError> {
+            Err(VendorError::Network("unused".into()))
         }
     }
 
     #[test]
     fn fetch_with_minimal_cookie_extracts_token_and_webid() {
-        let mock = MockHttp {
-            rpc_body: SAMPLE_BALANCE.to_string(),
-        };
+        let mock = MockHttp::always(SAMPLE_BALANCE);
         // Realistic user-pasted cookie with extra noise (GA, tracking, etc.).
         let cred = r#"{"cookie":"_ga=GA1.1.123; Oasis-Token=my-token; _gid=456; Oasis-Webid=my-webid; _gat=1"}"#;
-        let result = fetch_with(&mock, cred).unwrap();
+        let result = fetch_with(&mock, &UnusedPassport, cred).unwrap();
         assert!(result.balance.is_some());
     }
 
     #[test]
     fn fetch_with_minimal_cookie_rejects_missing_token() {
-        let mock = MockHttp {
-            rpc_body: String::new(),
-        };
+        let mock = MockHttp::always("");
         let cred = r#"{"cookie":"Oasis-Webid=web; OTHER=val"}"#;
-        assert!(fetch_with(&mock, cred).is_err());
+        assert!(fetch_with(&mock, &UnusedPassport, cred).is_err());
+    }
+
+    // ── Account mode (username + password) ─────────────────────────────
+
+    use crate::quota::stepfun_login::PassportHttp as _PassportTrait;
+
+    struct LoginPassport {
+        login_token: String,
+        refresh_token: String,
+    }
+    impl _PassportTrait for LoginPassport {
+        fn get_set_cookies(&self, _url: &str) -> Result<Vec<String>, VendorError> {
+            Ok(vec!["INGRESSCOOKIE=ing".into()])
+        }
+        fn post_json(
+            &self,
+            url: &str,
+            _cookie: &str,
+            _webid: &str,
+            _body: &str,
+        ) -> Result<String, VendorError> {
+            let token = if url.contains("RefreshToken") {
+                &self.refresh_token
+            } else {
+                &self.login_token
+            };
+            Ok(serde_json::json!({
+                "accessToken": {"raw": token},
+            })
+            .to_string())
+        }
+    }
+
+    /// JWT payload encoder for the mock tokens (mirrors stepfun_login tests).
+    fn jwt_for(device: &str) -> String {
+        use base64::Engine;
+        let header =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"alg\":\"HS256\"}");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(format!("{{\"device_id\":\"{device}\"}}"));
+        format!("{header}.{payload}.sig")
+    }
+
+    #[test]
+    fn account_mode_logs_in_and_queries_dashboard() {
+        clear_token_cache();
+        let http = MockHttp::always(SAMPLE_BALANCE);
+        let passport = LoginPassport {
+            login_token: jwt_for("dev-login"),
+            refresh_token: jwt_for("dev-refresh"),
+        };
+        let cred = r#"{"username":"u@test","password":"pw"}"#;
+        let q = fetch_with(&http, &passport, cred).unwrap();
+        assert!(q.balance.is_some());
+        // Token now cached: a second fetch must not hit the passport again
+        // (the mock's responses would still work, but the cache is asserted
+        // via cached_token directly).
+        assert!(cached_token("u@test").is_some());
+    }
+
+    #[test]
+    fn account_mode_refreshes_after_auth_failure() {
+        clear_token_cache();
+        // First dashboard call: auth error (HTML login page). After a token
+        // refresh, the retry succeeds.
+        let http = MockHttp {
+            rpc_responses: std::sync::Mutex::new(vec![
+                Err(VendorError::Auth("Cookie 已过期".into())),
+                Ok(SAMPLE_BALANCE.to_string()),
+                Ok(SAMPLE_BALANCE.to_string()),
+                Ok(SAMPLE_BALANCE.to_string()),
+            ]),
+        };
+        let passport = LoginPassport {
+            login_token: jwt_for("dev-login"),
+            refresh_token: jwt_for("dev-refreshed"),
+        };
+        let cred = r#"{"username":"u@retry","password":"pw"}"#;
+        let q = fetch_with(&http, &passport, cred).unwrap();
+        assert!(q.balance.is_some());
+        // The refreshed token replaced the login one in the cache (device_id
+        // lives base64-encoded in the JWT payload — decode to verify).
+        let cached = cached_token("u@retry").unwrap();
+        assert_eq!(
+            crate::quota::stepfun_login::webid_for_token(&cached),
+            "dev-refreshed"
+        );
+    }
+
+    #[test]
+    fn account_mode_relogins_when_refresh_fails() {
+        clear_token_cache();
+        // Dashboard: auth error, then success. Passport: login works but the
+        // RefreshToken step fails hard (network), forcing a re-login.
+        struct RefreshFails(LoginPassport);
+        impl _PassportTrait for RefreshFails {
+            fn get_set_cookies(&self, _url: &str) -> Result<Vec<String>, VendorError> {
+                self.0.get_set_cookies(_url)
+            }
+            fn post_json(
+                &self,
+                url: &str,
+                cookie: &str,
+                webid: &str,
+                body: &str,
+            ) -> Result<String, VendorError> {
+                if url.contains("RefreshToken") {
+                    Err(VendorError::Network("refresh dead".into()))
+                } else {
+                    self.0.post_json(url, cookie, webid, body)
+                }
+            }
+        }
+        let http = MockHttp {
+            rpc_responses: std::sync::Mutex::new(vec![
+                Err(VendorError::Auth("revoked".into())),
+                Ok(SAMPLE_BALANCE.to_string()),
+                Ok(SAMPLE_BALANCE.to_string()),
+                Ok(SAMPLE_BALANCE.to_string()),
+            ]),
+        };
+        let passport = RefreshFails(LoginPassport {
+            login_token: jwt_for("dev-login2"),
+            refresh_token: jwt_for("dev-refresh2"),
+        });
+        let cred = r#"{"username":"u@relogin","password":"pw"}"#;
+        let q = fetch_with(&http, &passport, cred).unwrap();
+        assert!(q.balance.is_some());
+    }
+
+    #[test]
+    fn account_mode_bad_login_surfaces_auth_error() {
+        clear_token_cache();
+        let http = MockHttp::always(SAMPLE_BALANCE);
+        struct BadLogin;
+        impl _PassportTrait for BadLogin {
+            fn get_set_cookies(&self, _url: &str) -> Result<Vec<String>, VendorError> {
+                Err(VendorError::Network("no INGRESSCOOKIE".into()))
+            }
+            fn post_json(
+                &self,
+                _url: &str,
+                _cookie: &str,
+                _webid: &str,
+                _body: &str,
+            ) -> Result<String, VendorError> {
+                Err(VendorError::Network("unused".into()))
+            }
+        }
+        let cred = r#"{"username":"u@bad","password":"wrong"}"#;
+        assert!(fetch_with(&http, &BadLogin, cred).is_err());
     }
 }
