@@ -153,15 +153,15 @@ pub fn full_login(
     )?;
     let anon_token = token_from_response(&anon, "RegisterDevice")?;
 
-    // 3. SignInByPassword with the anonymous session.
+    // 3. SignInByPassword with the anonymous session. The passport endpoints
+    // require the FULL combined `access...refresh` string in Oasis-Token —
+    // the access half alone is rejected with CODE_TOKEN_ILLEGAL (verified
+    // against the live API 2026-08-29).
     let webid = webid_for_token(&anon_token);
     let body = serde_json::json!({ "username": username, "password": password }).to_string();
     let login = http.post_json(
         SIGN_IN_URL,
-        &format!(
-            "Oasis-Token={}; Oasis-Webid={webid}; INGRESSCOOKIE={ingress}",
-            access_half(&anon_token)
-        ),
+        &format!("Oasis-Token={anon_token}; Oasis-Webid={webid}; INGRESSCOOKIE={ingress}"),
         &webid,
         &body,
     )?;
@@ -176,10 +176,8 @@ pub fn refresh(http: &dyn PassportHttp, combined: &str) -> Result<String, Vendor
     let webid = webid_for_token(combined);
     let body = http.post_json(
         REFRESH_URL,
-        &format!(
-            "Oasis-Token={combined}; Oasis-Webid={webid}",
-            combined = access_half(combined)
-        ),
+        // Full combined token, same requirement as SignInByPassword.
+        &format!("Oasis-Token={combined}; Oasis-Webid={webid}"),
         &webid,
         "{}",
     )?;
@@ -242,15 +240,21 @@ impl PassportHttp for UreqPassportHttp {
                 .into_string()
                 .map_err(|e| VendorError::Network(e.to_string())),
             Err(ureq::Error::Status(code, r)) => {
+                let body = r.into_string().unwrap_or_default();
+                // The API reports a wrong password as HTTP 400 with
+                // CODE_ACCOUNT_PASSWORD_IS_WRONG — surface it as an explicit
+                // auth error instead of a raw body dump.
+                if body.contains("CODE_ACCOUNT_PASSWORD_IS_WRONG") {
+                    return Err(VendorError::Auth(
+                        "StepFun 账号或密码错误，请检查后重试".into(),
+                    ));
+                }
                 if code == 401 || code == 403 || (300..400).contains(&code) {
                     // Keep the surface identical to the dashboard path so the
                     // retry ladder (refresh → re-login) recognises it.
                     return Err(VendorError::Network(format!("status code {code}")));
                 }
-                Err(VendorError::Api {
-                    status: code,
-                    body: r.into_string().unwrap_or_default(),
-                })
+                Err(VendorError::Api { status: code, body })
             }
             Err(e) => Err(VendorError::Network(e.to_string())),
         }
@@ -311,7 +315,7 @@ mod tests {
     struct MockPassport {
         set_cookies: Vec<String>,
         responses: Mutex<Vec<Result<String, VendorError>>>,
-        calls: Mutex<Vec<String>>,
+        calls: Mutex<Vec<(String, String)>>, // (url, cookie)
     }
     impl MockPassport {
         fn new(set_cookies: Vec<String>, responses: Vec<Result<String, VendorError>>) -> Self {
@@ -329,11 +333,14 @@ mod tests {
         fn post_json(
             &self,
             url: &str,
-            _cookie: &str,
+            cookie: &str,
             _webid: &str,
             _body: &str,
         ) -> Result<String, VendorError> {
-            self.calls.lock().unwrap().push(url.to_string());
+            self.calls
+                .lock()
+                .unwrap()
+                .push((url.to_string(), cookie.to_string()));
             self.responses.lock().unwrap().remove(0)
         }
     }
@@ -356,9 +363,22 @@ mod tests {
         );
         let token = full_login(&http, "user@example.com", "pw").unwrap();
         assert_eq!(webid_for_token(&token), "dev-user-r");
+        // SignInByPassword must receive the FULL combined anon token — the
+        // access half alone gets CODE_TOKEN_ILLEGAL from the live API.
         let calls = http.calls.lock().unwrap();
-        assert!(calls[0].contains("RegisterDevice"));
-        assert!(calls[1].contains("SignInByPassword"));
+        assert!(calls[0].0.contains("RegisterDevice"));
+        let (_, sign_in_cookie) = &calls[1];
+        assert!(calls[1].0.contains("SignInByPassword"));
+        assert!(sign_in_cookie.contains("..."), "combined token required");
+        let anon_combined = format!(
+            "{}...{}",
+            jwt_with_device("dev-anon"),
+            jwt_with_device("dev-anon-r")
+        );
+        assert!(
+            sign_in_cookie.contains(&anon_combined),
+            "cookie must carry the full RegisterDevice token pair"
+        );
     }
 
     #[test]
@@ -393,9 +413,12 @@ mod tests {
     #[test]
     fn refresh_returns_new_combined_token() {
         let http = MockPassport::new(vec![], vec![Ok(token_body("dev-new"))]);
-        let token = refresh(&http, "old-token").unwrap();
+        let token = refresh(&http, "old...token").unwrap();
         assert_eq!(webid_for_token(&token), "dev-new-r");
-        assert!(http.calls.lock().unwrap()[0].contains("RefreshToken"));
+        let calls = http.calls.lock().unwrap();
+        assert!(calls[0].0.contains("RefreshToken"));
+        // The refresh call must also carry the full combined token.
+        assert!(calls[0].1.contains("Oasis-Token=old...token"));
     }
 
     #[test]
