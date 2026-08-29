@@ -8,6 +8,7 @@
   import ToolIcon from "../ui/ToolIcon.svelte";
   import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
+  import { invoke } from "@tauri-apps/api/core";
   import Select from "./Select.svelte";
   import { formatRefreshed, formatExpiry, expiryUrgency, translateCookieError, fmtCredits, formatReset, windowLabel, splitBalance, openPanelUrl } from "../../lib/quota-format";
   import CostText from "./CostText.svelte";
@@ -142,6 +143,11 @@
     expandedWindows = new Map(expandedWindows);
   }
 
+  /** Open the settings window and scroll to the Account section. */
+  async function goToSettings(): Promise<void> {
+    try { await invoke("open_settings", { target: "account" }); } catch {}
+  }
+
 </script>
 
 <div class="qcard" data-status={quota.status}>
@@ -158,6 +164,12 @@
       <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs, _lang) || l("刚刚刷新","Just now")}</span>
       {#if quota.error}
         <span class="qerror">{quota.error}</span>
+        {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
+        {#if vdef && vdef.authType === "detect"}
+          <button type="button" class="qauth-retry" onclick={goToSettings}>
+            {vl(vdef, _lang) || l("前往设置","Go to Settings")}
+          </button>
+        {/if}
       {/if}
       {#if !quota.cookie_error && formatExpiry(quota.expires_at ?? undefined, nowMs)}
         <span class="qexpiry {expiryUrgency(quota.expires_at ?? undefined, nowMs)}">{formatExpiry(quota.expires_at ?? undefined, nowMs, _lang)}</span>
@@ -388,6 +400,25 @@
   .qerror {
     font-size: 0.6667rem;
     color: var(--coral);
+  }
+  .qauth-retry {
+    font-family: var(--font-ui);
+    font-size: 0.6667rem;
+    font-weight: 500;
+    color: var(--amber);
+    background: var(--amber-bg);
+    border: 1px solid var(--amber);
+    border-radius: 5px;
+    padding: 1px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.7;
+    transition: all 0.15s;
+  }
+  .qauth-retry:hover {
+    background: var(--amber);
+    color: var(--badge-text);
   }
   .qplan-tag {
     font-size: 0.6667rem;

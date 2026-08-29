@@ -245,6 +245,24 @@ pub async fn refresh_quota(
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(vendor = %vendor, error = %e, "quota refresh failed");
+                    // Write a placeholder so the frontend shows the actual error
+                    // instead of "额度读取待实现". `refreshed_at` is set so the
+                    // card knows a fetch was attempted (not "never fetched").
+                    let p = Quota {
+                        vendor: vendor.clone(),
+                        status: crate::quota::QuotaStatus::Danger,
+                        windows: vec![],
+                        balance: None,
+                        plan_label: None,
+                        refreshed_at: Some(now_rfc),
+                        error: Some(e.to_string()),
+                        cookie_error: None,
+                        expires_at: None,
+                        site: None,
+                    };
+                    if let Ok(conn) = state.db.lock() {
+                        scheduler::write_cache(&conn, &vendor, &p, now_ms);
+                    }
                     return Err(e.to_string());
                 }
                 Err(_elapsed) => {
