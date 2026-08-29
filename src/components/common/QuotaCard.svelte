@@ -336,9 +336,23 @@
        active plan (expired / cancelled) — distinguish from a fetch that has
        simply not produced data yet (refreshed_at absent). -->
   {#if quota.refreshed_at}
-    <div class="qpending">{l("无法获取相关套餐额度","No plan quota available")}</div>
+    {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
+    {#if vdef && vdef.authType === "detect" && quota.error}
+      <button type="button" class="qbody-btn" onclick={goToSettings}>
+        {vl(vdef, _lang) || l("前往设置","Go to Settings")}
+      </button>
+    {:else}
+      <div class="qpending">{l("无法获取相关套餐额度","No plan quota available")}</div>
+    {/if}
   {:else}
-    <div class="qpending">{l("额度读取待实现","Quota fetch pending")}</div>
+    {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
+    {#if vdef && vdef.authType === "detect"}
+      <button type="button" class="qbody-btn" onclick={goToSettings}>
+        {vl(vdef, _lang) || l("登录客户端","Login Client")}
+      </button>
+    {:else}
+      <div class="qpending">{l("额度读取待实现","Quota fetch pending")}</div>
+    {/if}
   {/if}
 {/if}
 </div>
@@ -417,6 +431,25 @@
     transition: all 0.15s;
   }
   .qauth-retry:hover {
+    background: var(--amber);
+    color: var(--badge-text);
+  }
+  .qbody-btn {
+    font-family: var(--font-ui);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--amber);
+    background: var(--amber-bg);
+    border: 1px solid var(--amber);
+    border-radius: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    align-self: flex-start;
+    line-height: 1.5;
+    transition: all 0.15s;
+  }
+  .qbody-btn:hover {
     background: var(--amber);
     color: var(--badge-text);
   }

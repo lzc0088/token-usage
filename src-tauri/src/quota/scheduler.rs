@@ -236,7 +236,7 @@ fn is_cookie_vendor(id: &str) -> bool {
     )
 }
 
-fn placeholder(id: &str, auth_failed: bool) -> Quota {
+fn placeholder(id: &str, auth_failed: bool, now_rfc: &str) -> Quota {
     // Cookie-only vendors (mimo/stepfun/kimi/iflytek) surface an auth failure as
     // `cookie_error` so the frontend can show an inline "update cookie" entry
     // rather than a generic card-wide error.
@@ -252,7 +252,10 @@ fn placeholder(id: &str, auth_failed: bool) -> Quota {
         windows: vec![],
         balance: None,
         plan_label: None,
-        refreshed_at: None,
+        // Set refreshed_at so the frontend distinguishes "fetch attempted and
+        // failed" from "never fetched". Without it, the card shows
+        // "额度读取待实现" instead of the actual error / cookie-error UI.
+        refreshed_at: Some(now_rfc.to_string()),
         error: if auth_failed && !is_cookie_vendor {
             Some("凭证已失效，请重新获取".into())
         } else {
@@ -637,7 +640,7 @@ async fn refresh_all_impl(
                     silenced.insert(id.clone());
                 }
                 if let Ok(conn) = db.lock() {
-                    let p = placeholder(&id, cookie_fail);
+                    let p = placeholder(&id, cookie_fail, &now_rfc);
                     // fetched_at=0 marks this as a failed attempt so
                     // staleness checks ignore it and retry next time.
                     write_cache(&conn, &id, &p, 0);
@@ -645,7 +648,7 @@ async fn refresh_all_impl(
             }
             FetchOutcome::NoAdapter(id) => {
                 if let Ok(conn) = db.lock() {
-                    let p = placeholder(&id, false);
+                    let p = placeholder(&id, false, &now_rfc);
                     write_cache(&conn, &id, &p, 0);
                 }
             }
@@ -710,16 +713,23 @@ mod tests {
     fn cookie_vendor_empty_surfaces_as_cookie_error() {
         // A cookie vendor returning Empty (200 with no payload → stale session)
         // must surface a cookie_error so the frontend shows the update entry.
-        let p = placeholder("iflytek", true);
+        let p = placeholder("iflytek", true, "2026-01-01T00:00:00+00:00");
         assert!(p.cookie_error.is_some());
         assert!(p.error.is_none());
+        // refreshed_at must be set so the frontend knows a fetch was attempted
+        // and shows the error/cookie-error UI instead of "额度读取待实现".
+        assert!(p.refreshed_at.is_some());
         // Non-cookie vendor with the same flag sets `error`, not cookie_error.
-        let p2 = placeholder("deepseek", true);
+        let p2 = placeholder("deepseek", true, "2026-01-01T00:00:00+00:00");
         assert!(p2.error.is_some());
         assert!(p2.cookie_error.is_none());
+        assert!(p2.refreshed_at.is_some());
         // A non-failure (e.g. transient network error) sets neither.
-        let p3 = placeholder("iflytek", false);
+        let p3 = placeholder("iflytek", false, "2026-01-01T00:00:00+00:00");
         assert!(p3.cookie_error.is_none());
         assert!(p3.error.is_none());
+        // refreshed_at is still set even for non-auth failures (the fetch was
+        // attempted, just didn't succeed — not "never fetched").
+        assert!(p3.refreshed_at.is_some());
     }
 }
