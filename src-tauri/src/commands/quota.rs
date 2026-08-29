@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::auth::credentials;
 use crate::config;
 use crate::quota::scheduler;
-use crate::quota::{adapter_for, Quota, QuotaBalance};
+use crate::quota::{adapter_for, format_validate_error, Quota, QuotaBalance};
 use crate::state::AppState;
 
 /// Debug command: test credential parsing and API call for a vendor.
@@ -245,9 +245,7 @@ pub async fn refresh_quota(
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(vendor = %vendor, error = %e, "quota refresh failed");
-                    // Write a placeholder so the frontend shows the actual error
-                    // instead of "额度读取待实现". `refreshed_at` is set so the
-                    // card knows a fetch was attempted (not "never fetched").
+                    let err_msg = format_validate_error(&e.to_string());
                     let p = Quota {
                         vendor: vendor.clone(),
                         status: crate::quota::QuotaStatus::Danger,
@@ -255,7 +253,7 @@ pub async fn refresh_quota(
                         balance: None,
                         plan_label: None,
                         refreshed_at: Some(now_rfc),
-                        error: Some(e.to_string()),
+                        error: Some(err_msg.clone()),
                         cookie_error: None,
                         expires_at: None,
                         site: None,
@@ -263,7 +261,7 @@ pub async fn refresh_quota(
                     if let Ok(conn) = state.db.lock() {
                         scheduler::write_cache(&conn, &vendor, &p, now_ms);
                     }
-                    return Err(e.to_string());
+                    return Err(err_msg);
                 }
                 Err(_elapsed) => {
                     tracing::warn!(vendor = %vendor, "manual quota refresh timed out");
