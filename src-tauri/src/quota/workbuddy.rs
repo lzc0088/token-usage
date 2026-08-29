@@ -380,6 +380,12 @@ fn session_headers(session: &LocalSession) -> Vec<(String, String)> {
     let mut h = vec![
         ("Accept".into(), "application/json".into()),
         ("Content-Type".into(), "application/json".into()),
+        // copilot.tencent.com's WAF rejects non-browser UAs with 403
+        // (code 10085 "请求不合法") — send a browser-like User-Agent.
+        (
+            "User-Agent".into(),
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".into(),
+        ),
         (
             "Authorization".into(),
             format!("Bearer {}", session.access_token),
@@ -668,6 +674,21 @@ mod tests {
     }
 
     // ── session parsing ──
+
+    #[test]
+    fn session_headers_include_browser_user_agent() {
+        // copilot.tencent.com's WAF rejects non-browser User-Agents with
+        // HTTP 403 code 10085 "请求不合法". A browser-like UA must be sent.
+        let h = session_headers(&session(""));
+        let ua = h
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+            .map(|(_, v)| v.as_str());
+        assert!(
+            ua.is_some_and(|v| v.starts_with("Mozilla/5.0")),
+            "User-Agent header missing or not browser-like"
+        );
+    }
 
     #[test]
     fn parse_session_json_minimal() {
