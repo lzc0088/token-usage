@@ -444,7 +444,8 @@ const DICT: Record<string, Record<string, string>> = {
   "trends.messagesLabel": { zh: "消息", en: "Messages" },
 
   // ── Limits ──
-  
+  "limits.loadFailed": { zh: "加载失败，请重试", en: "Failed to load, please retry" },
+  "limits.loadFailedHint": { zh: "请在「设置 → 账号额度」中检查绑定状态", en: "Check bindings in Settings → Account" },
   "limits.noBinding": { zh: "未绑定厂商账号", en: "No vendor bound" },
   "breakdown.msgs": { zh: " 条", en: "" },
   "limits.allDisabled": { zh: "所有厂商已停用", en: "All vendors disabled" },

@@ -6,7 +6,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "../../lib/i18n.svelte";
   import { api, type Currency, type Quota } from "../../lib/api";
-  import { QUOTA_UPDATED } from "../../lib/events";
+  import { QUOTA_UPDATED, COLLECTION_UPDATED } from "../../lib/events";
   import QuotaCard from "../common/QuotaCard.svelte";
   import EmptyState from "../common/EmptyState.svelte";
   import Skeleton from "../common/Skeleton.svelte";
@@ -18,6 +18,7 @@
   }: { currency?: Currency; cnyRate?: number; config?: import("../../lib/api").Config | null } = $props();
 
   let quotas = $state<Quota[] | null>(null);
+  let loadAttempted = $state(false);
   let nowMs = $state(Date.now());
 
   /** Open the settings window and navigate to a specific page. The target is
@@ -59,8 +60,9 @@
       const q = await api.getQuotas();
       if (gen !== refreshGen) return;
       quotas = q;
+      loadAttempted = true;
     } catch (e) {
-      /* quotas failed */
+      if (gen === refreshGen) loadAttempted = true;
     }
   }
 
@@ -76,10 +78,17 @@
     const onVis = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", onVis);
     const un_quota = listen<void>(QUOTA_UPDATED, () => { void refresh(); });
+    let collectionTimer: ReturnType<typeof setTimeout>;
+    const un_coll = listen<void>(COLLECTION_UPDATED, () => {
+      clearTimeout(collectionTimer);
+      collectionTimer = setTimeout(() => { void refresh(); }, 1000);
+    });
     return () => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
+      clearTimeout(collectionTimer);
       un_quota.then((un) => un());
+      un_coll.then((un) => un());
     };
   });
 
@@ -89,9 +98,15 @@
 </script>
 
 <div class="seg-body">
-  {#if visibleQuotas === null}
+  {#if visibleQuotas === null && !loadAttempted}
     <Skeleton type="cards" rows={2} />
-  {:else if visibleQuotas.length === 0}
+  {:else if quotas === null}
+    <EmptyState
+      title={t("common.loadFailed")}
+      hint={t("limits.loadFailedHint")}
+      actionLabel={t("common.goSettings")}
+      onAction={() => openSettingsTo("account")} />
+  {:else if !visibleQuotas || visibleQuotas.length === 0}
     <EmptyState
       title={quotas && quotas.length > 0 ? t("limits.allDisabled") : t("limits.noBinding")}
       hint={quotas && quotas.length > 0 ? t("limits.allDisabledHint") : t("limits.noBindingHint")}
