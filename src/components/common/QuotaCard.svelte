@@ -148,6 +148,18 @@
     try { await invoke("open_settings", { target: "account" }); } catch {}
   }
 
+  /** For auto-detect vendors (workbuddy/claude), trigger a quota refresh
+      which attempts to detect the local app session. Falls back to opening
+      settings if the vendor is not a detect type. */
+  async function handleDetectAction(vendor: string): Promise<void> {
+    const vdef = VENDORS.find(v => v.id === vendor);
+    if (vdef && vdef.authType === "detect") {
+      try { await api.refreshQuota(vendor); } catch { /* detection failed */ }
+    } else {
+      goToSettings();
+    }
+  }
+
 </script>
 
 <div class="qcard" data-status={quota.status}>
@@ -164,12 +176,6 @@
       <span class="qrefreshed">{formatRefreshed(quota.refreshed_at, nowMs, _lang) || l("刚刚刷新","Just now")}</span>
       {#if quota.error}
         <span class="qerror">{quota.error}</span>
-        {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
-        {#if vdef && vdef.authType === "detect"}
-          <button type="button" class="qauth-retry" onclick={goToSettings}>
-            {vl(vdef, _lang) || l("前往设置","Go to Settings")}
-          </button>
-        {/if}
       {/if}
       {#if !quota.cookie_error && formatExpiry(quota.expires_at ?? undefined, nowMs)}
         <span class="qexpiry {expiryUrgency(quota.expires_at ?? undefined, nowMs)}">{formatExpiry(quota.expires_at ?? undefined, nowMs, _lang)}</span>
@@ -338,7 +344,7 @@
   {#if quota.refreshed_at}
     {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
     {#if vdef && vdef.authType === "detect" && quota.error}
-      <button type="button" class="qbody-btn" onclick={goToSettings}>
+      <button type="button" class="qbody-btn" onclick={() => handleDetectAction(quota.vendor)}>
         {vl(vdef, _lang) || l("前往设置","Go to Settings")}
       </button>
     {:else}
@@ -347,7 +353,7 @@
   {:else}
     {@const vdef = VENDORS.find(v => v.id === quota.vendor)}
     {#if vdef && vdef.authType === "detect"}
-      <button type="button" class="qbody-btn" onclick={goToSettings}>
+      <button type="button" class="qbody-btn" onclick={() => handleDetectAction(quota.vendor)}>
         {vl(vdef, _lang) || l("登录客户端","Login Client")}
       </button>
     {:else}
