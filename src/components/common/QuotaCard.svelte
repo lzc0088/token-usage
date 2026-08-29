@@ -6,7 +6,7 @@
 <script lang="ts">
   import { VENDOR_PANEL, panelHint } from "../../lib/meta/panels";
   import ToolIcon from "../ui/ToolIcon.svelte";
-  import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef } from "../../lib/meta/vendors";
+  import { VENDOR_LABELS, VENDORS, fieldsFor, type FieldDef, vl } from "../../lib/meta/vendors";
   import { api, type Currency } from "../../lib/api";
   import { invoke } from "@tauri-apps/api/core";
   import Select from "./Select.svelte";
