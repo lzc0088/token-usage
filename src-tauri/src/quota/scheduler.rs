@@ -233,7 +233,6 @@ fn is_cookie_vendor(id: &str) -> bool {
             | "opencode"
             | "claude"
             | "codex"
-            | "workbuddy"
     )
 }
 
