@@ -30,6 +30,12 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
         crate::ui::window::apply_window_config(&app, &conn);
         crate::ui::floating::sync_floating(&app, &conn);
     }
+    // Tray-display changes (mode/currency) must repaint the menu-bar icon
+    // immediately — otherwise the bitmap text lags until the next collector
+    // tick (up to several minutes in smart mode).
+    if tray_appearance_changed(&prev, &config) {
+        crate::ui::tray::refresh_from_db(&app, &conn);
+    }
     // Notify all windows (e.g. the main popover) so layout/currency changes
     // apply live without waiting for a manual refresh.
     let _ = app.emit("config:changed", ());
@@ -45,6 +51,11 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.floating_enabled != next.floating_enabled
         || prev.floating_display != next.floating_display
         || prev.floating_position != next.floating_position
+}
+
+/// Fields that change what the tray icon bitmap renders.
+fn tray_appearance_changed(prev: &Config, next: &Config) -> bool {
+    prev.tray_display != next.tray_display || prev.currency != next.currency
 }
 
 /// Check if a vendor has a stored credential (encrypted in the local DB).
@@ -306,6 +317,7 @@ pub fn clear_credential_fields(
 mod tests {
     use super::*;
     use crate::auth::credentials;
+    use crate::config::Currency;
     use crate::quota::VendorId;
     use crate::storage::schema;
     use rusqlite::Connection;
@@ -360,6 +372,33 @@ mod tests {
     fn set_credential_rejects_empty_after_trim() {
         let trimmed = "   ".trim();
         assert!(trimmed.is_empty(), "whitespace-only should be rejected");
+    }
+
+    // ═══ tray repaint trigger ══════════════════════════════════════════════
+
+    fn cfg_with(tray_display: &str, currency: Currency) -> Config {
+        Config {
+            tray_display: tray_display.into(),
+            currency,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn tray_appearance_changed_detects_display_and_currency() {
+        let base = cfg_with("today_both", Currency::Both);
+        assert!(!tray_appearance_changed(
+            &base,
+            &cfg_with("today_both", Currency::Both)
+        ));
+        assert!(tray_appearance_changed(
+            &base,
+            &cfg_with("quota_min", Currency::Both)
+        ));
+        assert!(tray_appearance_changed(
+            &base,
+            &cfg_with("today_both", Currency::Usd)
+        ));
     }
 
     // ═══ delete_credential logic ════════════════════════════════════════════

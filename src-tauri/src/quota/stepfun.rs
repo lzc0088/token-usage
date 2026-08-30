@@ -736,14 +736,27 @@ mod tests {
         let cred = r#"{"username":"u@fulltoken","password":"pw"}"#;
         fetch_with(&http, &passport, cred).unwrap();
         let calls = http.calls.lock().unwrap();
-        assert_eq!(calls.len(), 3, "should make three dashboard calls (balance, plan, rate-limit)");
+        assert_eq!(
+            calls.len(),
+            3,
+            "should make three dashboard calls (balance, plan, rate-limit)"
+        );
         for cookie in calls.iter() {
-            let token_val = cookie.split("Oasis-Token=").nth(1).unwrap().split(';').next().unwrap();
+            let token_val = cookie
+                .split("Oasis-Token=")
+                .nth(1)
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap();
             assert!(
                 token_val.contains("..."),
                 "Oasis-Token must be full combined token (access...refresh), got: {token_val}"
             );
-            assert!(cookie.contains("Oasis-Webid=dev-refresh"), "webid from refresh half");
+            assert!(
+                cookie.contains("Oasis-Webid=dev-refresh"),
+                "webid from refresh half"
+            );
         }
     }
 

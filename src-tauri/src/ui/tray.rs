@@ -1,7 +1,12 @@
 //! System tray title helper (M6). The TrayIcon itself is created in lib.rs
 //! via Tauri's native `tauri::tray::TrayIconBuilder`. This module formats
-//! and dispatches title updates from the collector consumer thread, honouring
-//! the user's `tray_display` config.
+//! usage titles and dispatches them from the collector consumer thread,
+//! honouring the user's `tray_display` config.
+//!
+//! The title is rendered INTO the icon bitmap (`ui::tray_icon`), not via
+//! `set_title`: Tauri offers no title-font control on macOS and no title
+//! support at all on Windows, whereas a bitmap scales to the menu-bar height
+//! on every platform — the text renders ~40% smaller than the system font.
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -30,7 +35,7 @@ fn format_title(s: &Summary, mode: &str, currency: Currency, cny_rate: f64) -> S
         "today_tokens" | "total_tokens" => compact_tokens(s.total_tokens),
         "today_cost" | "total_cost" => format_cost(s.cost_usd, currency, cny_rate),
         "today_both" | "total_both" => format!(
-            "{}·{}",
+            "{}/{}",
             compact_tokens(s.total_tokens),
             format_cost(s.cost_usd, currency, cny_rate)
         ),
@@ -107,9 +112,14 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
         return;
     };
 
-    // icon_only: clear the title.
+    // Clear any legacy native title (upgrades from set_title-based builds),
+    // then paint the title into the icon bitmap.
+    let _ = tray.set_title(Some(""));
+
+    // icon_only: plain T glyph, no text region.
     if mode == "icon_only" {
-        let _ = tray.set_title(Some(""));
+        let icon = crate::ui::tray_icon::build_tray_icon();
+        let _ = tray.set_icon_with_as_template(Some(icon), true);
         return;
     }
 
@@ -117,8 +127,8 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
     // usage summary paths. Repainted by the quota scheduler after each cycle.
     if mode == "quota_min" {
         let title = quota_min_title(conn);
-        let spaced = format!("\u{2009}{title}");
-        let _ = tray.set_title(Some(&spaced));
+        let icon = crate::ui::tray_icon::build_icon_with_text(&title);
+        let _ = tray.set_icon_with_as_template(Some(icon), true);
         return;
     }
 
@@ -138,9 +148,8 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
         today.clone()
     };
     let title = format_title(&s, &mode, currency, cny_rate);
-    // Leading thin space: visual breathing room between icon and text.
-    let spaced = format!("\u{2009}{title}");
-    let _ = tray.set_title(Some(&spaced));
+    let icon = crate::ui::tray_icon::build_icon_with_text(&title);
+    let _ = tray.set_icon_with_as_template(Some(icon), true);
 }
 
 /// Update the tray title from a today JSON value emitted by the collector.
@@ -211,7 +220,7 @@ mod tests {
         // USD
         assert_eq!(
             format_title(&s, "today_both", Currency::Usd, 7.2),
-            "2.8M·$4.2"
+            "2.8M/$4.2"
         );
         assert_eq!(format_title(&s, "today_cost", Currency::Usd, 7.2), "$4.2");
         assert_eq!(format_title(&s, "today_tokens", Currency::Usd, 7.2), "2.8M");
@@ -224,7 +233,7 @@ mod tests {
         );
         assert_eq!(
             format_title(&s, "total_both", Currency::Both, 7.0),
-            "2.8M·¥29.5/$4.2"
+            "2.8M/¥29.5/$4.2"
         );
         assert_eq!(format_title(&s, "icon_only", Currency::Usd, 7.2), "");
     }

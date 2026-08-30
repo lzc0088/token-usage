@@ -58,103 +58,10 @@ fn menu_just_closed() -> bool {
     (now - last).abs() < 500
 }
 
-/// Build a 32×32 RGBA template icon: rounded-rect border enclosing a bold
-/// centred "T". Supersampled 4×, then box-filtered to 32×32.
+/// Build the tray icon (T glyph + optional usage text drawn into the bitmap).
+/// Rasterizer lives in `ui::tray_icon`.
 fn build_tray_icon() -> tauri::image::Image<'static> {
-    const SF: usize = 4; // supersampling factor
-    const HW: usize = 32 * SF; // 128×128 hires canvas
-    let mut hi = vec![0u8; HW * HW]; // alpha only
-
-    // ── helper: is (fx, fy) inside a rounded rectangle? ────────────────
-    fn in_rr(mut fx: f64, mut fy: f64, l: f64, t: f64, r: f64, b: f64, rad: f64) -> bool {
-        // Mirror into the top-left quadrant relative to centre
-        let cx = (l + r) * 0.5;
-        let cy = (t + b) * 0.5;
-        fx = (fx - cx).abs();
-        fy = (fy - cy).abs();
-        let hw = (r - l) * 0.5;
-        let hh = (b - t) * 0.5;
-        if fx > hw || fy > hh {
-            return false;
-        }
-        // Corner: (fx, fy) is relative to centre in quadrant I
-        let dx = (fx - (hw - rad)).max(0.0);
-        let dy = (fy - (hh - rad)).max(0.0);
-        dx * dx + dy * dy <= rad * rad
-    }
-
-    let sf = SF as f64;
-
-    // Outer rounded rect: border starts at margin 1px, extends 3px thick
-    let ol = 1.0 * sf;
-    let ot = 1.0 * sf;
-    let or_ = (32.0 - 1.0) * sf;
-    let ob = (32.0 - 1.0) * sf;
-    let rad_o = 8.0 * sf; // outer corner radius
-
-    // Inner rounded rect (hole): border is 3px thick
-    let il = (1.0 + 3.0) * sf;
-    let it_ = (1.0 + 3.0) * sf;
-    let ir = (32.0 - 1.0 - 3.0) * sf;
-    let ib = (32.0 - 1.0 - 3.0) * sf;
-    let rad_i = f64::max(8.0 - 3.0, 0.0) * sf; // inner radius
-
-    // Draw border
-    for y in 0..HW {
-        for x in 0..HW {
-            let fx = x as f64 + 0.5;
-            let fy = y as f64 + 0.5;
-            if in_rr(fx, fy, ol, ot, or_, ob, rad_o) && !in_rr(fx, fy, il, it_, ir, ib, rad_i) {
-                hi[y * HW + x] = 255;
-            }
-        }
-    }
-
-    // Bold "T" centred inside the inner area (more padding, smaller letter)
-    let pad = 6.0 * sf; // more padding → smaller overall
-    let tl = (il + pad) as usize;
-    let tr = (ir - pad) as usize;
-    let tt = (it_ + pad) as usize;
-    let tb = (ib - pad) as usize;
-    let tcx = (tl + tr) / 2;
-    let bar_h = ((tb - tt) as f64 * 0.28) as usize; // thicker crossbar
-    let stem_w = ((tr - tl) as f64 * 0.24) as usize; // thicker stem
-
-    // Crossbar (top)
-    for y in tt..tt + bar_h {
-        for x in tl..tr {
-            hi[y * HW + x] = 255;
-        }
-    }
-    // Stem (centre, from crossbar to bottom)
-    for y in tt..tb {
-        for x in tcx - stem_w / 2..tcx + stem_w / 2 {
-            hi[y * HW + x] = 255;
-        }
-    }
-
-    // ── down-sample 4× → 32×32 RGBA ────────────────────────────────────
-    let ow = 32usize;
-    let oh = 32usize;
-    let mut rgba = vec![0u8; ow * oh * 4];
-    let block = SF * SF;
-    for oy in 0..oh {
-        for ox in 0..ow {
-            let mut sum = 0u32;
-            for dy in 0..SF {
-                for dx in 0..SF {
-                    sum += hi[(oy * SF + dy) * HW + (ox * SF + dx)] as u32;
-                }
-            }
-            let a = (sum / block as u32) as u8;
-            let i = (oy * ow + ox) * 4;
-            rgba[i] = 0;
-            rgba[i + 1] = 0;
-            rgba[i + 2] = 0;
-            rgba[i + 3] = a;
-        }
-    }
-    tauri::image::Image::new_owned(rgba, ow as u32, oh as u32)
+    crate::ui::tray_icon::build_tray_icon()
 }
 
 /// Position the main popover under the menu bar tray icon, then show + focus.
