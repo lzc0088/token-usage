@@ -161,6 +161,23 @@
     };
   });
 
+  // macOS convention: Cmd+, opens the app's settings while the main window
+  // is focused. Non-macOS users don't expect the chord, so gate by platform.
+  $effect(() => {
+    const platform = navigator.platform;
+    const isMac = platform.toLowerCase().includes("mac");
+    function onKeydown(e: KeyboardEvent): void {
+      if (isMac && e.metaKey && e.key === ",") {
+        e.preventDefault();
+        invoke("open_settings").catch(() => {});
+      }
+    }
+    window.addEventListener("keydown", onKeydown);
+    return () => {
+      window.removeEventListener("keydown", onKeydown);
+    };
+  });
+
   // Sync period from config.default_period ONCE on startup. The periodSynced
   // guard ensures this never re-runs when the user later switches period via
   // the PeriodSwitcher — otherwise clicking MONTH/TOTAL would read `period`,
