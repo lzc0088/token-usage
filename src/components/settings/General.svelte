@@ -4,6 +4,7 @@
   import type { Config, UpdateInfo, InstallEvent } from "../../lib/api";
   import { api } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
+  import { markdownToPlainText } from "../../lib/markdown-text";
   import Select from "../../components/common/Select.svelte";
   let { config, onUpdate }: { config: Config; onUpdate: (p: Partial<Config>) => void } = $props();
 
@@ -427,7 +428,7 @@
             {/if}
           </div>
           {#if updateStatus.changelog}
-            <div class="update-changelog">{updateStatus.changelog}</div>
+            <div class="update-changelog">{markdownToPlainText(updateStatus.changelog)}</div>
           {/if}
           {#if installState === "idle"}
             <div class="install-actions">
