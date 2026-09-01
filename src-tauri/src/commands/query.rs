@@ -16,6 +16,7 @@ use crate::state::AppState;
 #[tauri::command]
 pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, String> {
     let p = parse_period(&period);
+    let t0 = std::time::Instant::now();
 
     // For "day", prefer the cached LIVE today Summary (written by the
     // collector on every `tokscale --today` scan). This keeps the popover in
@@ -35,6 +36,7 @@ pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, St
                         s.delta_label = Some(label.to_string());
                     }
                 }
+                tracing::debug!(period = ?p, elapsed_ms = ?t0.elapsed().as_millis(), "get_summary: live cache hit");
                 return Ok(s);
             }
         }
@@ -52,6 +54,7 @@ pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, St
         }
     }
 
+    tracing::debug!(period = ?p, elapsed_ms = ?t0.elapsed().as_millis(), tokens = s.total_tokens, "get_summary: db query ok");
     Ok(s)
 }
 
@@ -107,6 +110,7 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
     let p = parse_period(&period);
     let today = today();
     let conn = db(&state);
+    let t0 = std::time::Instant::now();
     // DAY → last 7 days (daily); MONTH → current month (daily);
     // TOTAL → all history daily so the heatmap (Trend.svelte) gets proper
     // YYYY-MM-DD dates and enough granularity to render.
@@ -122,13 +126,19 @@ pub fn get_trends(period: String, state: State<AppState>) -> Result<Trends, Stri
             query::trends::query(&conn, &range)
         }
         query::Period::Total => {
-            tracing::debug!("get_trends: total daily");
+            tracing::debug!("get_trends: total daily (unbounded)");
+            // DAILY on purpose: the activity heatmap needs YYYY-MM-DD dates
+            // to place cells. The frontend aggregates to monthly buckets for
+            // the line chart (see Trend.svelte chartPoints).
             query::trends::query(&conn, &query::DateRange::default())
         }
     };
+    let elapsed = t0.elapsed();
     match &res {
-        Ok(t) => tracing::info!(points = t.points.len(), "get_trends: success"),
-        Err(e) => tracing::warn!(err = %e, "get_trends: error"),
+        Ok(t) => {
+            tracing::info!(points = t.points.len(), elapsed_ms = ?elapsed.as_millis(), "get_trends: success")
+        }
+        Err(e) => tracing::warn!(err = %e, elapsed_ms = ?elapsed.as_millis(), "get_trends: error"),
     }
     res.map_err(|e| e.to_string())
 }

@@ -1,7 +1,7 @@
 {
   "name": "token-usage",
   "private": true,
-  "version": "1.0.11",
+  "version": "1.0.15",
   "type": "module",
   "description": "Cross-platform menu bar app for tracking AI agent token usage",
   "scripts": {

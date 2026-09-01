@@ -18,7 +18,7 @@
   import { startWindowResize } from "./lib/resize";
   import { TODAY_UPDATED, CONFIG_CHANGED, RATE_UPDATED, TRAY_REFRESH, COLLECTION_ERROR, COLLECTION_UPDATED } from "./lib/events";
   import { setLang, t } from "./lib/i18n.svelte";
-  import { periodValue } from "./stores/period.svelte";
+  import { periodValue, setPeriod } from "./stores/period.svelte";
   import { segmentValue } from "./stores/segment.svelte";
 
   const appWindow = getCurrentWindow();
@@ -111,12 +111,20 @@
   // Load config immediately on mount — ensures language is correct before
   // first render of segments. The focus-based reload below picks up later
   // changes (tray menu, settings window) while the popover is hidden.
+  // Also syncs the period from config.default_period exactly once (the
+  // periodSynced guard makes this a one-shot — re-running it would snap the
+  // user's manual period choice back to the configured default).
   $effect(() => {
     let cancelled = false;
     api.getConfig()
       .then((c) => {
-        if (!cancelled) {
-          config = c;
+        if (cancelled) return;
+        config = c;
+        if (!periodSynced) {
+          periodSynced = true;
+          if (c.default_period && c.default_period !== periodValue()) {
+            setPeriod(c.default_period as "day" | "month" | "total");
+          }
         }
       })
       .catch((e) => { api.feLog(`init config load failed: ${e instanceof Error ? e.message : String(e)}`); });
@@ -178,25 +186,17 @@
     };
   });
 
-  // Sync period from config.default_period ONCE on startup. The periodSynced
-  // guard ensures this never re-runs when the user later switches period via
-  // the PeriodSwitcher — otherwise clicking MONTH/TOTAL would read `period`,
-  // see it differ from default_period, and snap straight back to "day".
+  // One-shot period sync flag — consumed by the init config effect above.
   let periodSynced = $state(false);
-  $effect(() => {
-    const cfg = config;
-    if (periodSynced || !cfg.default_period) return;
-    periodSynced = true;
-    if (cfg.default_period !== periodValue()) {
-      // Dynamically import to avoid circular deps.
-      import("./stores/period.svelte").then(({ setPeriod }) => {
-        setPeriod(cfg.default_period as "day" | "month" | "total");
-      }).catch(() => { /* setPeriod import failed, non-critical */ });
-    }
-  });
+
+  // `$derived` tracks cross-module `$state` reads (runtime fine-grained
+  // reactivity) — unlike `periodValue()` called directly inside `$effect`,
+  // which the compiler cannot statically track. Every consumer below reads
+  // this derived value instead.
+  const currentPeriod = $derived(periodValue());
 
   $effect(() => {
-    const p = periodValue();
+    const p = currentPeriod;
     let cancelled = false;
     (async () => {
       try {
@@ -206,6 +206,7 @@
         config = c;
         loadError = null;
       } catch (e) {
+        console.debug("[App] period-change effect ERROR", e);
         if (!cancelled) {
           loadError = t("common.loadFailed");
         }
@@ -217,13 +218,23 @@
   });
 
   $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
-            if (periodValue() === "day") summary = e.payload;
-            // Successful scan → clear any prior collection error.
-            if (collectionError) collectionError = null;
+      if (periodValue() !== "day") return;
+      // Debounce: the collector can emit multiple today:updated events in
+      // rapid succession (one per ingestion), each triggering a synchronous
+      // IPC getSummary on the Rust main thread. The debounce prevents the
+      // frontend from queueing up blocking calls and freezing the app.
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        summary = e.payload;
+        if (collectionError) collectionError = null;
+      }, 300);
     });
     return () => {
       unlisten_promise.then((un) => un());
+      if (timer) clearTimeout(timer);
     };
   });
 

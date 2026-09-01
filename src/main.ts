@@ -3,6 +3,23 @@ import App from "./App.svelte";
 import SettingsApp from "./views/SettingsApp.svelte";
 import { mount } from "svelte";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api } from "./lib/api";
+
+// An exception thrown inside a Svelte $effect during a reactive flush kills
+// the whole effect chain silently (e.g. the v1.0.14 累计 freeze — a duplicate
+// each-key in the heatmap). The webview console is not visible from outside,
+// so bridge every uncaught error / rejection into the persistent log with a
+// stack. Messages carry the [DIAG] prefix so Rust routes them to the file
+// log (see frontend_log).
+window.addEventListener("error", (e) => {
+  const stack = e.error instanceof Error ? `\n${e.error.stack ?? ""}` : "";
+  api.feLog(`[DIAG][onerror] ${e.message}${stack}`);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const r = e.reason;
+  const msg = r instanceof Error ? `${r.message}\n${r.stack ?? ""}` : String(r);
+  api.feLog(`[DIAG][unhandled] ${msg}`);
+});
 
 // Detect platform for font strategy.
 // Google Fonts (Hanken Grotesk, Fraunces, JetBrains Mono) render well on

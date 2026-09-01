@@ -24,7 +24,9 @@
 
   // ── Derived stats ───────────────────────────────────────────────────────
 
-  const activeDays = $derived(trends.filter((p) => p.tokens > 0).length);
+  // Prefer the backend's authoritative count (correct for monthly-aggregated
+  // total period); fall back to counting non-empty trend points.
+  const activeDays = $derived(summary.active_days ?? trends.filter((p) => p.tokens > 0).length);
 
   interface StatCard {
     key: string;

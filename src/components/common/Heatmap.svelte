@@ -149,13 +149,22 @@
     for (const cell of cells) {
       const m = cell.date.slice(0, 7);
       if (m !== prevMonth) {
-        const mon = parseInt(cell.date.slice(5, 7), 10);
-        const isFirst = labels.length === 0;
-        labels.push({
-          col: cell.col,
-          sepCol: isFirst ? -1 : cell.col,
-          label: locale === "en" ? `${mon}M` : `${mon}月`,
-        });
+        const last = labels[labels.length - 1];
+        // Skip months that begin mid-first-column: the grid's leading
+        // partial week can straddle a month boundary (e.g. gridStart
+        // 2025-08-31 followed by 2025-09-01 in column 0), which would
+        // produce two labels with the same `col` — a duplicate each-key
+        // that crashes the whole reactive flush. Label only the first
+        // month that owns a given column.
+        if (!last || cell.col > last.col) {
+          const mon = parseInt(cell.date.slice(5, 7), 10);
+          const isFirst = labels.length === 0;
+          labels.push({
+            col: cell.col,
+            sepCol: isFirst ? -1 : cell.col,
+            label: locale === "en" ? `${mon}M` : `${mon}月`,
+          });
+        }
       }
       prevMonth = m;
     }

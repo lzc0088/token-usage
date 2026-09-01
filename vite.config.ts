@@ -12,8 +12,12 @@ export default defineConfig(async () => {
   return {
     plugins: [svelte()],
     test: {
-      include: ["src/**/*.{test,spec}.{ts,js}"],
+      include: ["src/**/*.{test,spec}.{ts,js}", "src/**/*.{test,spec}.svelte.ts"],
       environment: "jsdom",
+    },
+    // Resolve svelte to the browser build so mount()/$effect work in tests.
+    resolve: {
+      conditions: ["browser"],
     },
     // Dependency scan: only the real app entry. Without this the scanner
     // crawls every HTML it can find (docs/, assets/ design scripts, even

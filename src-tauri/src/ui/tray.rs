@@ -100,38 +100,38 @@ fn load_cny_rate(conn: &Connection) -> f64 {
     .unwrap_or(7.2)
 }
 
-/// Paint the tray title from an already-resolved today summary + the current
-/// config mode. Shared by the realtime and DB-paint code paths.
-fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
+/// A fully-resolved tray repaint: everything `apply_paint` needs, with all
+/// DB reads already done. Produced while the caller still holds the DB lock;
+/// applied AFTER the lock is released — `set_icon_with_as_template`
+/// dispatches to the main thread on macOS, and holding the DB lock across
+/// that dispatch can deadlock against a sync IPC command (get_trends /
+/// get_summary) running on the main thread that is itself waiting for the
+/// same lock (ABBA deadlock → whole-app freeze).
+#[derive(Debug, Clone)]
+pub enum TrayPaint {
+    /// Plain T glyph, no text region (`icon_only` mode).
+    IconOnly,
+    /// `[T][text]` icon built from the resolved title string.
+    Text(String),
+}
+
+/// Resolve all DB-dependent state for a tray repaint. Call while holding the
+/// DB lock; hand the result to [`apply_paint`] after releasing it.
+pub fn resolve_paint(h: &AppHandle, conn: &Connection, today: &Summary) -> Option<TrayPaint> {
+    h.tray_by_id("main").as_ref()?;
     let mode = load_mode(conn);
+    if mode == "icon_only" {
+        return Some(TrayPaint::IconOnly);
+    }
+    // quota_min: the tightest cached quota percentage — independent of the
+    // usage summary paths. Repainted by the quota scheduler after each cycle.
+    if mode == "quota_min" {
+        return Some(TrayPaint::Text(quota_min_title(conn)));
+    }
     let currency = config::load(conn)
         .map(|c| c.currency)
         .unwrap_or(Currency::Both);
     let cny_rate = load_cny_rate(conn);
-    let Some(tray) = h.tray_by_id("main") else {
-        return;
-    };
-
-    // Clear any legacy native title (upgrades from set_title-based builds),
-    // then paint the title into the icon bitmap.
-    let _ = tray.set_title(Some(""));
-
-    // icon_only: plain T glyph, no text region.
-    if mode == "icon_only" {
-        let icon = crate::ui::tray_icon::build_tray_icon();
-        let _ = tray.set_icon_with_as_template(Some(icon), true);
-        return;
-    }
-
-    // quota_min: the tightest cached quota percentage — independent of the
-    // usage summary paths. Repainted by the quota scheduler after each cycle.
-    if mode == "quota_min" {
-        let title = quota_min_title(conn);
-        let icon = crate::ui::tray_icon::build_icon_with_text(&title);
-        let _ = tray.set_icon_with_as_template(Some(icon), true);
-        return;
-    }
-
     // total_* modes query the unbounded range; today_* use the passed summary.
     let s = if is_total_mode(&mode) {
         match summary::query(
@@ -147,9 +147,34 @@ fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
     } else {
         today.clone()
     };
-    let title = format_title(&s, &mode, currency, cny_rate);
-    let icon = crate::ui::tray_icon::build_icon_with_text(&title);
+    Some(TrayPaint::Text(format_title(&s, &mode, currency, cny_rate)))
+}
+
+/// Apply a resolved repaint. Touches only the tray icon (no DB) — safe to
+/// call with NO DB lock held, from any thread.
+pub fn apply_paint(h: &AppHandle, paint: TrayPaint) {
+    let Some(tray) = h.tray_by_id("main") else {
+        return;
+    };
+    // Clear any legacy native title (upgrades from set_title-based builds),
+    // then paint the title into the icon bitmap.
+    let _ = tray.set_title(Some(""));
+    let icon = match paint {
+        TrayPaint::IconOnly => crate::ui::tray_icon::build_tray_icon(),
+        TrayPaint::Text(title) => crate::ui::tray_icon::build_icon_with_text(&title),
+    };
     let _ = tray.set_icon_with_as_template(Some(icon), true);
+}
+
+/// Paint the tray title from an already-resolved today summary + the current
+/// config mode. Shared by the realtime and DB-paint code paths. For callers
+/// that are ALREADY on the main thread (menu/config handlers) — off-thread
+/// callers must use [`resolve_paint`] + [`apply_paint`] instead so the DB
+/// lock is never held across the main-thread icon dispatch.
+fn paint(h: &AppHandle, conn: &Connection, today: &Summary) {
+    if let Some(p) = resolve_paint(h, conn, today) {
+        apply_paint(h, p);
+    }
 }
 
 /// Update the tray title from a today JSON value emitted by the collector.
@@ -160,14 +185,25 @@ pub fn update_from_json(h: &AppHandle, v: &Value, conn: &Connection) {
 }
 
 /// Repaint the tray title from persisted state alone — used right after a
-/// config change, before the next collector tick.
+/// config change, before the next collector tick. For main-thread callers;
+/// off-thread callers holding the DB lock must use
+/// [`resolve_refresh_from_db`] + [`apply_paint`] instead.
 pub fn refresh_from_db(h: &AppHandle, conn: &Connection) {
+    if let Some(p) = resolve_refresh_from_db(h, conn) {
+        apply_paint(h, p);
+    }
+}
+
+/// DB-only variant of [`refresh_from_db`]: resolve the repaint from persisted
+/// state without touching the tray icon. Pair with [`apply_paint`] after the
+/// DB lock is released.
+pub fn resolve_refresh_from_db(h: &AppHandle, conn: &Connection) -> Option<TrayPaint> {
     let today = summary::query(
         conn,
         &range_for_period(crate::query::Period::Day, &today_str()),
     )
     .unwrap_or_else(|_| zero_summary());
-    paint(h, conn, &today);
+    resolve_paint(h, conn, &today)
 }
 
 /// A zeroed-out summary used when the DB query fails — enough to render a
@@ -183,6 +219,7 @@ fn zero_summary() -> Summary {
         total_tokens: 0,
         cost_usd: 0.0,
         messages: 0,
+        active_days: None,
         delta_pct: None,
         delta_label: None,
         timed_output_tokens: None,
@@ -206,6 +243,7 @@ mod tests {
             cache_write: 0,
             reasoning: 0,
             messages: 0,
+            active_days: None,
             delta_pct: None,
             delta_label: None,
             timed_output_tokens: None,

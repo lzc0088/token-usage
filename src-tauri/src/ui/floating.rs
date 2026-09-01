@@ -123,14 +123,25 @@ pub fn cancel_hide() {
     HIDE_DEADLINE.store(0, Ordering::SeqCst);
 }
 
-/// Push the latest readout + theme to the floating window.
-pub fn push_data(app: &AppHandle, conn: &Connection) {
+/// A fully-resolved floating-window update: all DB reads done, ready to be
+/// delivered after the caller releases the DB lock. Window/theme operations
+/// (`resolved_theme`, `w.emit`) can dispatch to the main thread on macOS —
+/// holding the DB lock across them risks an ABBA deadlock with a sync IPC
+/// command on the main thread waiting for the same lock.
+pub struct FloatingPush {
+    pub text: String,
+    pub cfg: crate::config::Config,
+}
+
+/// Resolve the DB-dependent part of a floating-window push. Call while
+/// holding the DB lock; hand the result to [`apply_push`] after releasing it.
+pub fn resolve_push(conn: &Connection) -> Option<FloatingPush> {
     let cfg = match config::load(conn) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(_) => return None,
     };
     if !cfg.floating_enabled {
-        return;
+        return None;
     }
 
     let rate = load_cny_rate(conn);
@@ -144,13 +155,28 @@ pub fn push_data(app: &AppHandle, conn: &Connection) {
         Ok(s) => build_text(&s, mode, cfg.currency, rate),
         Err(_) => String::new(),
     };
+    Some(FloatingPush { text, cfg })
+}
+
+/// Deliver a resolved push to the floating window. No DB access — safe to
+/// call with NO DB lock held, from any thread.
+pub fn apply_push(app: &AppHandle, push: FloatingPush) {
     let payload = FloatingData {
-        text,
-        theme: resolved_theme(app, &cfg),
-        position: cfg.floating_position.clone(),
+        text: push.text,
+        theme: resolved_theme(app, &push.cfg),
+        position: push.cfg.floating_position.clone(),
     };
     if let Some(w) = app.get_webview_window("floating") {
         let _ = w.emit("floating:update", &payload);
+    }
+}
+
+/// Push the latest readout + theme to the floating window. For callers
+/// already on the main thread; off-thread callers holding the DB lock must
+/// use [`resolve_push`] + [`apply_push`] instead.
+pub fn push_data(app: &AppHandle, conn: &Connection) {
+    if let Some(p) = resolve_push(conn) {
+        apply_push(app, p);
     }
 }
 
@@ -368,6 +394,7 @@ mod tests {
             cache_write: 0,
             reasoning: 0,
             messages: 0,
+            active_days: None,
             delta_pct: None,
             delta_label: None,
             timed_output_tokens: None,

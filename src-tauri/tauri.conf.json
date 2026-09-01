@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Token Usage",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "identifier": "com.tokenusage.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -29,7 +29,7 @@
         "transparent": true,
         "shadow": true,
         "center": false,
-        "devtools": false
+        "devtools": true
       },
       {
         "label": "settings",
@@ -46,7 +46,7 @@
         "shadow": true,
         "center": true,
         "hiddenTitle": true,
-        "devtools": false
+        "devtools": true
       },
       {
         "label": "floating",
@@ -60,7 +60,7 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "center": false,
-        "devtools": false
+        "devtools": true
       }
     ],
     "security": {

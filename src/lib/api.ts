@@ -21,6 +21,10 @@ export interface Summary {
   total_tokens: number;
   cost_usd: number;
   messages: number;
+  /** Number of distinct calendar days with non-zero token usage in the
+   *  queried range. Populated from DB queries; undefined for the live
+   *  `today:updated` event path. */
+  active_days?: number;
   delta_pct: number | null;
   delta_label: string | null;
   /** Real-time throughput counters (live today path only). Undefined for

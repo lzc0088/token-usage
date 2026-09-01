@@ -422,9 +422,16 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             dispatch_notifications(&app).await;
             // quota_min tray mode reads the quota cache — repaint so the
             // tightest percentage stays live between collector ticks.
+            // Resolve under the lock, apply after releasing: painting while
+            // holding the DB lock can deadlock against a sync IPC command on
+            // the main thread waiting for the same lock.
             if tray_mode == "quota_min" {
-                if let Ok(conn) = db.lock() {
-                    crate::ui::tray::refresh_from_db(&app, &conn);
+                let job = db
+                    .lock()
+                    .ok()
+                    .and_then(|conn| crate::ui::tray::resolve_refresh_from_db(&app, &conn));
+                if let Some(p) = job {
+                    crate::ui::tray::apply_paint(&app, p);
                 }
             }
         }

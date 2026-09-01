@@ -17,33 +17,88 @@
   let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
   let chartW = $state(320);
+  // Generation counter — discards stale responses when the period changes
+  // while a fetch is in flight (same pattern as Overview/Limits).
+  let loadGen = 0;
 
   let { currency = "both", cnyRate = 7.2 }: { currency: Currency; cnyRate?: number } = $props();
 
+  const points = $derived(data?.points ?? []);
+
+  // The chart renders monthly buckets for TOTAL (daily points spanning a
+  // year would be unreadably dense), while the heatmap keeps the raw daily
+  // YYYY-MM-DD points it needs to place cells. Other periods render daily.
+  const chartPoints = $derived.by(() => {
+    if (periodValue() !== "total") return points;
+    const byMonth = new Map<string, { date: string; tokens: number; cost_usd: number; messages: number }>();
+    for (const p of points) {
+      const m = p.date.slice(0, 7); // YYYY-MM
+      const cur = byMonth.get(m) ?? { date: m, tokens: 0, cost_usd: 0, messages: 0 };
+      cur.tokens += p.tokens;
+      cur.cost_usd += p.cost_usd;
+      cur.messages += p.messages;
+      byMonth.set(m, cur);
+    }
+    return [...byMonth.values()].sort((a, b) => a.date.localeCompare(b.date));
+  });
+
+  // `$derived` uses Svelte 5's runtime fine-grained reactivity — it CAN
+  // track cross-module `$state` reads (unlike `$effect` which uses static
+  // analysis). The fetch `$effect` below reads `activePeriod` so it
+  // re-runs whenever the global period changes.
+  const activePeriod = $derived(periodValue());
+
   $effect(() => {
-    const p = periodValue();
+    const p = activePeriod;
+    // Reset state so the skeleton shows and stale data can't leak when the
+    // period changes mid-lifecycle.
+    data = null;
+    summary = null;
+    loadAttempted = false;
     let cancelled = false;
+    const myGen = ++loadGen;
     const fetch = async () => {
       try {
-        const [t, s] = await Promise.all([api.getTrends(p), api.getSummary(p)]);
-        if (!cancelled) { data = t; summary = s; loadAttempted = true; }
-      } catch {
-        if (!cancelled) loadAttempted = true;
+        // Guard against a hung IPC (e.g. a stalled DB lock) — bail to the
+        // load-failed state instead of showing the skeleton forever.
+        const timeout = new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("timeout")), 25_000),
+        );
+        const [t, s] = await Promise.race([
+          (async () => [await api.getTrends(p), await api.getSummary(p)])(),
+          timeout,
+        ]) as [Trends, Summary];
+        if (cancelled || myGen !== loadGen) return;
+        data = t;
+        summary = s;
+        loadAttempted = true;
+      } catch (e) {
+        console.error("[Trend] fetch failed:", e instanceof Error ? e.message : e);
+        if (cancelled || myGen !== loadGen) return;
+        loadAttempted = true;
       }
     };
     fetch();
-    const un = listen<void>(COLLECTION_UPDATED, () => { fetch(); });
+    // Debounce: the collector emits collection:updated per ingestion and a
+    // burst of them would queue multiple synchronous IPC fetches.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const un = listen<void>(COLLECTION_UPDATED, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        fetch();
+      }, 400);
+    });
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
       un.then(fn => fn());
     };
   });
 
-  const points = $derived(data?.points ?? []);
-  const period = $derived(periodValue());
-  const maxTokens = $derived(Math.max(1, ...points.map((p) => p.tokens)));
-  const totalTokens = $derived(points.reduce((s, p) => s + p.tokens, 0));
-  const avgTokens = $derived(points.length > 0 ? Math.round(totalTokens / points.length) : 0);
+  const maxTokens = $derived(Math.max(1, ...chartPoints.map((p) => p.tokens)));
+  const totalTokens = $derived(chartPoints.reduce((s, p) => s + p.tokens, 0));
+  const avgTokens = $derived(chartPoints.length > 0 ? Math.round(totalTokens / chartPoints.length) : 0);
 
   // ── chart geometry (SVG viewBox) ────────────────────────────────────
   const H = 150;
@@ -68,24 +123,24 @@
   }
 
   const linePoints = $derived(
-    points.map((p, i) => `${px(i, points.length)},${py(p.tokens)}`).join(" "),
+    chartPoints.map((p, i) => `${px(i, chartPoints.length)},${py(p.tokens)}`).join(" "),
   );
   const areaPoints = $derived(
-    points.length > 0
+    chartPoints.length > 0
       ? `${PAD_L},${H - PAD_B} ${linePoints} ${W - PAD_R},${H - PAD_B}`
       : "",
   );
   const avgY = $derived(py(avgTokens));
 
   const rangeLabel = $derived.by(() => {
-    if (period === "day") return t("trends.last7days");
-    if (period === "month") return t("trends.thisMonth");
+    if (periodValue() === "day") return t("trends.last7days");
+    if (periodValue() === "month") return t("trends.thisMonth");
     return t("trends.monthlyStats");
   });
 
   function fmtDate(date: string): string {
-    // TOTAL returns YYYY-MM; DAY/MONTH return YYYY-MM-DD → MM-DD.
-    if (period === "total") return date;
+    // TOTAL chart points are YYYY-MM (monthly); DAY/MONTH are YYYY-MM-DD → MM-DD.
+    if (periodValue() === "total") return date;
     return date.length >= 10 ? date.slice(5, 10) : date;
   }
 
@@ -95,7 +150,7 @@
 
   // X-axis tick indices: first, middle, last (when enough points).
   const xTicks = $derived.by(() => {
-    const n = points.length;
+    const n = chartPoints.length;
     if (n === 0) return [] as number[];
     if (n === 1) return [0];
     if (n <= 4) return [0, n - 1];
@@ -104,8 +159,8 @@
 
   // Tooltip horizontal position (% of chart width), clamped to stay on-screen.
   const tipLeft = $derived(
-    hoverIdx !== null && points.length > 0
-      ? Math.min(82, Math.max(18, pxPct(hoverIdx, points.length)))
+    hoverIdx !== null && chartPoints.length > 0
+      ? Math.min(82, Math.max(18, pxPct(hoverIdx, chartPoints.length)))
       : 50,
   );
 </script>
@@ -131,8 +186,8 @@
     <!-- line chart with axes -->
     <div class="chart-grid">
       <div class="plot" bind:clientWidth={chartW}>
-        {#if hoverIdx !== null && points[hoverIdx]}
-          {@const pt = points[hoverIdx]}
+        {#if hoverIdx !== null && chartPoints[hoverIdx]}
+          {@const pt = chartPoints[hoverIdx]}
           {@const ts = splitTokens(pt.tokens)}
           {@const cp = splitCost(pt.cost_usd, currency, cnyRate)}
           <div class="tip" style="left:{tipLeft.toFixed(1)}%">
@@ -172,9 +227,9 @@
           <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} class="axis-line" />
           <!-- nodes: decorative (the svg carries a text summary; per-node
                labels made screen-reader output noisy) -->
-          {#each points as pt, i (pt.date)}
+          {#each chartPoints as pt, i (pt.date)}
             <circle
-              cx={px(i, points.length)}
+              cx={px(i, chartPoints.length)}
               cy={py(pt.tokens)}
               r={hoverIdx === i ? 3.5 : 2.4}
               class="node"
@@ -188,13 +243,13 @@
       </div>
       <div class="x-axis">
         {#each xTicks as i (i)}
-          <span class="xtick" style="left:{pxPct(i, points.length).toFixed(1)}%">{fmtDate(points[i].date)}</span>
+          <span class="xtick" style="left:{pxPct(i, chartPoints.length).toFixed(1)}%">{fmtDate(chartPoints[i].date)}</span>
         {/each}
       </div>
     </div>
 
     <!-- activity heatmap (only for total period) -->
-    {#if period === "total" && points.length > 7}
+    {#if periodValue() === "total" && points.length > 7}
       <div class="heatmap-section">
         <div class="heatmap-title">{t("trends.activity")}</div>
         <Heatmap {points} locale={getLang()} {currency} {cnyRate} />

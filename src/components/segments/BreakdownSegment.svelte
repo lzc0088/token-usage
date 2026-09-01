@@ -24,8 +24,12 @@
   let data = $state<Breakdown | null>(null);
   let loadAttempted = $state(false);
 
+  // `$derived` tracks the cross-module period `$state` (see stores/period).
+  // Calling `periodValue()` directly inside `$effect` is NOT tracked.
+  const activePeriod = $derived(periodValue());
+
   $effect(() => {
-    const p = periodValue();
+    const p = activePeriod;
     let cancelled = false;
     const fetch = async () => {
       try {

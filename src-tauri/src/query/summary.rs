@@ -19,6 +19,12 @@ pub struct Summary {
     pub total_tokens: i64,
     pub cost_usd: f64,
     pub messages: i64,
+    /// Number of distinct calendar days with non-zero token usage in the
+    /// queried range. Populated from the DB path; `None` for the live
+    /// `today:updated` event (the frontend falls back to counting trend
+    /// points).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_days: Option<i64>,
     /// Token change vs previous period (percent), e.g. +12.3 or -5.0.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_pct: Option<f64>,
@@ -51,8 +57,9 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
             COALESCE(SUM(messages),0)
          FROM daily_usage WHERE {clause}"
     );
+    let p = rusqlite::params_from_iter(params.clone());
     let (input, output, cache_read, cache_write, reasoning, cost, messages) =
-        conn.query_row(&sql, rusqlite::params_from_iter(params), |r| {
+        conn.query_row(&sql, p, |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
@@ -63,6 +70,16 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
                 r.get::<_, i64>(6)?,
             ))
         })?;
+    // Count distinct dates with non-zero usage in the same range.
+    let active_sql = format!(
+        "SELECT COUNT(*) FROM (
+            SELECT date FROM daily_usage
+            WHERE {clause}
+              AND (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) > 0
+            GROUP BY date)"
+    );
+    let active_days: i64 =
+        conn.query_row(&active_sql, rusqlite::params_from_iter(params), |r| r.get(0))?;
     Ok(Summary {
         period: period_key(range),
         input,
@@ -73,6 +90,7 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
         total_tokens: input + output + cache_read + cache_write,
         cost_usd: cost,
         messages,
+        active_days: Some(active_days),
         delta_pct: None,
         delta_label: None,
         // DB path has no throughput data — it's a live-only metric.
@@ -104,6 +122,7 @@ pub fn from_today_json(v: &Value) -> Option<Summary> {
         total_tokens: input + output + cache_read + cache_write,
         cost_usd: cost,
         messages,
+        active_days: None,
         delta_pct: None,
         delta_label: None,
         timed_output_tokens: Some(timed_output),

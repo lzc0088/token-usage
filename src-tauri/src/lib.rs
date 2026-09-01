@@ -723,9 +723,17 @@ pub fn run() {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         show_main_under_tray(&app_c);
                         let _ = app_c.emit("tray:refresh", ());
-                        // Also push fresh data to the floating panel.
-                        if let Ok(conn) = state_c.lock() {
-                            crate::ui::floating::push_data(&app_c, &conn);
+                        // Also push fresh data to the floating panel. Resolve
+                        // under the lock, apply after releasing — window/theme
+                        // ops dispatch to the main thread and holding the DB
+                        // lock across them risks an ABBA deadlock with a sync
+                        // IPC command waiting for the same lock.
+                        let job = state_c
+                            .lock()
+                            .ok()
+                            .and_then(|conn| crate::ui::floating::resolve_push(&conn));
+                        if let Some(p) = job {
+                            crate::ui::floating::apply_push(&app_c, p);
                         }
                     });
                 }

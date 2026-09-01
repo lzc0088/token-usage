@@ -95,7 +95,15 @@ pub fn frontend_log(msg: String) {
     // Dedicated `frontend` target so the file-log layer can exclude it:
     // frontend diagnostics may carry OAuth codes / credential field names that
     // must NOT be persisted to disk. They still print to stdout in dev.
-    tracing::info!(target: "frontend", "[FE] {msg}");
+    // Messages explicitly prefixed "[DIAG]" (e.g. the main.ts uncaught-error
+    // bridge) carry no sensitive payload and are routed to the default target
+    // so they also land in the persistent file log — a render exception would
+    // otherwise be invisible outside the webview console.
+    if msg.starts_with("[DIAG]") {
+        tracing::info!("[FE] {msg}");
+    } else {
+        tracing::info!(target: "frontend", "[FE] {msg}");
+    }
 }
 #[tauri::command]
 pub fn close_settings(app: AppHandle) -> Result<(), String> {

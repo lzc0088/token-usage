@@ -44,8 +44,12 @@
   // On period change: fetch the full project set in one request. The `active`
   // flag discards a stale response if the user switched periods again before
   // it returned, so the old period's data can never overwrite the new one.
+  // `$derived` tracks the cross-module period `$state` (see stores/period);
+  // calling `periodValue()` directly inside `$effect` is NOT tracked.
+  const activePeriod = $derived(periodValue());
+
   $effect(() => {
-    const p = periodValue();
+    const p = activePeriod;
     loading = true;
     renderCount = RENDER_PAGE;
     expanded = null;

@@ -19,6 +19,8 @@ pub struct Trends {
 }
 
 pub fn query(conn: &Connection, range: &DateRange) -> Result<Trends, QueryError> {
+    // Always daily granularity: the heatmap needs YYYY-MM-DD dates. The
+    // frontend aggregates to monthly buckets for the total-period chart.
     query_inner(conn, false, range)
 }
 

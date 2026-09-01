@@ -356,14 +356,33 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                         &v,
                         crate::utils::time::now_ms()
                     ));
-                    if let Ok(mut conn) = db.lock() {
+                    // Do ALL DB-dependent work under one short lock, then
+                    // release BEFORE any tray/window painting. Tray icon and
+                    // window operations dispatch to the main thread on macOS;
+                    // a sync IPC command (get_trends/get_summary) may be
+                    // running on the main thread waiting for this very lock —
+                    // painting while holding it deadlocks both threads and
+                    // freezes the whole app (same class as the 2026-08-26
+                    // advance_health deadlock).
+                    let paint_jobs = db.lock().ok().map(|mut conn| {
                         if let Err(e) =
                             storage::daily_usage::ingest_today_entries(&mut conn, &v, &today)
                         {
                             tracing::warn!(error = %e, "ingest_today_entries failed");
                         }
-                        tray::update_from_json(&app, &v, &conn);
-                        floating::push_data(&app, &conn);
+                        let tray_job = summary::from_today_json(&v)
+                            .and_then(|s| tray::resolve_paint(&app, &conn, &s));
+                        let float_job = floating::resolve_push(&conn);
+                        (tray_job, float_job)
+                    });
+                    // Lock released — safe to dispatch to the main thread now.
+                    if let Some((tray_job, float_job)) = paint_jobs {
+                        if let Some(p) = tray_job {
+                            tray::apply_paint(&app, p);
+                        }
+                        if let Some(p) = float_job {
+                            floating::apply_push(&app, p);
+                        }
                     }
                     if let Some(s) = summary::from_today_json(&v) {
                         // Cache the live today Summary so get_summary("day") can
