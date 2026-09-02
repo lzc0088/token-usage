@@ -147,17 +147,13 @@ export function splitTokens(n: number, decimals = 2): { value: string; unit: str
 }
 
 /** Chinese-unit variant for Hero top area only.
- *  Thresholds: ≥百亿 → 十亿 → 亿 → 千万 → 百万 → 十万 → 万 → 千.
+ *  Thresholds: ≥亿 → 万 → 千; larger magnitudes scale the value (e.g.
+ *  10_350_000_000 → 103.5亿) instead of compound units like 百亿/千万.
  *  @param decimals - Number of decimal places (default: 2). */
 export function splitTokensCN(n: number, decimals = 2): { value: string; unit: string } {
   if (!Number.isFinite(n)) return { value: "0", unit: "" };
   const abs = Math.abs(n);
-  if (abs >= 10_000_000_000) return { value: trim(n / 10_000_000_000, decimals), unit: "百亿" };
-  if (abs >=  1_000_000_000) return { value: trim(n /  1_000_000_000, decimals), unit: "十亿" };
   if (abs >=    100_000_000) return { value: trim(n /    100_000_000, decimals), unit: "亿" };
-  if (abs >=     10_000_000) return { value: trim(n /     10_000_000, decimals), unit: "千万" };
-  if (abs >=      1_000_000) return { value: trim(n /      1_000_000, decimals), unit: "百万" };
-  if (abs >=        100_000) return { value: trim(n /        100_000, decimals), unit: "十万" };
   if (abs >=         10_000) return { value: trim(n /         10_000, decimals), unit: "万" };
   if (abs >=          1_000) return { value: trim(n /          1_000, decimals), unit: "千" };
   return { value: String(Math.round(n)), unit: "" };

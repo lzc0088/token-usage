@@ -33,12 +33,64 @@ describe("Heatmap month labels", () => {
     await tick();
     await new Promise((r) => setTimeout(r, 20));
 
-    // Month label texts rendered — no each_key_duplicate throw.
-    const labels = [...target.querySelectorAll("text")].map((t) => t.textContent);
+    // Month labels render as yy-mm (centered) with a month-total line — no
+    // duplicate each-key throw.
+    const labelEls = target.querySelectorAll(".month-label");
+    const labels = [...labelEls].map((t) => t.textContent?.trim());
     expect(labels.length).toBeGreaterThan(0);
+    expect(labels.every((l) => l && /^\d{2}-\d{2}$/.test(l))).toBe(true);
+    // Centered over each month block.
+    expect([...labelEls].every((t) => t.getAttribute("text-anchor") === "middle")).toBe(true);
+
+    // Month totals: the "2026-08" block sums its fixture days (8/01 + 8/28,
+    // 1M each → （200万）in zh units), also centered.
+    const totalEls = target.querySelectorAll(".month-total");
+    const totals = [...totalEls].map((t) => t.textContent?.trim());
+    expect(totals.length).toBe(labels.length);
+    expect(totals).toContain("（200万）");
+    expect([...totalEls].every((t) => t.getAttribute("text-anchor") === "middle")).toBe(true);
+
     expect(errors).toEqual([]);
 
     window.removeEventListener("error", onErr);
+    target.remove();
+  });
+
+  it("lays out per-month blocks: horizontal 7-day rows", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(Heatmap, { target, props: { points: STRADDLING_POINTS, locale: "zh" } });
+    await tick();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const cell = (date: string): SVGGElement | null =>
+      target.querySelector(`[aria-label^="${date}:"]`);
+
+    const aug1 = cell("2026-08-01");
+    const aug7 = cell("2026-08-07");
+    const aug8 = cell("2026-08-08");
+    const aug15 = cell("2026-08-15");
+    expect(aug1 && aug7 && aug8 && aug15).toBeTruthy();
+
+    const y = (el: Element): number => Number(el.getAttribute("y"));
+    const x = (el: Element): number => Number(el.getAttribute("x"));
+
+    // Horizontal layout: days 1-7 across the first row, 8-14 second row, etc.
+    // Default props: cellSize=11, gap=2 → step=13.
+    const step = 13;
+
+    // 1号 and 7号 on the same row, 6 columns apart.
+    expect(y(aug7!)).toBe(y(aug1!));
+    expect(x(aug7!)).toBe(x(aug1!) + 6 * step);
+
+    // 8号 wraps to the next row (same column as 1号, one row down).
+    expect(x(aug8!)).toBe(x(aug1!));
+    expect(y(aug8!)).toBe(y(aug1!) + step);
+
+    // 15号 is on the third row (same column as 1号, two rows down).
+    expect(x(aug15!)).toBe(x(aug1!));
+    expect(y(aug15!)).toBe(y(aug1!) + 2 * step);
+
     target.remove();
   });
 });

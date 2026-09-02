@@ -96,23 +96,19 @@ describe("splitTokens", () => {
 });
 
 describe("splitTokensCN", () => {
-  it("formats 百亿 for >= 10B", () => {
-    expect(splitTokensCN(10_000_000_000)).toEqual({ value: "1", unit: "百亿" });
-  });
-  it("formats 十亿 for >= 1B", () => {
-    expect(splitTokensCN(1_000_000_000)).toEqual({ value: "1", unit: "十亿" });
+  // Only three units survive (千/万/亿) — larger magnitudes scale the value
+  // instead of introducing compound units like 百亿/千万.
+  it("scales 亿 upward for >= 1亿 (no 百亿/十亿)", () => {
+    expect(splitTokensCN(10_000_000_000)).toEqual({ value: "100", unit: "亿" });
+    expect(splitTokensCN(1_000_000_000)).toEqual({ value: "10", unit: "亿" });
   });
   it("formats 亿 for >= 100M", () => {
     expect(splitTokensCN(100_000_000)).toEqual({ value: "1", unit: "亿" });
   });
-  it("formats 千万 for >= 10M", () => {
-    expect(splitTokensCN(10_000_000)).toEqual({ value: "1", unit: "千万" });
-  });
-  it("formats 百万 for >= 1M", () => {
-    expect(splitTokensCN(1_000_000)).toEqual({ value: "1", unit: "百万" });
-  });
-  it("formats 十万 for >= 100k", () => {
-    expect(splitTokensCN(100_000)).toEqual({ value: "1", unit: "十万" });
+  it("scales 万 upward for >= 1万 (no 千万/百万/十万)", () => {
+    expect(splitTokensCN(10_000_000)).toEqual({ value: "1000", unit: "万" });
+    expect(splitTokensCN(1_000_000)).toEqual({ value: "100", unit: "万" });
+    expect(splitTokensCN(100_000)).toEqual({ value: "10", unit: "万" });
   });
   it("formats 万 for >= 10k", () => {
     expect(splitTokensCN(10_000)).toEqual({ value: "1", unit: "万" });
@@ -124,7 +120,7 @@ describe("splitTokensCN", () => {
     expect(splitTokensCN(999)).toEqual({ value: "999", unit: "" });
   });
   it("handles negative values", () => {
-    expect(splitTokensCN(-1_500_000)).toEqual({ value: "-1.5", unit: "百万" });
+    expect(splitTokensCN(-1_500_000)).toEqual({ value: "-150", unit: "万" });
   });
   it("handles NaN", () => {
     expect(splitTokensCN(NaN)).toEqual({ value: "0", unit: "" });

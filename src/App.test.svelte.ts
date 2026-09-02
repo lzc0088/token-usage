@@ -132,12 +132,12 @@ describe("App 累计 transition (real repro)", () => {
     // Hero must now show the TOTAL summary.
     const hero = target.querySelector('[data-testid="hero-section"]');
     expect(hero).toBeTruthy();
-    expect(hero!.textContent).toContain("1.035百亿"); // 10_350_156_580 (zh format)
+    expect(hero!.textContent).toContain("103.502亿"); // 10_350_156_580 (zh format)
 
     // Reactivity must survive further clicks.
     setPeriod("month");
     await settle();
-    expect(hero!.textContent).toContain("3.94"); // 3_940_145_168 → 3.94十亿
+    expect(hero!.textContent).toContain("39.401亿"); // 3_940_145_168 → 3.94十亿
 
     window.removeEventListener("error", onErr);
     expect(errors).toEqual([]);
@@ -172,13 +172,13 @@ describe("App 累计 transition (real repro)", () => {
 
     // Hero must show total data.
     const hero = target.querySelector('[data-testid="hero-section"]');
-    expect(hero!.textContent).toContain("1.035百亿");
+    expect(hero!.textContent).toContain("103.502亿");
 
     // Reactivity survives: back to month re-renders daily nodes.
     setPeriod("month");
     await settle();
     expect(target.querySelectorAll("svg .node").length).toBe(28);
-    expect(hero!.textContent).toContain("3.94");
+    expect(hero!.textContent).toContain("39.401亿");
 
     window.removeEventListener("error", onErr);
     expect(errors).toEqual([]);
