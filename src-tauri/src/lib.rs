@@ -444,6 +444,15 @@ pub fn run() {
 
             let window = app.get_webview_window("main").expect("main window");
 
+            // Open devtools on all windows when --debug flag is set.
+            if DEBUG_MODE.load(Ordering::SeqCst) {
+                for label in ["main", "settings", "floating"] {
+                    if let Some(w) = app.get_webview_window(label) {
+                        w.open_devtools();
+                    }
+                }
+            }
+
             // ── system tray (Tauri-native, integrated with the event loop) ──
             // Build the tray icon in code — a rounded-rect border with a bold
             // "T" letter, drawn as an RGBA Image. No external files needed.
