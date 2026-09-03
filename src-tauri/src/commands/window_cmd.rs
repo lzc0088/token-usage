@@ -105,6 +105,14 @@ pub fn frontend_log(msg: String) {
         tracing::info!(target: "frontend", "[FE] {msg}");
     }
 }
+
+/// Returns true when the app was launched with `--debug` CLI flag.
+/// The frontend uses this to conditionally install the error bridge
+/// (window error / unhandledrejection → persistent log).
+#[tauri::command]
+pub fn is_debug_mode() -> bool {
+    crate::DEBUG_MODE.load(std::sync::atomic::Ordering::SeqCst)
+}
 #[tauri::command]
 pub fn close_settings(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {

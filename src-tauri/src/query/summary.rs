@@ -79,7 +79,9 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
             GROUP BY date)"
     );
     let active_days: i64 =
-        conn.query_row(&active_sql, rusqlite::params_from_iter(params), |r| r.get(0))?;
+        conn.query_row(&active_sql, rusqlite::params_from_iter(params), |r| {
+            r.get(0)
+        })?;
     Ok(Summary {
         period: period_key(range),
         input,

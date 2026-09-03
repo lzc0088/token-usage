@@ -35,6 +35,8 @@ static MENU_CLOSE_MS: AtomicI64 = AtomicI64::new(0);
 pub(crate) static MAIN_INTERACTING: AtomicBool = AtomicBool::new(false);
 /// Monotonic deadline for the pending main-window hide. 0 = none pending.
 static MAIN_HIDE_DEADLINE: AtomicI64 = AtomicI64::new(0);
+/// True when the app was launched with `--debug` (frontend error bridge active).
+static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
 /// Grace period (ms) before hiding on blur: lets a momentary drag/resize blur
 /// be canceled by a refocus.
 const MAIN_HIDE_GRACE_MS: i64 = 200;
@@ -281,6 +283,13 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Check for `--debug` CLI flag to enable frontend error bridging.
+    let debug_mode = std::env::args().any(|a| a == "--debug");
+    if debug_mode {
+        DEBUG_MODE.store(true, Ordering::SeqCst);
+        tracing::info!("debug mode enabled (--debug flag)");
+    }
+
     let state = match AppState::open_default() {
         Ok(s) => s,
         Err(e) => {
@@ -675,6 +684,7 @@ pub fn run() {
             commands::window_cmd::set_window_draggable,
             commands::window_cmd::set_drag_suspended,
             commands::window_cmd::frontend_log,
+            commands::window_cmd::is_debug_mode,
             commands::window_cmd::toggle_main_window,
             commands::window_cmd::set_main_interacting,
             commands::window_cmd::resize_main_anchored,

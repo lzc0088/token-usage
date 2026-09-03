@@ -186,6 +186,7 @@ import ToolIcon from "../ui/ToolIcon.svelte";
       <section class="module">
         <div class="sec-h"><span><span class="title-dot" style="background:var(--amber)"></span>{t("overview.tools")}</span><button type="button" class="more" onclick={() => setSegment("tools")}>{t("overview.all")}</button></div>
         {#if toolB && toolB.entries.length > 0}
+          <div class="list-area">
           {#each toolB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
             {@const meta = toolMeta(e.key)}
@@ -197,6 +198,7 @@ import ToolIcon from "../ui/ToolIcon.svelte";
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
             </button>
           {/each}
+          </div>
         {:else}
           <EmptyState title={t("overview.noToolData")} compact />
         {/if}
@@ -207,6 +209,7 @@ import ToolIcon from "../ui/ToolIcon.svelte";
       <section class="module">
         <div class="sec-h"><span><span class="title-dot" style="background:var(--cyan)"></span>{t("overview.models")}</span><button type="button" class="more" onclick={() => setSegment("models")}>{t("overview.all")}</button></div>
         {#if modelB && modelB.entries.length > 0}
+          <div class="list-area">
           {#each modelB.entries.slice(0, 3) as e, i (e.key)}
             {@const s = splitTokens(e.tokens)}
             {@const mv = modelVendor(e.key)}
@@ -219,6 +222,7 @@ import ToolIcon from "../ui/ToolIcon.svelte";
               <span class="vl">{s.value}<span class="vlu">{s.unit}</span></span>
             </button>
           {/each}
+          </div>
         {:else}
           <EmptyState title={t("overview.noModelData")} compact />
         {/if}
@@ -252,16 +256,20 @@ import ToolIcon from "../ui/ToolIcon.svelte";
 <style>
   .ov-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
   .module {
-    padding: 10px 12px;
     background: var(--surface-tint);
     border: 1px solid var(--border-dim);
     border-radius: 10px;
+    overflow: hidden;
   }
   .sec-h {
     font-size: 0.8667rem; font-weight: 700;
     color: var(--text);
-    margin-bottom: 10px;
+    padding: 8px 12px;
     display: flex; justify-content: space-between; align-items: center;
+  }
+  .list-area {
+    background: var(--glass-3);
+    padding: 6px 10px 8px;
   }
   .sec-h .title-dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -271,7 +279,7 @@ import ToolIcon from "../ui/ToolIcon.svelte";
     color: var(--amber); cursor: pointer; font-size: 0.8667rem; font-weight: 600;
     background: none; border: none; padding: 0; font-family: inherit;
   }
-  .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
   .scell {
     background: var(--surface-tint); border: 1px solid var(--border-dim);
     border-radius: 9px; padding: 10px 11px;
@@ -329,5 +337,6 @@ import ToolIcon from "../ui/ToolIcon.svelte";
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding: 8px 12px 10px;
   }
 </style>
