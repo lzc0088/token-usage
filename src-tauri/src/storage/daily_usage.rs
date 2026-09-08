@@ -137,10 +137,15 @@ pub fn upsert_rows(conn: &mut Connection, rows: &[DailyRow]) -> Result<usize, St
 }
 
 /// Ingest a raw `tokscale graph` JSON value. Returns rows written.
+///
+/// Sync semantics: upserts the reported rows AND prunes rows on the reported
+/// dates whose (tool, model) key is absent — tokscale can drop entries when
+/// sessions are archived/merged, and without the prune those stale rows
+/// linger forever and inflate breakdown/trends totals.
 pub fn ingest_graph(conn: &mut Connection, raw: &serde_json::Value) -> Result<usize, StorageError> {
     let g: GraphReport = serde_json::from_value(raw.clone())?;
     let rows = rows_from_graph(&g);
-    upsert_rows(conn, &rows)
+    sync_rows(conn, &rows)
 }
 
 // ── `tokscale --today` entries ingest ────────────────────────────────────────
@@ -185,11 +190,13 @@ fn first_string<'a>(obj: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str
 }
 
 /// Parse entries from a `tokscale --today --group-by client,model` JSON value
-/// and upsert today's rows into `daily_usage`. Returns rows written.
+/// and sync today's rows into `daily_usage`. Returns rows written.
 ///
 /// This keeps breakdown/trends queries in sync with the live hero data between
 /// the 15-min `tokscale graph` runs. Safe to call repeatedly — upsert replaces
-/// on `(date, tool, model)` conflict.
+/// on `(date, tool, model)` conflict, and rows whose key vanished from the
+/// report are pruned (see [`sync_rows`]). An empty/absent `entries` array is a
+/// no-op (a scan glitch must not wipe today's data).
 pub fn ingest_today_entries(
     conn: &mut Connection,
     v: &serde_json::Value,
@@ -229,7 +236,99 @@ pub fn ingest_today_entries(
             messages: first_i64(entry, &["messageCount", "messages", "message_count"]),
         });
     }
-    upsert_rows(conn, &rows)
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    sync_rows(conn, &rows)
+}
+
+/// (date → set of (tool, model) keys) that must survive a sync.
+type KeepMap = std::collections::BTreeMap<String, std::collections::BTreeSet<(String, String)>>;
+
+fn keep_map_from_rows(rows: &[DailyRow]) -> KeepMap {
+    let mut m = KeepMap::new();
+    for r in rows {
+        m.entry(r.date.clone())
+            .or_default()
+            .insert((r.tool.clone(), r.model.clone()));
+    }
+    m
+}
+
+/// Delete, on `date`, the rows whose (tool, model) key is not in `keep`.
+/// Parameter count stays small (per-day model combos × 2 + 1) — well under
+/// SQLite's variable limit.
+fn prune_date(
+    tx: &rusqlite::Transaction<'_>,
+    date: &str,
+    keep: &std::collections::BTreeSet<(String, String)>,
+) -> Result<usize, StorageError> {
+    let mut values = Vec::with_capacity(keep.len());
+    let mut bind: Vec<String> = Vec::with_capacity(keep.len() * 2 + 1);
+    bind.push(date.to_string());
+    for (tool, model) in keep {
+        values.push("(?, ?)".to_string());
+        bind.push(tool.clone());
+        bind.push(model.clone());
+    }
+    let sql = format!(
+        "DELETE FROM daily_usage WHERE date = ? AND (tool, model) NOT IN (VALUES {})",
+        values.join(", ")
+    );
+    let n = tx.execute(&sql, rusqlite::params_from_iter(bind))?;
+    Ok(n)
+}
+
+/// Upsert `rows` and prune same-date rows whose key is absent from the batch.
+/// One transaction: either the whole sync lands or none.
+pub fn sync_rows(conn: &mut Connection, rows: &[DailyRow]) -> Result<usize, StorageError> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let keep = keep_map_from_rows(rows);
+    let tx = conn.transaction()?;
+    let mut n = 0;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO daily_usage
+               (date, tool, model, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                cost_usd, messages)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(date, tool, model) DO UPDATE SET
+               input_tokens       = excluded.input_tokens,
+               output_tokens      = excluded.output_tokens,
+               cache_read_tokens  = excluded.cache_read_tokens,
+               cache_write_tokens = excluded.cache_write_tokens,
+               reasoning_tokens   = excluded.reasoning_tokens,
+               cost_usd           = excluded.cost_usd,
+               messages           = excluded.messages",
+        )?;
+        for r in rows {
+            stmt.execute(params![
+                r.date,
+                r.tool,
+                r.model,
+                r.input,
+                r.output,
+                r.cache_read,
+                r.cache_write,
+                r.reasoning,
+                r.cost_usd,
+                r.messages,
+            ])?;
+            n += 1;
+        }
+        drop(stmt);
+        for (date, keys) in &keep {
+            let deleted = prune_date(&tx, date, keys)?;
+            if deleted > 0 {
+                tracing::debug!(date, deleted, "pruned stale daily_usage rows");
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(n)
 }
 
 #[cfg(test)]
@@ -481,6 +580,122 @@ mod tests {
             ingest_today_entries(&mut conn, &v, "2026-08-20").unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn sync_prunes_rows_dropped_from_graph() {
+        let mut conn = fresh_conn();
+        ingest_graph(&mut conn, &sample_graph()).unwrap(); // 3 rows over 2 dates
+
+        // Later graph drops the codex entry on 2026-07-15 (e.g. session
+        // archived/merged client) and only reports claude.
+        let shrunk = serde_json::json!({
+            "contributions": [
+                { "date": "2026-07-15", "clients": [
+                    { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                      "tokens": {"input": 1000, "output": 200, "cacheRead": 500, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 1.23, "messages": 5 }
+                ]}
+            ]
+        });
+        ingest_graph(&mut conn, &shrunk).unwrap();
+
+        let codex: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_usage WHERE date='2026-07-15' AND tool='codex'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(codex, 0, "dropped entry must be pruned");
+        // Reported rows survive on both dates.
+        let claude: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_usage WHERE tool='claude'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(claude, 2, "reported rows must survive (07-15 + 07-16)");
+    }
+
+    #[test]
+    fn sync_keeps_rows_on_unreported_dates() {
+        let mut conn = fresh_conn();
+        ingest_graph(&mut conn, &sample_graph()).unwrap(); // dates 07-15, 07-16
+
+        // A later graph only mentions 07-16 — rows on 07-15 must be untouched.
+        let partial = serde_json::json!({
+            "contributions": [
+                { "date": "2026-07-16", "clients": [
+                    { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                      "tokens": {"input": 100, "output": 10, "cacheRead": 5, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 0.05, "messages": 1 }
+                ]}
+            ]
+        });
+        ingest_graph(&mut conn, &partial).unwrap();
+
+        let rows_0715: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_usage WHERE date='2026-07-15'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            rows_0715, 2,
+            "dates absent from the report must not be pruned"
+        );
+    }
+
+    #[test]
+    fn ingest_today_entries_prunes_stale_today_rows() {
+        let mut conn = fresh_conn();
+        // Simulate an earlier graph write: two claude models today.
+        ingest_graph(
+            &mut conn,
+            &serde_json::json!({
+                "contributions": [
+                    { "date": "2026-08-20", "clients": [
+                        { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                          "tokens": {"input": 100, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                          "cost": 0.1, "messages": 1 },
+                        { "client": "claude", "modelId": "glm-5.2-flash", "providerId": "x",
+                          "tokens": {"input": 50, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                          "cost": 0.05, "messages": 1 }
+                    ]}
+                ]
+            }),
+        )
+        .unwrap();
+
+        // Today scan only reports glm-5.2 (flash entry vanished).
+        let today = serde_json::json!({
+            "entries": [{
+                "client": "claude", "model": "glm-5.2",
+                "input": 120, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                "reasoning": 0, "messageCount": 1, "cost": 0.1
+            }]
+        });
+        ingest_today_entries(&mut conn, &today, "2026-08-20").unwrap();
+
+        let flash: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_usage WHERE date='2026-08-20' AND model='glm-5.2-flash'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(flash, 0, "stale today row must be pruned");
+        let inp: i64 = conn
+            .query_row(
+                "SELECT input_tokens FROM daily_usage WHERE date='2026-08-20' AND model='glm-5.2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(inp, 120, "reported row takes the fresh value");
     }
 
     #[test]
