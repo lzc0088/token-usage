@@ -26,10 +26,6 @@
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
-  let trends = $state<{ points: Array<{ date: string; tokens: number; cost_usd: number; messages: number }> } | null>(null);
-  // Separate display summary — for "day" period, holds the 7-day aggregated
-  // value (computed once trends arrives). For other periods, mirrors summary.
-  let summaryForDisplay = $state<Summary | null>(null);
   // USD→CNY rate for cost conversion. Loaded from the latest stored value
   // (auto or manual) and refreshed on rate:updated / config:changed.
   let cnyRate = $state<number>(7.2);
@@ -199,78 +195,40 @@
   // this derived value instead.
   const currentPeriod = $derived(periodValue());
 
-  // For "day" period, aggregate summary to 7-day using trend data so the
-  // hero + overview panels match the trend chart + breakdown (which both
-  // already return 7-day data for "day").
-  function aggregateTo7Day(s: Summary, pts: Array<{ tokens: number; cost_usd: number; messages: number }>): Summary {
-    if (pts.length === 0) return s;
-    const agg = pts.reduce((a, b) => ({
-      total_tokens: a.total_tokens + b.tokens,
-      cost_usd: a.cost_usd + b.cost_usd,
-      messages: a.messages + b.messages,
-    }), { total_tokens: 0, cost_usd: 0, messages: 0 });
-    return { ...s, total_tokens: agg.total_tokens, cost_usd: agg.cost_usd, messages: agg.messages, active_days: pts.length };
-  }
-
   $effect(() => {
     const p = currentPeriod;
     let cancelled = false;
-    let dayTrends: Array<{ tokens: number; cost_usd: number; messages: number }> | undefined;
     (async () => {
       try {
-        const [s, trendData, c] = await Promise.all([
-          api.getSummary(p),
-          api.getTrends(p),
-          api.getConfig(),
-        ]);
+        const [s, c] = await Promise.all([api.getSummary(p), api.getConfig()]);
         if (cancelled) return;
-        dayTrends = trendData.points;
         summary = s;
-        trends = trendData;
         config = c;
         loadError = null;
-        // For "day", compute the 7-day aggregate once trends is ready.
-        // For other periods, summaryForDisplay mirrors summary directly.
-        if (p === "day" && dayTrends.length > 0) {
-          summaryForDisplay = aggregateTo7Day(s, dayTrends);
-        } else {
-          summaryForDisplay = s;
-        }
       } catch (e) {
         console.debug("[App] period-change effect ERROR", e);
         if (!cancelled) {
           loadError = t("common.loadFailed");
-          // Fallback: still show raw summary so the UI isn't blank.
-          summaryForDisplay = summary;
         }
       }
     })();
-    return () => { cancelled = true; };
-  });
-
-  // Clear cached display data when period changes so sections don't briefly
-  // show a previous period's 7-day aggregate.
-  $effect(() => {
-    summaryForDisplay = null;
-    trends = null;
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
       if (periodValue() !== "day") return;
+      // Debounce: the collector can emit multiple today:updated events in
+      // rapid succession (one per ingestion), each triggering a synchronous
+      // IPC getSummary on the Rust main thread. The debounce prevents the
+      // frontend from queueing up blocking calls and freezing the app.
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        // Update raw summary immediately; summaryForDisplay re-aggregates
-        // via the existing trend data (or falls back to today-only if
-        // trends hasn't loaded yet — it will correct when trends arrives).
         summary = e.payload;
-        if (trends && trends.points.length > 0) {
-          summaryForDisplay = aggregateTo7Day(e.payload, trends.points);
-        } else {
-          summaryForDisplay = e.payload;
-        }
         if (collectionError) collectionError = null;
       }, 300);
     });
@@ -393,28 +351,24 @@
     refreshMsg = "";
     const gen = ++refreshGen;
     try {
-      const [s, trendData, c] = await Promise.all([
+      // Refresh usage data + quota data + trigger an immediate collector scan.
+      const [s, c] = await Promise.all([
         api.getSummary(periodValue()),
-        api.getTrends(periodValue()),
         api.getConfig(),
         api.refreshQuotas(),
         api.collectNow(),
       ]);
-      if (gen !== refreshGen) return;
+      if (gen !== refreshGen) return; // stale — a newer refresh was triggered
       summary = s;
-      trends = trendData;
       config = c;
       loadError = null;
-      const p = periodValue();
-      summaryForDisplay = p === "day" && trendData.points.length > 0
-        ? aggregateTo7Day(s, trendData.points)
-        : s;
       refreshStatus = "ok";
       refreshMsg = t("hero.refreshOk");
       const _rid = window.setTimeout(() => { refreshStatus = "idle"; refreshMsg = ""; }, 3000);
       refreshTimeouts.add(_rid);
     } catch (e) {
       if (gen !== refreshGen) return;
+      /* refresh failed — shown in refreshMsg */
       refreshStatus = "fail";
       refreshMsg = t("hero.refreshFail");
     }
@@ -467,7 +421,7 @@
     onpointerup={() => invoke("set_main_interacting", { interacting: false })}
   >
     <Hero
-      summary={summaryForDisplay}
+      {summary}
       currency={config.currency}
       {cnyRate}
       lang={config.language}
@@ -485,7 +439,7 @@
     {#if loadError}
       <p class="err" data-testid="load-error">{loadError}</p>
     {:else if segment === "ov"}
-      <Overview summary={summaryForDisplay} currency={config.currency} config={config} {cnyRate} />
+      <Overview {summary} currency={config.currency} config={config} {cnyRate} />
     {:else if segment === "tools"}
       <BreakdownSegment currency={config.currency} {cnyRate} title={t("breakdown.tools")} dim="tool" />
     {:else if segment === "models"}
