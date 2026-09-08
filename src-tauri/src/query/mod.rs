@@ -83,26 +83,6 @@ pub fn last_n_days(today: &str, n: u32) -> DateRange {
     }
 }
 
-/// Previous 7-day range (days -14 to -8 ending yesterday). Used as the delta
-/// comparison for `get_summary("day")` when the current period is a 7-day window.
-pub fn prev_7day_range(today: &str) -> DateRange {
-    use chrono::NaiveDate;
-    let end = match NaiveDate::parse_from_str(today, "%Y-%m-%d") {
-        Ok(d) => d,
-        Err(_) => return DateRange::default(),
-    };
-    // yesterday = today - 1
-    let yesterday = end.checked_sub_days(chrono::Days::new(1)).unwrap_or(end);
-    // 7-day window ending yesterday: yesterday-6 to yesterday (= 7 days total)
-    let start = yesterday
-        .checked_sub_days(chrono::Days::new(6))
-        .unwrap_or(yesterday);
-    DateRange {
-        start: Some(start.to_string()),
-        end: Some(yesterday.to_string()),
-    }
-}
-
 /// Build a SQL `WHERE` clause + bind params for a range over `daily_usage.date`.
 /// Returns `(clause, params)`.
 pub(crate) fn range_clause(range: &DateRange) -> (String, Vec<String>) {

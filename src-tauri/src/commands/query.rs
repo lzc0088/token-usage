@@ -17,33 +17,40 @@ use crate::state::AppState;
 pub fn get_summary(period: String, state: State<AppState>) -> Result<Summary, String> {
     let p = parse_period(&period);
     let t0 = std::time::Instant::now();
+
+    // For "day", prefer the cached LIVE today Summary (written by the
+    // collector on every `tokscale --today` scan). This keeps the popover in
+    // sync with the tray title — both show the same real-time value. The
+    // DB-backed `daily_usage` query lags one history tick (~15 min) and would
+    // make the popover appear stale vs. the tray.
+    if matches!(p, query::Period::Day) {
+        if let Ok(cache) = state.last_today.lock() {
+            if let Some(ref live) = *cache {
+                // Recompute the vs-yesterday delta on top of the live value
+                // (the live Summary has delta_pct = None).
+                let mut s = live.clone();
+                let t = today();
+                if let Some((prev_range, label)) = query::prev_range_for_period(p, &t) {
+                    s.delta_pct = try_delta(&db(&state), s.total_tokens, &prev_range);
+                    if s.delta_pct.is_some() {
+                        s.delta_label = Some(label.to_string());
+                    }
+                }
+                tracing::debug!(period = ?p, elapsed_ms = ?t0.elapsed().as_millis(), "get_summary: live cache hit");
+                return Ok(s);
+            }
+        }
+    }
+
     let t = today();
-
-    // "day" → last 7 days from DB (consistent with get_breakdown/get_trends
-    // which already use last_n_days(7)). This makes all popover sections
-    // (hero, overview, tools, models, trend chart) show the same window.
-    let (range, delta_range, delta_label) = match p {
-        query::Period::Day => {
-            let r = query::last_n_days(&t, 7);
-            let dr = query::prev_7day_range(&t);
-            (r, Some(dr), Some("较上期"))
-        }
-        _ => {
-            let r = query::range_for_period(p, &t);
-            let (dr, label) = query::prev_range_for_period(p, &t).unwrap_or_default();
-            (r, Some(dr), Some(label))
-        }
-    };
-
+    let range = query::range_for_period(p, &t);
     let mut s = query::summary::query(&db(&state), &range).map_err(|e| e.to_string())?;
 
-    // Compute delta vs previous period.
-    if let Some(prev_range) = delta_range {
-        if let Some(label) = delta_label {
-            s.delta_pct = try_delta(&db(&state), s.total_tokens, &prev_range);
-            if s.delta_pct.is_some() {
-                s.delta_label = Some(label.to_string());
-            }
+    // Compute delta vs previous period (e.g. 较昨日 / 较上月).
+    if let Some((prev_range, label)) = query::prev_range_for_period(p, &t) {
+        s.delta_pct = try_delta(&db(&state), s.total_tokens, &prev_range);
+        if s.delta_pct.is_some() {
+            s.delta_label = Some(label.to_string());
         }
     }
 
@@ -77,13 +84,7 @@ pub fn get_breakdown(
         "model" => Dimension::Model,
         _ => Dimension::Tool,
     };
-    let today = today();
-    // For "day", use a 7-day window so the breakdown matches the trend chart
-    // (both show last 7 days, not just today).
-    let range = match p {
-        query::Period::Day => query::last_n_days(&today, 7),
-        _ => query::range_for_period(p, &today),
-    };
+    let range = query::range_for_period(p, &today());
     query::breakdown::query(&db(&state), &range, dim).map_err(|e| e.to_string())
 }
 
@@ -99,11 +100,7 @@ pub fn get_detail_breakdown(
         "model" => Dimension::Model,
         _ => Dimension::Tool,
     };
-    let today = today();
-    let range = match p {
-        query::Period::Day => query::last_n_days(&today, 7),
-        _ => query::range_for_period(p, &today),
-    };
+    let range = query::range_for_period(p, &today());
     query::breakdown::query_filtered(&db(&state), &range, dim, &filter).map_err(|e| e.to_string())
 }
 

@@ -66,10 +66,11 @@
         ]) as [Trends, Summary];
         if (cancelled || myGen !== loadGen) return;
         data = t;
-        // For "day" period, the chart shows 7 days but getSummary returns
-        // today-only. Override with aggregated chart data so the 4 stat cards
-        // reflect the same 7-day window.
         if (p === "day" && t.points.length > 0) {
+          // DAY period: trend chart shows 7-day window (last_n_days). The
+          // backend getSummary returns today-only (live cache), so we compute
+          // the 7-day aggregate directly from the trend points for the stat
+          // cards — keeping them consistent with the chart.
           const agg = t.points.reduce((a, b) => ({
             total_tokens: a.total_tokens + b.tokens,
             cost_usd: a.cost_usd + b.cost_usd,
@@ -80,7 +81,7 @@
             total_tokens: agg.total_tokens,
             cost_usd: agg.cost_usd,
             messages: agg.messages,
-            active_days: t.points.length,
+            active_days: t.points.filter(p => p.tokens > 0).length,
           };
         } else {
           summary = s;
