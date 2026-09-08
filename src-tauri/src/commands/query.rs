@@ -84,7 +84,13 @@ pub fn get_breakdown(
         "model" => Dimension::Model,
         _ => Dimension::Tool,
     };
-    let range = query::range_for_period(p, &today());
+    let today = today();
+    // For "day", use a 7-day window so the breakdown matches the trend chart
+    // (both show last 7 days, not just today).
+    let range = match p {
+        query::Period::Day => query::last_n_days(&today, 7),
+        _ => query::range_for_period(p, &today),
+    };
     query::breakdown::query(&db(&state), &range, dim).map_err(|e| e.to_string())
 }
 
@@ -100,7 +106,11 @@ pub fn get_detail_breakdown(
         "model" => Dimension::Model,
         _ => Dimension::Tool,
     };
-    let range = query::range_for_period(p, &today());
+    let today = today();
+    let range = match p {
+        query::Period::Day => query::last_n_days(&today, 7),
+        _ => query::range_for_period(p, &today),
+    };
     query::breakdown::query_filtered(&db(&state), &range, dim, &filter).map_err(|e| e.to_string())
 }
 

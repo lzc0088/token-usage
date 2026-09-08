@@ -23,7 +23,7 @@
   } = $props();
 
   const tokenDisplay = $derived(summary
-    ? (lang === "en" ? splitTokens(summary.total_tokens, 2) : splitTokensCN(summary.total_tokens, 3))
+    ? (lang === "en" ? splitTokens(summary.total_tokens, 2) : splitTokensCN(summary.total_tokens, 2))
     : { value: "—", unit: "" });
   const deltaDir = $derived(
     summary?.delta_pct != null ? (summary.delta_pct >= 0 ? "↑" : "↓") : "",

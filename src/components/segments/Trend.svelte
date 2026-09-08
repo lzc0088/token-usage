@@ -50,8 +50,6 @@
 
   $effect(() => {
     const p = activePeriod;
-    // Reset state so the skeleton shows and stale data can't leak when the
-    // period changes mid-lifecycle.
     data = null;
     summary = null;
     loadAttempted = false;
@@ -59,8 +57,6 @@
     const myGen = ++loadGen;
     const fetch = async () => {
       try {
-        // Guard against a hung IPC (e.g. a stalled DB lock) — bail to the
-        // load-failed state instead of showing the skeleton forever.
         const timeout = new Promise<never>((_, rej) =>
           setTimeout(() => rej(new Error("timeout")), 25_000),
         );
@@ -70,7 +66,25 @@
         ]) as [Trends, Summary];
         if (cancelled || myGen !== loadGen) return;
         data = t;
-        summary = s;
+        // For "day" period, the chart shows 7 days but getSummary returns
+        // today-only. Override with aggregated chart data so the 4 stat cards
+        // reflect the same 7-day window.
+        if (p === "day" && t.points.length > 0) {
+          const agg = t.points.reduce((a, b) => ({
+            total_tokens: a.total_tokens + b.tokens,
+            cost_usd: a.cost_usd + b.cost_usd,
+            messages: a.messages + b.messages,
+          }), { total_tokens: 0, cost_usd: 0, messages: 0 });
+          summary = {
+            ...s,
+            total_tokens: agg.total_tokens,
+            cost_usd: agg.cost_usd,
+            messages: agg.messages,
+            active_days: t.points.length,
+          };
+        } else {
+          summary = s;
+        }
         loadAttempted = true;
       } catch (e) {
         console.error("[Trend] fetch failed:", e instanceof Error ? e.message : e);
