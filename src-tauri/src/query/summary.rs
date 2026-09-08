@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{range_clause, DateRange, QueryError};
+use super::{range_clause, synthetic_exclusion, DateRange, QueryError};
 
 /// Popover hero totals. `total_tokens` excludes reasoning (design.md §5.3).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -44,8 +44,15 @@ pub struct Summary {
 }
 
 /// Aggregate `daily_usage` over `range` into a [`Summary`].
+/// Excludes `<synthetic>` model entries (tool calls without a real model) so
+/// the total matches the model breakdown's `grand_total_tokens`.
 pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError> {
-    let (clause, params) = range_clause(range);
+    let (mut clause, mut params) = range_clause(range);
+    // Exclude tokscale synthetic model entries (tool calls without a real model).
+    let (syn_clause, syn_params) = synthetic_exclusion();
+    clause.push_str(&syn_clause);
+    params.extend(syn_params.into_iter().map(String::from));
+
     let sql = format!(
         "SELECT
             COALESCE(SUM(input_tokens),0),
@@ -70,7 +77,8 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
                 r.get::<_, i64>(6)?,
             ))
         })?;
-    // Count distinct dates with non-zero usage in the same range.
+    // Count distinct dates with non-zero usage in the same range (excluding
+    // synthetic entries for consistency with the totals above).
     let active_sql = format!(
         "SELECT COUNT(*) FROM (
             SELECT date FROM daily_usage
@@ -235,6 +243,25 @@ mod tests {
         assert_eq!(s.period, "day");
         assert_eq!(s.total_tokens, 1600); // 1000+100+500+0
         assert!((s.cost_usd - 2.0).abs() < 1e-9);
+        assert_eq!(s.messages, 3);
+    }
+
+    #[test]
+    fn query_excludes_synthetic_model_entries() {
+        let conn = seeded();
+        // Insert a synthetic model entry (tool call without a real model).
+        conn.execute_batch(
+            "INSERT INTO daily_usage (date, tool, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_usd, messages)
+             VALUES ('2026-07-19', 'claude', '<synthetic>', 500, 200, 0, 0, 0, 1.0, 3)",
+        )
+        .unwrap();
+        // Verify: with synthetic excluded, total should equal original seeded total (1600).
+        let r = range_for_period(Period::Day, "2026-07-19");
+        let s = query(&conn, &r).unwrap();
+        // seeded: 1000+100+500+0 = 1600; synthetic: 500+200+0+0 = 700
+        assert_eq!(s.total_tokens, 1600, "synthetic tokens must be excluded");
+        assert_eq!(s.input, 1000);
+        assert_eq!(s.output, 100);
         assert_eq!(s.messages, 3);
     }
 
