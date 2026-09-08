@@ -26,6 +26,7 @@
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
+  let trends = $state<{ points: Array<{ date: string; tokens: number; cost_usd: number; messages: number }> } | null>(null);
   // USD→CNY rate for cost conversion. Loaded from the latest stored value
   // (auto or manual) and refreshed on rate:updated / config:changed.
   let cnyRate = $state<number>(7.2);
@@ -195,14 +196,36 @@
   // this derived value instead.
   const currentPeriod = $derived(periodValue());
 
+  // When period is "day", aggregate the summary to 7-day totals using trend
+  // data. This keeps the hero + overview panels consistent with the trend
+  // chart and breakdown (both already use 7-day data for "day").
+  const displaySummary = $derived.by(() => {
+    if (currentPeriod !== "day" || !summary || !trends || trends.points.length === 0) {
+      return summary;
+    }
+    const agg = trends.points.reduce((a, b) => ({
+      total_tokens: a.total_tokens + b.tokens,
+      cost_usd: a.cost_usd + b.cost_usd,
+      messages: a.messages + b.messages,
+    }), { total_tokens: 0, cost_usd: 0, messages: 0 });
+    return {
+      ...summary,
+      total_tokens: agg.total_tokens,
+      cost_usd: agg.cost_usd,
+      messages: agg.messages,
+      active_days: trends.points.length,
+    };
+  });
+
   $effect(() => {
     const p = currentPeriod;
     let cancelled = false;
     (async () => {
       try {
-        const [s, c] = await Promise.all([api.getSummary(p), api.getConfig()]);
+        const [s, trendData, c] = await Promise.all([api.getSummary(p), api.getTrends(p), api.getConfig()]);
         if (cancelled) return;
         summary = s;
+        trends = trendData;
         config = c;
         loadError = null;
       } catch (e) {
@@ -217,6 +240,12 @@
     };
   });
 
+  // Clear trends when period changes so stale data from a previous period
+  // doesn't leak into the displaySummary aggregation.
+  $effect(() => {
+    trends = null;
+  });
+
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unlisten_promise = listen<Summary>(TODAY_UPDATED, (e) => {
@@ -228,6 +257,8 @@
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
+        // summary7d will re-aggregate using the cached trends data; if
+        // trends aren't loaded yet it falls back to raw today data.
         summary = e.payload;
         if (collectionError) collectionError = null;
       }, 300);
@@ -352,14 +383,16 @@
     const gen = ++refreshGen;
     try {
       // Refresh usage data + quota data + trigger an immediate collector scan.
-      const [s, c] = await Promise.all([
+      const [s, trendData, c] = await Promise.all([
         api.getSummary(periodValue()),
+        api.getTrends(periodValue()),
         api.getConfig(),
         api.refreshQuotas(),
         api.collectNow(),
       ]);
       if (gen !== refreshGen) return; // stale — a newer refresh was triggered
       summary = s;
+      trends = trendData;
       config = c;
       loadError = null;
       refreshStatus = "ok";
@@ -421,7 +454,7 @@
     onpointerup={() => invoke("set_main_interacting", { interacting: false })}
   >
     <Hero
-      {summary}
+      summary={displaySummary}
       currency={config.currency}
       {cnyRate}
       lang={config.language}
@@ -439,7 +472,7 @@
     {#if loadError}
       <p class="err" data-testid="load-error">{loadError}</p>
     {:else if segment === "ov"}
-      <Overview {summary} currency={config.currency} config={config} {cnyRate} />
+      <Overview summary={displaySummary} currency={config.currency} config={config} {cnyRate} />
     {:else if segment === "tools"}
       <BreakdownSegment currency={config.currency} {cnyRate} title={t("breakdown.tools")} dim="tool" />
     {:else if segment === "models"}
