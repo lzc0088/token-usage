@@ -346,7 +346,9 @@
   .tool-search {
     font-size: 0.7rem;
     font-family: inherit;
-    padding: 3px 8px;
+    padding: 6px 9px;
+    min-height: 32px;
+    box-sizing: border-box;
     border-radius: 5px;
     border: 1px solid var(--border-dim);
     background: var(--surface-tint);
@@ -362,9 +364,10 @@
   .tool-search::placeholder { color: var(--text-faint); }
   .tool-search::-webkit-search-cancel-button { -webkit-appearance: none; }
   .fbtn {
-    font-size: 0.6667rem;
-    font-weight: 500;
-    padding: 2px 8px;
+    font-size: 0.7rem;
+    padding: 5px 9px;
+    min-height: 32px;
+    box-sizing: border-box;
     border-radius: 5px;
     border: 1px solid var(--border-dim);
     background: var(--surface-tint);
