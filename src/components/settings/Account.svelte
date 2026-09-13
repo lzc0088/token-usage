@@ -38,6 +38,22 @@
   // Derived: vendors sorted by category order (subscription → api-key → cookie).
   const sortedVendors = $derived([...VENDORS].sort((a, b) => CAT_ORDER[a.cat] - CAT_ORDER[b.cat]));
 
+  // ── 搜索 ──
+  // Case-insensitive substring over the label AND the vendor id. Filtering
+  // HIDES rows without omitting them (toggles stay wired; saving still reads
+  // the full `active`/`ordered` state), and row-drag is disabled while a
+  // query is active — dropping into a partial DOM would scramble the order.
+  let query = $state("");
+  let queryLower = $derived(query.trim().toLocaleLowerCase());
+  let dragDisabled = $derived(queryLower !== "");
+  const visibleOrdered = $derived.by(() => {
+    if (queryLower === "") return ordered;
+    return ordered.filter(id => {
+      const v = VENDORS.find(x => x.id === id);
+      return !!v && `${v.label} ${id}`.toLocaleLowerCase().includes(queryLower);
+    });
+  });
+
   // Load config and restore vendor order + active state.
   $effect(() => {
     api.getConfig().then(c => {
@@ -760,18 +776,25 @@
   <div class="section-box" style="margin-top:12px">
     <div class="group-head">{t("account.vendorMgmt")}</div>
     <div class="icon-legend">
+      <input
+        class="vendor-search"
+        type="search"
+        placeholder={t("account.searchVendors")}
+        aria-label={t("account.searchVendors")}
+        bind:value={query}
+      />
       <span class="legend-text">{t("account.dragReorder")}</span>
       <div class="legend-actions">
         <span class="legend-item">{t("account.enable")}</span>
       </div>
     </div>
-    {#each ordered as id (id)}
+    {#each visibleOrdered as id (id)}
       {@const v = VENDORS.find(x => x.id === id)}
       {#if v}
         <div
           class="trow"
           data-row-id={id}
-          use:rowDrag={{ id, onReorder: (newIndex) => moveToIndex(id, newIndex), excludeSelector: ".ibtn-toggle" }}
+          use:rowDrag={{ id, onReorder: (newIndex) => moveToIndex(id, newIndex), excludeSelector: ".ibtn-toggle", disabled: dragDisabled }}
         >
           <ToolIcon vendor={id} size={22} />
           <span class="tleft">
@@ -815,6 +838,9 @@
         </div>
       {/if}
     {/each}
+    {#if visibleOrdered.length === 0 && ordered.length > 0}
+      <p class="search-empty">{t("collection.noFilterMatch")}</p>
+    {/if}
   </div>
 </div>
 
@@ -1167,6 +1193,25 @@
     padding: 0;
     gap: 4px;
   }
+  .vendor-search {
+    font-size: 0.7rem;
+    font-family: inherit;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border-dim);
+    background: var(--surface-tint);
+    color: var(--text);
+    width: 110px;
+    transition: border-color 0.15s, width 0.15s;
+  }
+  .vendor-search:focus {
+    outline: none;
+    border-color: var(--amber);
+    width: 140px;
+  }
+  .vendor-search::placeholder { color: var(--text-faint); }
+  .vendor-search::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .search-empty { font-size: 0.7333rem; color: var(--text-faint); padding: 12px 0; }
   .icon-legend .legend-actions {
     display: flex;
     align-items: center;

@@ -345,6 +345,8 @@ const DICT: Record<string, Record<string, string>> = {
   "collection.notInstalledCat": { zh: "未安装", en: "Not Installed" },
   "collection.noTools": { zh: "未检测到任何工具", en: "No tools detected" },
   "collection.noFilterMatch": { zh: "该筛选下暂无工具", en: "No tools match filter" },
+  "collection.searchTools": { zh: "搜索工具…", en: "Search tools…" },
+  "account.searchVendors": { zh: "搜索厂商…", en: "Search vendors…" },
   "collection.track": { zh: "追踪", en: "Track" },
   "collection.show": { zh: "显示", en: "Show" },
   "collection.moveUp": { zh: "上移", en: "Move up" },

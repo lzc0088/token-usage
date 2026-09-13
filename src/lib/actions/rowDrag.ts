@@ -52,6 +52,11 @@ interface RowDragOptions {
    *  `[aria-level="2"]` for second-level children). When omitted, all
    *  sibling `[data-row-id]` elements are considered. */
   siblingSelector?: string;
+  /** While true the row ignores press/hover entirely (no reorder, no
+   *  window-drag suspension). Used when a list filter is active: dropping a
+   *  row into a filtered view would commit an index computed against a
+   *  partial DOM, silently scrambling the saved order. */
+  disabled?: boolean;
 }
 
 const THRESHOLD_PX = 4;
@@ -187,6 +192,7 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
 
   function onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return; // primary button only
+    if (options.disabled) return;
     if (options.excludeSelector) {
       const t = e.target as Element | null;
       if (t && t.closest && t.closest(options.excludeSelector)) return;
@@ -291,10 +297,14 @@ export function rowDrag(node: HTMLElement, opts: RowDragOptions) {
   // drag (WKWebView JS is a process hop away); suspending on hover wins by
   // a wide margin because no button is involved yet.
   function onPointerEnter(): void {
+    if (options.disabled) return;
     suspendWindowDrag();
   }
   function onPointerLeave(): void {
     // Only resume when no press is active — a press's own end path decides.
+    // Not gated on `disabled`: the Rust side no-ops when nothing is suspended,
+    // and resuming unconditionally keeps the suspend/resume pairing safe
+    // across a mid-hover `disabled` flip.
     if (capturedPointerId === null) {
       resumeWindowDrag();
     }

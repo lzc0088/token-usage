@@ -92,10 +92,28 @@
   let missingCount = $derived(tools?.filter(t => t.status === "missing").length ?? 0);
   let disabledCount = $derived(tools?.filter(t => t.status !== "missing" && !tracked.has(t.client)).length ?? 0);
 
+  // ── 搜索 ──
+  // Case-insensitive substring over the label AND the client id. The input
+  // lives OUTSIDE the {#each} (static markup): rows re-render on every
+  // collection:updated tick, which would otherwise drop the caret.
+  let query = $state("");
+  let queryLower = $derived(query.trim().toLocaleLowerCase());
+  // Row-drag is disabled while filtering: a drop would commit an index
+  // computed against a partial DOM and scramble the saved order.
+  let dragDisabled = $derived(queryLower !== "");
+
   let filteredOrdered = $derived.by(() => {
     const list = tools;
-    if (filter === "all" || !list) return ordered;
-    return ordered.filter(key => {
+    if (!list) return ordered;
+    let keys = ordered;
+    if (queryLower !== "") {
+      keys = keys.filter(key => {
+        const t = list.find(c => c.client === key);
+        return !!t && `${t.label} ${t.client}`.toLocaleLowerCase().includes(queryLower);
+      });
+    }
+    if (filter === "all") return keys;
+    return keys.filter(key => {
       const t = list.find(c => c.client === key);
       return t && toolFilter(t) === filter;
     });
@@ -211,6 +229,13 @@
   <!-- ══ 工具 ══ -->
   <div class="section-title">{tt("collection.tools")}
     <span class="fbar">
+      <input
+        class="tool-search"
+        type="search"
+        placeholder={tt("collection.searchTools")}
+        aria-label={tt("collection.searchTools")}
+        bind:value={query}
+      />
       <button type="button" class="fbtn" class:on={filter === "all"} onclick={() => (filter = "all")}>{tt("collection.all")} {totalCount}</button>
       <button type="button" class="fbtn" class:on={filter === "tracking"} onclick={() => (filter = "tracking")}>{tt("collection.trackingActive")} {trackingCount}</button>
       <button type="button" class="fbtn" class:on={filter === "waiting"} onclick={() => (filter = "waiting")}>{tt("collection.waitingFilter")} {waitingCount}</button>
@@ -256,7 +281,7 @@
           <div
             class="trow"
             data-row-id={t.client}
-            use:rowDrag={{ id: t.client, onReorder: (newIndex) => moveToIndex(t.client, newIndex), excludeSelector: ".ibtn" }}
+            use:rowDrag={{ id: t.client, onReorder: (newIndex) => moveToIndex(t.client, newIndex), excludeSelector: ".ibtn", disabled: dragDisabled }}
           >
             <div class="tleft">
               <ToolIcon vendor={t.client} size={22} color="var(--text-dim)" />
@@ -318,6 +343,24 @@
   .section-title:first-of-type { margin-top: 24px; }
 
   .fbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .tool-search {
+    font-size: 0.7rem;
+    font-family: inherit;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border-dim);
+    background: var(--surface-tint);
+    color: var(--text);
+    width: 110px;
+    transition: border-color 0.15s, width 0.15s;
+  }
+  .tool-search:focus {
+    outline: none;
+    border-color: var(--amber);
+    width: 140px;
+  }
+  .tool-search::placeholder { color: var(--text-faint); }
+  .tool-search::-webkit-search-cancel-button { -webkit-appearance: none; }
   .fbtn {
     font-size: 0.6667rem;
     font-weight: 500;
