@@ -279,13 +279,41 @@ fn prune_date(
     Ok(n)
 }
 
+/// A report whose tool set collapses vs what is already stored is treated as a
+/// partial scan: tokscale silently skips client directories it fails to read,
+/// which is indistinguishable from the tool's data genuinely disappearing.
+/// Pruning then would wipe irreplaceable history rows (sessions the tool has
+/// already cleaned up exist only here), so the sync falls back to upsert-only.
+/// Moderate shrinkage (a single tool uninstalled) still prunes normally.
+fn tool_set_collapsed(
+    tx: &rusqlite::Transaction<'_>,
+    dates: &[String],
+    report_tools: &std::collections::BTreeSet<String>,
+) -> Result<bool, StorageError> {
+    let placeholders = vec!["?"; dates.len()].join(", ");
+    let sql =
+        format!("SELECT COUNT(DISTINCT tool) FROM daily_usage WHERE date IN ({placeholders})");
+    let existing: i64 =
+        tx.query_row(&sql, rusqlite::params_from_iter(dates.iter()), |r| r.get(0))?;
+    if existing == 0 {
+        return Ok(false); // nothing stored yet — nothing to protect
+    }
+    // Integer arithmetic: report*2 < existing means the report covers less
+    // than half the stored tool set.
+    Ok((report_tools.len() as i64) * 2 < existing)
+}
+
 /// Upsert `rows` and prune same-date rows whose key is absent from the batch.
-/// One transaction: either the whole sync lands or none.
+/// One transaction: either the whole sync lands or none. The prune is gated by
+/// [`tool_set_collapsed`] to survive partial scans.
 pub fn sync_rows(conn: &mut Connection, rows: &[DailyRow]) -> Result<usize, StorageError> {
     if rows.is_empty() {
         return Ok(0);
     }
     let keep = keep_map_from_rows(rows);
+    let report_tools: std::collections::BTreeSet<String> =
+        rows.iter().map(|r| r.tool.clone()).collect();
+    let dates: Vec<String> = keep.keys().cloned().collect();
     let tx = conn.transaction()?;
     let mut n = 0;
     {
@@ -320,10 +348,17 @@ pub fn sync_rows(conn: &mut Connection, rows: &[DailyRow]) -> Result<usize, Stor
             n += 1;
         }
         drop(stmt);
-        for (date, keys) in &keep {
-            let deleted = prune_date(&tx, date, keys)?;
-            if deleted > 0 {
-                tracing::debug!(date, deleted, "pruned stale daily_usage rows");
+        if tool_set_collapsed(&tx, &dates, &report_tools)? {
+            tracing::warn!(
+                reported_tools = report_tools.len(),
+                "tool set collapsed vs stored rows — suspected partial scan, prune skipped"
+            );
+        } else {
+            for (date, keys) in &keep {
+                let deleted = prune_date(&tx, date, keys)?;
+                if deleted > 0 {
+                    tracing::debug!(date, deleted, "pruned stale daily_usage rows");
+                }
             }
         }
     }
@@ -696,6 +731,105 @@ mod tests {
             )
             .unwrap();
         assert_eq!(inp, 120, "reported row takes the fresh value");
+    }
+
+    #[test]
+    fn sync_skips_prune_when_tool_set_collapses() {
+        let mut conn = fresh_conn();
+        // Three tools across one date.
+        ingest_graph(
+            &mut conn,
+            &serde_json::json!({
+                "contributions": [
+                    { "date": "2026-07-15", "clients": [
+                        { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                          "tokens": {"input": 1, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                          "cost": 0.0, "messages": 1 },
+                        { "client": "codex", "modelId": "gpt-5", "providerId": "x",
+                          "tokens": {"input": 1, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                          "cost": 0.0, "messages": 1 },
+                        { "client": "opencode", "modelId": "kimi-k2", "providerId": "x",
+                          "tokens": {"input": 1, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                          "cost": 0.0, "messages": 1 }
+                    ]}
+                ]
+            }),
+        )
+        .unwrap();
+
+        // Next scan reports only claude (1 tool; 1*2 < 3) — tokscale likely
+        // failed to read the other client dirs. The prune must be skipped so
+        // the archived-session history rows survive.
+        let partial = serde_json::json!({
+            "contributions": [
+                { "date": "2026-07-15", "clients": [
+                    { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                      "tokens": {"input": 2, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 0.0, "messages": 1 }
+                ]}
+            ]
+        });
+        ingest_graph(&mut conn, &partial).unwrap();
+
+        for tool in ["codex", "opencode"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM daily_usage WHERE date='2026-07-15' AND tool=?",
+                    params![tool],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "{tool} row must survive a suspected partial scan");
+        }
+        // The reported row still lands (upsert is not gated).
+        let inp: i64 = conn
+            .query_row(
+                "SELECT input_tokens FROM daily_usage WHERE date='2026-07-15' AND tool='claude'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(inp, 2);
+    }
+
+    #[test]
+    fn sync_prunes_when_tool_set_shrinks_moderately() {
+        let mut conn = fresh_conn();
+        // Two tools; the next report drops one entirely (uninstall) — 1*2 >= 2
+        // is NOT a collapse, so the prune must run.
+        let two = serde_json::json!({
+            "contributions": [
+                { "date": "2026-07-15", "clients": [
+                    { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                      "tokens": {"input": 1, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 0.0, "messages": 1 },
+                    { "client": "codex", "modelId": "gpt-5", "providerId": "x",
+                      "tokens": {"input": 1, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 0.0, "messages": 1 }
+                ]}
+            ]
+        });
+        ingest_graph(&mut conn, &two).unwrap();
+
+        let one = serde_json::json!({
+            "contributions": [
+                { "date": "2026-07-15", "clients": [
+                    { "client": "claude", "modelId": "glm-5.2", "providerId": "x",
+                      "tokens": {"input": 5, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0},
+                      "cost": 0.0, "messages": 1 }
+                ]}
+            ]
+        });
+        ingest_graph(&mut conn, &one).unwrap();
+
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM daily_usage WHERE date='2026-07-15' AND tool='codex'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0, "a single tool disappearing is a normal prune");
     }
 
     #[test]
