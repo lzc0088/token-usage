@@ -16,6 +16,14 @@
 
   let cfg = $state<Config>({ currency: "both" });
   let loaded = $state(false);
+  // App version shown at the bottom of the left nav.
+  let appVersion = $state("");
+
+  $effect(() => {
+    api.getAppVersion()
+      .then((v) => { appVersion = v; })
+      .catch(() => { /* version is decorative — failure is non-critical */ });
+  });
 
   // Active settings page — LOCAL $state, set by nav clicks and by the
   // consume-target handler when opened via a quota quick-link.
@@ -132,6 +140,9 @@
           <span class="si">{@html n.i}</span><span class="sl">{n.l}</span>
         </button>
       {/each}
+      {#if appVersion}
+        <span class="nav-ver" title="Token Usage v{appVersion}">v{appVersion}</span>
+      {/if}
     </nav>
 
     <main class="setpanel">
@@ -216,6 +227,18 @@
   .item .si :global(svg) {
     width: 17px;
     height: 17px;
+  }
+
+  /* App version pinned to the bottom of the nav (flex column + margin-top
+   * auto). Mono font + faint color matches the main popover's footer tag. */
+  .nav-ver {
+    margin-top: auto;
+    padding: 10px 12px 2px;
+    font-family: "JetBrains Mono", var(--font-mono);
+    font-size: 0.7333rem;
+    color: var(--text-faint);
+    user-select: text;
+    -webkit-app-region: no-drag;
   }
 
   .setpanel {
