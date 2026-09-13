@@ -41,6 +41,13 @@ pub struct Summary {
     pub timed_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timed_duration_ms: Option<i64>,
+    /// Live generation speed from consecutive-scan differencing (tok/s).
+    /// None when no new model-busy time elapsed since the previous sample.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_rate_speed: Option<f64>,
+    /// Live burn rate from the same window (tok/min).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_rate_burn: Option<f64>,
 }
 
 /// Aggregate `daily_usage` over `range` into a [`Summary`].
@@ -107,6 +114,8 @@ pub fn query(conn: &Connection, range: &DateRange) -> Result<Summary, QueryError
         timed_output_tokens: None,
         timed_tokens: None,
         timed_duration_ms: None,
+        live_rate_speed: None,
+        live_rate_burn: None,
     })
 }
 
@@ -138,11 +147,77 @@ pub fn from_today_json(v: &Value) -> Option<Summary> {
         timed_output_tokens: Some(timed_output),
         timed_tokens: Some(timed_tokens),
         timed_duration_ms: Some(timed_duration),
+        live_rate_speed: None,
+        live_rate_burn: None,
     })
 }
 
 fn get_i64(v: &Value, key: &str) -> i64 {
     v.get(key).and_then(|x| x.as_i64()).unwrap_or(0)
+}
+
+/// Baseline for consecutive-scan rate differencing (see [`apply_live_rate`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RateBaseline {
+    pub output_tokens: i64,
+    pub tokens: i64,
+    pub duration_ms: i64,
+}
+
+/// Compute the live rate on `s` from the delta vs `baseline`, then re-anchor
+/// the baseline to this sample. tok/s uses output tokens (generation speed);
+/// tok/min uses all timed tokens (burn).
+///
+/// - first sample after startup → no rate (nothing to diff yet)
+/// - counters rolled back (midnight reset) → re-anchor, no rate this sample
+/// - no new model-busy time since baseline → no rate, baseline kept
+///   (the model stopped; the readout clears instead of showing a stale speed)
+pub fn apply_live_rate(s: &mut Summary, baseline: &mut Option<RateBaseline>) {
+    let clear = |s: &mut Summary| {
+        s.live_rate_speed = None;
+        s.live_rate_burn = None;
+    };
+    let (Some(out), Some(tok), Some(dur)) =
+        (s.timed_output_tokens, s.timed_tokens, s.timed_duration_ms)
+    else {
+        // Live scan without throughput data — nothing to diff, drop the anchor.
+        *baseline = None;
+        clear(s);
+        return;
+    };
+    let Some(b) = baseline else {
+        *baseline = Some(RateBaseline {
+            output_tokens: out,
+            tokens: tok,
+            duration_ms: dur,
+        });
+        clear(s);
+        return;
+    };
+    if out < b.output_tokens || tok < b.tokens || dur < b.duration_ms {
+        // New day: tokscale restarted its counters — re-anchor.
+        *baseline = Some(RateBaseline {
+            output_tokens: out,
+            tokens: tok,
+            duration_ms: dur,
+        });
+        clear(s);
+        return;
+    }
+    let d_out = out - b.output_tokens;
+    let d_tok = tok - b.tokens;
+    let d_dur = dur - b.duration_ms;
+    if d_dur <= 0 {
+        clear(s);
+        return;
+    }
+    s.live_rate_speed = Some(d_out as f64 * 1000.0 / d_dur as f64);
+    s.live_rate_burn = Some(d_tok as f64 * 60000.0 / d_dur as f64);
+    *baseline = Some(RateBaseline {
+        output_tokens: out,
+        tokens: tok,
+        duration_ms: dur,
+    });
 }
 
 /// Read the first present i64 among `keys` on `obj` (camelCase + snake_case
@@ -263,6 +338,112 @@ mod tests {
         assert_eq!(s.input, 1000);
         assert_eq!(s.output, 100);
         assert_eq!(s.messages, 3);
+    }
+
+    #[test]
+    fn live_rate_first_sample_has_no_delta() {
+        let mut s = live_summary(3000, 6000, 15000);
+        let mut baseline = None;
+        apply_live_rate(&mut s, &mut baseline);
+        assert_eq!(s.live_rate_speed, None);
+        assert_eq!(s.live_rate_burn, None);
+        assert_eq!(
+            baseline,
+            Some(RateBaseline {
+                output_tokens: 3000,
+                tokens: 6000,
+                duration_ms: 15000
+            })
+        );
+    }
+
+    #[test]
+    fn live_rate_diffs_consecutive_samples() {
+        let mut s = live_summary(3000, 6000, 15000);
+        let mut baseline = Some(RateBaseline {
+            output_tokens: 1000,
+            tokens: 2000,
+            duration_ms: 5000,
+        });
+        apply_live_rate(&mut s, &mut baseline);
+        // Δout=2000 over Δdur=10000ms → 200 tok/s;
+        // Δtok=4000 over 10000ms → 24000 tok/min.
+        assert!((s.live_rate_speed.unwrap() - 200.0).abs() < 1e-9);
+        assert!((s.live_rate_burn.unwrap() - 24_000.0).abs() < 1e-9);
+        assert_eq!(baseline.as_ref().unwrap().duration_ms, 15000);
+    }
+
+    #[test]
+    fn live_rate_reanchors_on_rollback() {
+        // Midnight reset: counters go backwards.
+        let mut s = live_summary(100, 200, 500);
+        let mut baseline = Some(RateBaseline {
+            output_tokens: 1000,
+            tokens: 2000,
+            duration_ms: 5000,
+        });
+        apply_live_rate(&mut s, &mut baseline);
+        assert_eq!(s.live_rate_speed, None);
+        assert_eq!(baseline.as_ref().unwrap().output_tokens, 100);
+
+        // Next sample diffs against the re-anchored baseline.
+        let mut s2 = live_summary(600, 1200, 3000);
+        apply_live_rate(&mut s2, &mut baseline);
+        assert!((s2.live_rate_speed.unwrap() - 200.0).abs() < 1e-9); // 500 tok / 2500 ms
+    }
+
+    #[test]
+    fn live_rate_none_when_model_idle() {
+        // Same counters as the baseline — no new busy time, no rate, and the
+        // baseline is kept so the next active sample still diffs correctly.
+        let mut s = live_summary(3000, 6000, 15000);
+        let mut baseline = Some(RateBaseline {
+            output_tokens: 3000,
+            tokens: 6000,
+            duration_ms: 15000,
+        });
+        apply_live_rate(&mut s, &mut baseline);
+        assert_eq!(s.live_rate_speed, None);
+        assert_eq!(s.live_rate_burn, None);
+        assert_eq!(baseline.as_ref().unwrap().output_tokens, 3000);
+    }
+
+    #[test]
+    fn live_rate_missing_throughput_clears_baseline() {
+        let mut s = live_summary(3000, 6000, 15000);
+        s.timed_output_tokens = None;
+        s.timed_tokens = None;
+        s.timed_duration_ms = None;
+        let mut baseline = Some(RateBaseline {
+            output_tokens: 1000,
+            tokens: 2000,
+            duration_ms: 5000,
+        });
+        apply_live_rate(&mut s, &mut baseline);
+        assert_eq!(s.live_rate_speed, None);
+        assert_eq!(baseline, None);
+    }
+
+    fn live_summary(out: i64, tok: i64, dur: i64) -> Summary {
+        Summary {
+            period: "day".into(),
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+            reasoning: 0,
+            total_tokens: 0,
+            cost_usd: 0.0,
+            messages: 0,
+            active_days: None,
+            delta_pct: None,
+            delta_label: None,
+            timed_output_tokens: Some(out),
+            timed_tokens: Some(tok),
+            timed_duration_ms: Some(dur),
+            live_rate_speed: None,
+            live_rate_burn: None,
+        }
     }
 
     #[test]

@@ -384,11 +384,16 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                             floating::apply_push(&app, p);
                         }
                     }
-                    if let Some(s) = summary::from_today_json(&v) {
+                    if let Some(mut s) = summary::from_today_json(&v) {
                         // Cache the live today Summary so get_summary("day") can
                         // serve the same value the tray shows, instead of the
                         // DB-backed daily_usage (which lags one history tick).
+                        // The differenced live rate is computed first so the
+                        // cached copy and the event carry the same fields.
                         if let Some(state) = app.try_state::<crate::state::AppState>() {
+                            if let Ok(mut baseline) = state.rate_baseline.lock() {
+                                summary::apply_live_rate(&mut s, &mut baseline);
+                            }
                             if let Ok(mut cache) = state.last_today.lock() {
                                 *cache = Some(s.clone());
                             }

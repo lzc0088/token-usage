@@ -47,6 +47,11 @@ pub struct AppState {
     /// tray menu title, avoiding a ~15-minute staleness gap between the
     /// tray (live events) and the popover (DB-backed daily_usage query).
     pub(crate) last_today: Mutex<Option<crate::query::summary::Summary>>,
+    /// Previous throughput counters, anchored by each live today scan so the
+    /// next scan's Summary can carry a differenced live rate (see
+    /// `query::summary::apply_live_rate`). Memory-only by design — rates are
+    /// only meaningful within a running session.
+    pub(crate) rate_baseline: Mutex<Option<crate::query::summary::RateBaseline>>,
     /// Senders to trigger an immediate collector scan: `collector_tick` forces
     /// a `tokscale --today` scan, `collector_history` forces graph+sessions.
     /// Populated by `collector::runtime::start` once the channels exist; `None`
@@ -78,6 +83,7 @@ impl AppState {
             settings_target: Mutex::new(None),
             drag_suspended: Mutex::new(HashSet::new()),
             last_today: Mutex::new(None),
+            rate_baseline: Mutex::new(None),
             collector_tick: Mutex::new(None),
             collector_history: Mutex::new(None),
             burn_rate_tracker: Mutex::new(BurnRateTracker::new()),
@@ -152,6 +158,7 @@ impl AppState {
             settings_target: Mutex::new(None),
             drag_suspended: Mutex::new(HashSet::new()),
             last_today: Mutex::new(None),
+            rate_baseline: Mutex::new(None),
             collector_tick: Mutex::new(None),
             collector_history: Mutex::new(None),
             burn_rate_tracker: Mutex::new(BurnRateTracker::new()),

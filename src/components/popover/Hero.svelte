@@ -2,7 +2,7 @@
   // Hero: period label + total tokens (big, with small unit) + cost (CNY first) + delta
   //       + live token-rate readout (click to toggle speed / burn).
   import type { Summary, Currency } from "../../lib/api";
-  import { formatTokenRate, splitTokens, splitTokensCN } from "../../lib/format";
+  import { formatLiveRate, formatTokenRate, splitTokens, splitTokensCN } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import CostText from "../common/CostText.svelte";
 
@@ -28,13 +28,16 @@
   const deltaDir = $derived(
     summary?.delta_pct != null ? (summary.delta_pct >= 0 ? "↑" : "↓") : "",
   );
-  // Live throughput readout. Empty when there's no model-busy duration in the
-  // window (e.g. month/total periods, or a quiet today) — see formatTokenRate.
-  const rateText = $derived(
-    summary
-      ? formatTokenRate(rateMode, summary.timed_output_tokens, summary.timed_tokens, summary.timed_duration_ms)
-      : "",
-  );
+  // Live throughput readout: prefer the differenced rate between consecutive
+  // scans (current speed); fall back to the whole-day session average while
+  // the baseline is still warming up (first ~60s after launch). Empty when
+  // the model has been idle since the previous sample.
+  const rateText = $derived.by(() => {
+    if (!summary) return "";
+    const live = formatLiveRate(rateMode, summary.live_rate_speed, summary.live_rate_burn);
+    if (live) return live;
+    return formatTokenRate(rateMode, summary.timed_output_tokens, summary.timed_tokens, summary.timed_duration_ms);
+  });
 
   function deltaText(raw: string | null | undefined): string {
     if (!raw) return "";

@@ -185,3 +185,18 @@ export function formatTokenRate(
   const perMin = ((timedTokens ?? 0) * 60000) / dur;
   return `${formatTokens(perMin)} tok/min`;
 }
+
+/** Format an already-computed differenced live rate (from consecutive today
+ *  scans; see the Rust `apply_live_rate`). Returns "" when the value is
+ *  missing — the model was idle since the previous sample. */
+export function formatLiveRate(
+  mode: "speed" | "burn",
+  speed: number | undefined,
+  burn: number | undefined,
+): string {
+  const value = mode === "speed" ? speed : burn;
+  if (value == null || !Number.isFinite(value)) return "";
+  return mode === "speed"
+    ? `${formatTokens(value)} tok/s`
+    : `${formatTokens(value)} tok/min`;
+}

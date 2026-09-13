@@ -33,6 +33,11 @@ export interface Summary {
   timed_output_tokens?: number;
   timed_tokens?: number;
   timed_duration_ms?: number;
+  /** Differenced live rate between consecutive today scans: generation
+   *  speed in tok/s and burn in tok/min. Undefined when no new model-busy
+   *  time elapsed since the previous sample (model idle / just started). */
+  live_rate_speed?: number;
+  live_rate_burn?: number;
 }
 
 export interface BreakdownEntry {

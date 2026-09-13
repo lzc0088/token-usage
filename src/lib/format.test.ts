@@ -5,6 +5,7 @@ import {
   splitTokens,
   splitTokensCN,
   formatTokenRate,
+  formatLiveRate,
 } from "./format";
 
 describe("formatTokens", () => {
@@ -146,5 +147,22 @@ describe("formatTokenRate", () => {
   });
   it("burn mode uses 0 for undefined total", () => {
     expect(formatTokenRate("burn", undefined, undefined, 5000)).toBe("0 tok/min");
+  });
+});
+
+describe("formatLiveRate", () => {
+  it("returns empty string when the value is undefined (model idle)", () => {
+    expect(formatLiveRate("speed", undefined, undefined)).toBe("");
+    expect(formatLiveRate("burn", 120, undefined)).toBe("");
+    expect(formatLiveRate("speed", undefined, 24000)).toBe("");
+  });
+  it("returns empty string for non-finite values", () => {
+    expect(formatLiveRate("speed", NaN, NaN)).toBe("");
+  });
+  it("formats differenced speed", () => {
+    expect(formatLiveRate("speed", 200, 24000)).toBe("200 tok/s");
+  });
+  it("formats differenced burn", () => {
+    expect(formatLiveRate("burn", 200, 24000)).toBe("24K tok/min");
   });
 });

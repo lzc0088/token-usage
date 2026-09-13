@@ -225,6 +225,8 @@ fn zero_summary() -> Summary {
         timed_output_tokens: None,
         timed_tokens: None,
         timed_duration_ms: None,
+        live_rate_speed: None,
+        live_rate_burn: None,
     }
 }
 
@@ -249,6 +251,8 @@ mod tests {
             timed_output_tokens: None,
             timed_tokens: None,
             timed_duration_ms: None,
+            live_rate_speed: None,
+            live_rate_burn: None,
         }
     }
 
