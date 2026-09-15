@@ -82,9 +82,10 @@
   }
   .big {
     font-family: "Fraunces", var(--font-ui);
-    font-size: 1.867rem;
-    font-weight: 600;
-    line-height: 1.15;
+    font-size: 2rem;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: 0.01em;
     color: var(--text);
     display: flex;
     align-items: baseline;
@@ -111,6 +112,8 @@
     white-space: nowrap;
     user-select: text;
     -webkit-user-select: text;
+    /* Soft amber glow — a "lit up" accent without changing CostText itself. */
+    text-shadow: 0 0 18px rgba(232, 176, 75, 0.35);
   }
   .subline {
     display: flex;

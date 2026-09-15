@@ -26,6 +26,27 @@
   let summary = $state<Summary | null>(null);
   let config = $state<Config>({ currency: "both" });
   let loadError = $state<string | null>(null);
+  // When the summary was last refreshed (any path: period fetch, live event,
+  // manual refresh). Shown next to the footer refresh button as a freshness
+  // cue ("3分钟前已刷新") — builds trust that the numbers are live.
+  let lastRefreshedMs = $state(0);
+  let nowTickMs = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => { nowTickMs = Date.now(); }, 30_000);
+    return () => clearInterval(t);
+  });
+  function stampRefresh(): void {
+    lastRefreshedMs = Date.now();
+    nowTickMs = lastRefreshedMs;
+  }
+  const freshnessText = $derived.by(() => {
+    if (!lastRefreshedMs || !summary) return "";
+    const secs = Math.floor((nowTickMs - lastRefreshedMs) / 1000);
+    if (secs < 10) return t("hero.refreshJustNow");
+    if (secs < 60) return t("hero.refreshJustNow");
+    const mins = Math.floor(secs / 60);
+    return t("hero.refreshedAgo").replace("{m}", String(mins));
+  });
   // USD→CNY rate for cost conversion. Loaded from the latest stored value
   // (auto or manual) and refreshed on rate:updated / config:changed.
   let cnyRate = $state<number>(7.2);
@@ -154,6 +175,7 @@
         try {
           const s = await api.getSummary(periodValue());
           summary = s;
+          stampRefresh();
         } catch (e) { api.feLog(`focus summary reload failed: ${e instanceof Error ? e.message : String(e)}`); }
         const now = Date.now();
         if (now - lastCheckMs > 300_000) {
@@ -205,6 +227,7 @@
         summary = s;
         config = c;
         loadError = null;
+        stampRefresh();
       } catch (e) {
         console.debug("[App] period-change effect ERROR", e);
         if (!cancelled) {
@@ -230,6 +253,7 @@
         timer = null;
         summary = e.payload;
         if (collectionError) collectionError = null;
+        stampRefresh();
       }, 300);
     });
     return () => {
@@ -362,6 +386,7 @@
       summary = s;
       config = c;
       loadError = null;
+      stampRefresh();
       refreshStatus = "ok";
       refreshMsg = t("hero.refreshOk");
       const _rid = window.setTimeout(() => { refreshStatus = "idle"; refreshMsg = ""; }, 3000);
@@ -491,6 +516,9 @@
       {/if}
     </div>
     <div class="r">
+      {#if freshnessText}
+        <span class="freshness" title={t("hero.refreshedAt")}>{freshnessText}</span>
+      {/if}
       {#if refreshStatus === "ok"}
         <span class="refresh-feedback ok">{refreshMsg}</span>
       {:else if refreshStatus === "fail"}
@@ -648,6 +676,33 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  /* Freshness pill: "刚刚刷新 / 3分钟前已刷新" — mono digits, breathing dot. */
+  .freshness {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.6333rem;
+    font-family: "JetBrains Mono", var(--font-mono);
+    color: var(--text-faint);
+    background: var(--surface-tint);
+    border-radius: 6px;
+    padding: 2px 8px;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .freshness::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 5px rgba(180, 227, 76, 0.6);
+    animation: fresh-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes fresh-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
   }
   .refresh-feedback { font-size: 0.7rem; line-height: 1; }
   .refresh-feedback.ok { color: var(--lime); }

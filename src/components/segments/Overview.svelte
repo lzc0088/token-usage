@@ -255,11 +255,14 @@ import ToolIcon from "../ui/ToolIcon.svelte";
 
 <style>
   .ov-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+  /* Borderless elevation: cards separate from the background by color step +
+   * a faint top highlight instead of a hard 1px line. */
   .module {
     background: var(--surface-tint);
-    border: 1px solid var(--border-dim);
-    border-radius: 10px;
+    border: none;
+    border-radius: 12px;
     overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .sec-h {
     font-size: 0.8667rem; font-weight: 700;
@@ -281,8 +284,9 @@ import ToolIcon from "../ui/ToolIcon.svelte";
   }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
   .scell {
-    background: var(--surface-tint); border: 1px solid var(--border-dim);
-    border-radius: 9px; padding: 10px 11px;
+    background: var(--surface-tint-strong); border: none;
+    border-radius: 10px; padding: 10px 11px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .scell .k { font-size: 0.7333rem; color: var(--text-faint); }
   .scell .v {

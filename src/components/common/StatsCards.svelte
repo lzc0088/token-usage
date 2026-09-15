@@ -101,9 +101,10 @@
 
   .scell {
     background: var(--surface-tint);
-    border: 1px solid var(--border-dim);
-    border-radius: 9px;
+    border: none;
+    border-radius: 12px;
     padding: 10px 11px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .scell .k {
     font-size: 0.7333rem;

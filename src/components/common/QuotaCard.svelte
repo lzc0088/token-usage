@@ -365,14 +365,16 @@
 
 <style>
   /* ── card shell ── */
+  /* Borderless elevation: color step + faint top highlight (no hard line). */
   .qcard {
     background: var(--glass-2);
-    border: 1px solid var(--border-dim);
-    border-radius: 9px;
+    border: none;
+    border-radius: 11px;
     padding: 11px 13px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   /* ── 标题行 ── */
@@ -593,20 +595,22 @@
   }
   .qiw-bar {
     width: 100%;
-    height: 5px;
+    height: 6px;
     background: var(--bar-track);
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
   }
   .qiw-fill {
     display: block;
     height: 100%;
-    border-radius: 3px;
+    border-radius: 4px;
     transition: width 0.3s;
   }
-  .qiw-fill.f-ok    { background: var(--lime); }
-  .qiw-fill.f-low   { background: var(--amber); }
-  .qiw-fill.f-danger { background: var(--coral); }
+  /* Softer desaturated leading edge → full color at the tip: reads as a lit
+   * capsule instead of a flat colored block. */
+  .qiw-fill.f-ok    { background: linear-gradient(90deg, rgba(180, 227, 76, 0.55), var(--lime)); }
+  .qiw-fill.f-low   { background: linear-gradient(90deg, rgba(232, 176, 75, 0.55), var(--amber)); }
+  .qiw-fill.f-danger { background: linear-gradient(90deg, rgba(240, 142, 106, 0.55), var(--coral)); }
   .qiw-mode-tag {
     flex: 0 0 52px;
     font-size: 0.6667rem;
@@ -830,7 +834,7 @@
     flex: 0 0 52px;
     flex-shrink: 0;
   }
-  .qsub-bar { height: 3px; }
+  .qsub-bar { height: 4px; }
   .qsub-pct {
     flex: 0 0 34px;
     font-size: 0.6333rem;

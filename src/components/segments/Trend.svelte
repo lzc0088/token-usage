@@ -229,11 +229,19 @@
           role="img"
           aria-label="{rangeLabel}: {t('trends.total')} {totalStr.value}{totalStr.unit}, {t('trends.dailyAvg')} {avgStr.value}{avgStr.unit}"
         >
+          <!-- Vertical gradient for the area fill: stronger at the line,
+               fading to transparent at the baseline. -->
+          <defs>
+            <linearGradient id="trend-area-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#e8b04b" stop-opacity="0.26" />
+              <stop offset="100%" stop-color="#e8b04b" stop-opacity="0" />
+            </linearGradient>
+          </defs>
           <!-- average dashed line -->
           <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY} class="avg-line" />
           <!-- area fill under the line -->
           {#if areaPoints}
-            <polygon points={areaPoints} class="trend-area" />
+            <polygon points={areaPoints} fill="url(#trend-area-grad)" />
           {/if}
           <!-- the line -->
           <polyline points={linePoints} class="trend-line" />
@@ -241,14 +249,25 @@
           <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B} class="axis-line" />
           <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} class="axis-line" />
           <!-- nodes: decorative (the svg carries a text summary; per-node
-               labels made screen-reader output noisy) -->
+               labels made screen-reader output noisy). The peak node gets a
+               highlight ring so the max day reads at a glance. -->
           {#each chartPoints as pt, i (pt.date)}
+            {#if pt.tokens === maxTokens && maxTokens > 0}
+              <circle
+                cx={px(i, chartPoints.length)}
+                cy={py(pt.tokens)}
+                r={hoverIdx === i ? 5.5 : 4.5}
+                class="node-peak-halo"
+                aria-hidden="true"
+              />
+            {/if}
             <circle
               cx={px(i, chartPoints.length)}
               cy={py(pt.tokens)}
               r={hoverIdx === i ? 3.5 : 2.4}
               class="node"
               class:active={hoverIdx === i}
+              class:peak={pt.tokens === maxTokens && maxTokens > 0}
               aria-hidden="true"
               onmouseenter={() => (hoverIdx = i)}
               onmouseleave={() => (hoverIdx = null)}
@@ -332,21 +351,25 @@
   /* Chart colors as direct values — CSS vars may not resolve inside SVG on
    * Windows WebView2 (transparent window). Dark-theme values below; the
    * [data-theme="light"] block overrides them with light equivalents
-   * (dark-only values were near-invisible on the light background). */
-  .trend-area { fill: rgba(232, 176, 75, 0.1); }
+   * (dark-only values were near-invisible on the light background).
+   * The area fill uses the #trend-area-grad gradient (SVG defs above). */
   .trend-line { fill: none; stroke: #e8b04b; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
   .avg-line   { stroke: #7fd1d3; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.7; }
   .axis-line  { stroke: #8a8470; stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.5; }
   .node       { fill: #e8b04b; stroke: #0f0e0b; stroke-width: 1; vector-effect: non-scaling-stroke; transition: r 0.12s; cursor: pointer; }
   .node.active{ fill: #b4e34c; }
+  /* Peak day: lime node + translucent halo ring. */
+  .node.peak  { fill: #b4e34c; }
+  .node-peak-halo { fill: rgba(180, 227, 76, 0.18); stroke: rgba(180, 227, 76, 0.55); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
   /* Light theme — same literals as the token values in app.css (kept as
    * literals for the WebView2 reason above). */
-  :global([data-theme="light"]) .trend-area { fill: rgba(201, 138, 30, 0.12); }
   :global([data-theme="light"]) .trend-line { stroke: #c98a1e; }
   :global([data-theme="light"]) .avg-line   { stroke: #2a9fa3; }
   :global([data-theme="light"]) .axis-line  { stroke: #9a9384; }
   :global([data-theme="light"]) .node       { fill: #c98a1e; stroke: #f5f3ef; }
   :global([data-theme="light"]) .node.active{ fill: #6ba81f; }
+  :global([data-theme="light"]) .node.peak  { fill: #6ba81f; }
+  :global([data-theme="light"]) .node-peak-halo { fill: rgba(107, 168, 31, 0.15); stroke: rgba(107, 168, 31, 0.5); }
   :global([data-theme="light"]) .tip { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
   .x-axis {
     position: relative;
