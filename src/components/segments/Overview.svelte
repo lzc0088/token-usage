@@ -315,6 +315,9 @@ import ToolIcon from "../ui/ToolIcon.svelte";
     border-bottom: 1px dashed var(--border-dim);
   }
   .crow:last-child { border-bottom: none; }
+  /* Hover feedback via background lift (cc-bar/DSMW pattern — never a border
+   * change); the tint token adapts to light/dark automatically. */
+  .crow:hover { background: var(--surface-tint-strong); }
   .crow:hover .nm { color: var(--amber); }
   .crow .nm {
     font-size: 0.8667rem; flex: 1; color: var(--text); transition: .15s;

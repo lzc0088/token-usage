@@ -53,9 +53,15 @@
     letter-spacing: 0.12em;
   }
   .seg button:hover { color: var(--text); }
+  /* Active period: the app-wide amber ramp as a gradient capsule (the hero
+   * gradient at capsule scale). */
   .seg button.active {
-    background: var(--amber);
+    background: linear-gradient(135deg, #f0c268, #d29a34);
     color: var(--badge-text);
     font-weight: 700;
+    box-shadow: 0 1px 6px rgba(232, 176, 75, 0.25);
+  }
+  :global([data-theme="light"]) .seg button.active {
+    background: linear-gradient(135deg, #c98a1e, #a87514);
   }
 </style>

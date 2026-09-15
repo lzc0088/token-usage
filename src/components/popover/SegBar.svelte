@@ -148,10 +148,35 @@
   .segbar button:hover {
     color: var(--text-dim);
   }
+  /* Active tab: the SAME amber gradient as the hero digits (one gradient
+   * defines the whole app — DeepSeekMonitorWindows' brand-cohesion trick),
+   * plus a gradient underline instead of a flat border. */
   .segbar button.active {
-    color: var(--amber);
+    background: linear-gradient(160deg, #f9e7bb, #e8b04b 52%, #cd943c);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
     font-weight: 700;
-    border-bottom-color: var(--amber);
+    border-bottom-color: transparent;
+    position: relative;
+  }
+  .segbar button.active::after {
+    content: "";
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #e8b04b, transparent);
+  }
+  :global([data-theme="light"]) .segbar button.active {
+    background: linear-gradient(160deg, #b57e1c, #9a6a12 55%, #7d5510);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  :global([data-theme="light"]) .segbar button.active::after {
+    background: linear-gradient(90deg, transparent, #c98a1e, transparent);
   }
 
   /* Edge fades — visible only while that side has content cut off. They sit

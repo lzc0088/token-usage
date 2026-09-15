@@ -34,6 +34,8 @@
     value: string;
     unit: string;
     color: string;
+    /** Lead card only: render the digits with the app-wide amber gradient. */
+    lead?: boolean;
     /** Cost card only: (unit, value) pairs rendered unit-first. */
     costParts?: CostPart[];
   }
@@ -42,7 +44,9 @@
     const total = splitCompact(summary.total_tokens, locale);
 
     return [
-      { key: "totalTokens", label: t("stats.totalTokens"), ...total, color: "var(--tok-input)" },
+      // Lead card echoes the hero's amber gradient — "the app's one gradient"
+      // brand-cohesion rule (see DeepSeekMonitorWindows).
+      { key: "totalTokens", label: t("stats.totalTokens"), ...total, color: "var(--tok-input)", lead: true },
       { key: "totalCost", label: t("stats.totalCost"), value: "", unit: "", costParts: splitCost(summary.cost_usd, currency, cnyRate), color: "var(--tok-output)" },
       { key: "activeDays", label: t("stats.activeDays"), value: String(activeDays), unit: t("stats.days"), color: "var(--tok-cache-r)" },
       { key: "messages", label: t("stats.messageCount"), value: String(summary.messages), unit: t("stats.messages"), color: "var(--tok-cache-w)" },
@@ -81,6 +85,10 @@
           {#each card.costParts as part, i (i)}
             {part.sep ?? ""}<span class="cu">{part.unit}</span><span class="cost-val">{part.value}</span>
           {/each}
+        </div>
+      {:else if card.lead}
+        <div class="v lead">
+          {card.value}<span class="u">{card.unit}</span>
         </div>
       {:else}
         <div class="v" style="color: {card.color}">
@@ -122,6 +130,22 @@
     font-size: 0.7333rem;
     color: var(--text-faint);
     font-weight: 600;
+  }
+  /* Lead card digits: the hero's amber gradient, unit stays neutral. */
+  .scell .v.lead {
+    background: linear-gradient(160deg, #f9e7bb, #e8b04b 52%, #cd943c);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .scell .v.lead .u {
+    background: none;
+    -webkit-text-fill-color: var(--text-faint);
+  }
+  :global([data-theme="light"]) .scell .v.lead {
+    background: linear-gradient(160deg, #b57e1c, #9a6a12 55%, #7d5510);
+    -webkit-background-clip: text;
+    background-clip: text;
   }
   /* Cost card: small currency unit immediately LEFT of the amount. */
   .cost-v {

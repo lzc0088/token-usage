@@ -210,6 +210,9 @@ body {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
+  /* Tabular (equal-width) digits everywhere — a dashboard staple (all three
+   * reference apps do this) so live-updating numbers don't jitter. */
+  font-variant-numeric: tabular-nums;
   /* Clip the entire webview so all four corners are rounded. */
   border-radius: 15px;
   overflow: hidden;
