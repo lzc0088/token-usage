@@ -14,11 +14,18 @@
   margin-top: 22px;
 }
 
+/* Borderless elevation (matches the popover cards): color step + faint top
+ * highlight instead of a hard 1px line. */
 .section-box {
-  background: var(--surface-tint);
-  border: 1px solid var(--border-dim);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.055);
+  border: none;
+  border-radius: 12px;
   padding: 10px 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+[data-theme="light"] .section-box {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 .section-box.no-divider .box-row { border-bottom: none; }
 .section-box.no-divider .box-row:first-child { padding-top: 0; }
@@ -91,7 +98,10 @@
   flex-shrink: 0;
   display: block;
 }
-.tg.on { background: var(--amber); border-color: var(--amber); }
+/* Toggle ON: the app-wide amber ramp as a gradient (matches the period
+ * capsule / hero digits). */
+.tg.on { background: linear-gradient(135deg, #f0c268, #d29a34); border-color: var(--amber-soft); }
+[data-theme="light"] .tg.on { background: linear-gradient(135deg, #c98a1e, #a87514); }
 .tg::after {
   content: "";
   position: absolute;
@@ -132,7 +142,7 @@
 
 /* ── action buttons ── */
 .btn-primary {
-  background: var(--amber);
+  background: linear-gradient(135deg, #f0c268, #d29a34);
   border: none;
   color: var(--badge-text);
   padding: 6px 14px;
@@ -144,8 +154,10 @@
   height: 32px;
   min-width: 64px;
   text-align: center;
+  box-shadow: 0 1px 6px rgba(232, 176, 75, 0.25);
 }
-.btn-primary:hover { opacity: 0.9; }
+[data-theme="light"] .btn-primary { background: linear-gradient(135deg, #c98a1e, #a87514); }
+.btn-primary:hover { filter: brightness(1.08); }
 .btn-primary:disabled { opacity: 0.5; cursor: default; }
 
 .btn-outline {
@@ -159,9 +171,10 @@
   cursor: pointer;
   font-family: inherit;
   height: 32px;
-  transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s, background 0.15s;
 }
-.btn-outline:hover { border-color: var(--amber); color: var(--amber); }
+/* Hover: background lift + amber text (never rely on the border alone). */
+.btn-outline:hover { border-color: var(--amber); color: var(--amber); background: var(--surface-tint-strong); }
 .btn-outline:disabled { opacity: 0.45; cursor: not-allowed; color: var(--text-faint); border-color: var(--border-dim); }
 
 /* ── rate input ── */

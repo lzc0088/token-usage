@@ -212,9 +212,22 @@
     background: var(--surface-tint);
     color: var(--text);
   }
+  /* Active nav: DSMW pattern — 3px gradient rail + lifted background, the
+   * app-wide amber family. No full-width color block. */
   .item.active {
-    background: rgba(232, 176, 75, 0.08);
+    background: var(--surface-tint-strong);
     color: var(--amber);
+    position: relative;
+  }
+  .item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #f0c268, #c9923a);
   }
   .item .si {
     width: 20px;
@@ -323,8 +336,13 @@
     margin-bottom: 3px;
     color: var(--text);
   }
+  /* Match settings-shared's borderless elevation (top highlight + soft
+   * drop shadow) instead of the old ring outline. */
   :global(.setpanel .section-box) {
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  :global([data-theme="light"] .setpanel .section-box) {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.08);
   }
   :global(.setpanel .sc) {
     padding: 0 30px 30px;

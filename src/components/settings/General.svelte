@@ -538,7 +538,7 @@
   .rate-display { font-family: var(--font-mono); font-size: 0.8rem; color: var(--lime); font-weight: 500; background: rgba(108, 199, 116, 0.10); border: 1px solid rgba(108, 199, 116, 0.25); padding: 3px 8px; border-radius: 5px; }
 
   /* ── save button (local variant) ── */
-  .btn-save { background: var(--amber); border: none; color: var(--badge-text); padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; min-width: 60px; height: 32px; }
+  .btn-save { background: linear-gradient(135deg, #f0c268, #d29a34); border: none; color: var(--badge-text); padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; min-width: 60px; height: 32px; box-shadow: 0 1px 6px rgba(232, 176, 75, 0.25); }
   .btn-save:hover { opacity: 0.9; }
   .btn-save:disabled { opacity: 0.5; cursor: default; }
 
@@ -617,11 +617,17 @@
   /* ── export ── */
   .export-actions { display: flex; gap: 8px; }
   .btn-export-json {
-    background: var(--amber); border: none; color: var(--badge-text);
+    background: linear-gradient(135deg, #f0c268, #d29a34); border: none; color: var(--badge-text);
     padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600;
     cursor: pointer; font-family: inherit; min-width: 80px; height: 32px;
+    box-shadow: 0 1px 6px rgba(232, 176, 75, 0.25);
   }
   .btn-export-json:hover { opacity: 0.9; }
+  /* Dark-amber ramp for the gradient buttons on light backgrounds. */
+  :global([data-theme="light"]) .btn-save,
+  :global([data-theme="light"]) .btn-export-json {
+    background: linear-gradient(135deg, #c98a1e, #a87514);
+  }
   .btn-export-csv {
     background: transparent; border: 1px solid var(--amber); color: var(--amber);
     padding: 6px 14px; border-radius: 7px; font-size: 0.8rem; font-weight: 600;

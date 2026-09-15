@@ -407,10 +407,15 @@
   }
   .seg-equal .seg-btn { flex: 1; text-align: center; padding: 0 4px; }
   .seg-btn:hover { color: var(--text); }
+  /* App-wide amber ramp for the active segment (matches the popover's
+   * period capsule). */
   .seg-btn.on {
-    background: var(--amber);
+    background: linear-gradient(135deg, #f0c268, #d29a34);
     color: var(--badge-text);
     font-weight: 500;
+  }
+  :global([data-theme="light"]) .seg-btn.on {
+    background: linear-gradient(135deg, #c98a1e, #a87514);
   }
 
   /* ── hotkey recorder ── */
