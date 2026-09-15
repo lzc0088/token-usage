@@ -606,11 +606,15 @@
     border-radius: 4px;
     transition: width 0.3s;
   }
-  /* Softer desaturated leading edge → full color at the tip: reads as a lit
-   * capsule instead of a flat colored block. */
-  .qiw-fill.f-ok    { background: linear-gradient(90deg, rgba(180, 227, 76, 0.55), var(--lime)); }
+  /* cc-bar-style: healthy fill is a quiet light capsule (color reserved for
+   * warnings) — amber when low, coral when critical. */
+  .qiw-fill.f-ok    { background: linear-gradient(90deg, rgba(255, 255, 255, 0.45), rgba(242, 237, 225, 0.92)); }
   .qiw-fill.f-low   { background: linear-gradient(90deg, rgba(232, 176, 75, 0.55), var(--amber)); }
   .qiw-fill.f-danger { background: linear-gradient(90deg, rgba(240, 142, 106, 0.55), var(--coral)); }
+  /* Light theme: a white capsule would vanish — swap to a dark neutral. */
+  :global([data-theme="light"]) .qiw-fill.f-ok {
+    background: linear-gradient(90deg, rgba(62, 52, 32, 0.4), rgba(62, 52, 32, 0.78));
+  }
   .qiw-mode-tag {
     flex: 0 0 52px;
     font-size: 0.6667rem;

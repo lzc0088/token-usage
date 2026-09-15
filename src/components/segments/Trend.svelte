@@ -17,6 +17,9 @@
   let loadAttempted = $state(false);
   let hoverIdx = $state<number | null>(null);
   let chartW = $state(320);
+  // Chart rendering mode: gradient rounded bars (default, best for ≤31 daily
+  // buckets) or the classic line+area. Per-view transient state.
+  let chartMode = $state<"bars" | "line">("bars");
   // Generation counter — discards stale responses when the period changes
   // while a fetch is in flight (same pattern as Overview/Limits).
   let loadGen = 0;
@@ -147,6 +150,17 @@
   );
   const avgY = $derived(py(avgTokens));
 
+  // ── bar geometry (bars mode) ───────────────────────────────────────
+  // Each point gets a centered rounded bar at 55% of its slot; the node dot
+  // stays on top (keeps hover targets + the tests' `.node` contract).
+  const barW = $derived(
+    chartPoints.length > 1
+      ? Math.min(18, ((W - PAD_L - PAD_R) / chartPoints.length) * 0.55)
+      : 18,
+  );
+  const barX = $derived.by(() => chartPoints.map((_, i) => px(i, chartPoints.length) - barW / 2));
+  const barH = $derived.by(() => chartPoints.map((p) => Math.max(1, H - PAD_B - py(p.tokens))));
+
   const rangeLabel = $derived.by(() => {
     if (periodValue() === "day") return t("trends.last7days");
     if (periodValue() === "month") return t("trends.thisMonth");
@@ -188,8 +202,34 @@
   {:else if points.length === 0}
     <EmptyState title={t("trends.noData")} />
   {:else}
-    <!-- period title (first row, larger font) -->
-    <div class="range-label">{rangeLabel}</div>
+    <!-- period title (first row) + chart mode toggle -->
+    <div class="range-row">
+      <div class="range-label">{rangeLabel}</div>
+      <span class="mode-toggle" role="group" aria-label={t("trends.chartMode")}>
+        <button
+          type="button"
+          class="mode-btn"
+          class:on={chartMode === "bars"}
+          title={t("trends.chartBars")}
+          aria-label={t("trends.chartBars")}
+          aria-pressed={chartMode === "bars"}
+          onclick={() => (chartMode = "bars")}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="20" x2="6" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
+        </button>
+        <button
+          type="button"
+          class="mode-btn"
+          class:on={chartMode === "line"}
+          title={t("trends.chartLine")}
+          aria-label={t("trends.chartLine")}
+          aria-pressed={chartMode === "line"}
+          onclick={() => (chartMode = "line")}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 10 13 14 21 5"/></svg>
+        </button>
+      </span>
+    </div>
 
     <!-- stats cards (above the chart) -->
     {#if summary}
@@ -229,28 +269,65 @@
           role="img"
           aria-label="{rangeLabel}: {t('trends.total')} {totalStr.value}{totalStr.unit}, {t('trends.dailyAvg')} {avgStr.value}{avgStr.unit}"
         >
-          <!-- Vertical gradient for the area fill: stronger at the line,
-               fading to transparent at the baseline. -->
+          <!-- Gradients: area fade (line mode), bar fills (bars mode). Bar
+               gradients use objectBoundingBox units so every bar gets the full
+               top-to-bottom ramp; the peak bar swaps to a lime gradient. -->
           <defs>
             <linearGradient id="trend-area-grad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="#e8b04b" stop-opacity="0.26" />
               <stop offset="100%" stop-color="#e8b04b" stop-opacity="0" />
             </linearGradient>
+            <linearGradient id="trend-bar-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#f0c268" stop-opacity="0.95" />
+              <stop offset="100%" stop-color="#c9923a" stop-opacity="0.4" />
+            </linearGradient>
+            <linearGradient id="trend-bar-peak-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#c8ee6e" stop-opacity="0.95" />
+              <stop offset="100%" stop-color="#b4e34c" stop-opacity="0.4" />
+            </linearGradient>
+            <linearGradient id="trend-bar-light-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#b57e1c" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#9a6a12" stop-opacity="0.35" />
+            </linearGradient>
+            <linearGradient id="trend-bar-light-peak-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#6ba81f" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#578a18" stop-opacity="0.35" />
+            </linearGradient>
           </defs>
           <!-- average dashed line -->
           <line x1={PAD_L} y1={avgY} x2={W - PAD_R} y2={avgY} class="avg-line" />
-          <!-- area fill under the line -->
-          {#if areaPoints}
-            <polygon points={areaPoints} fill="url(#trend-area-grad)" />
+          {#if chartMode === "bars"}
+            <!-- gradient rounded bars, peak bar in lime -->
+            {#each chartPoints as pt, i (pt.date)}
+              <rect
+                x={barX[i]}
+                y={py(pt.tokens)}
+                width={barW}
+                height={barH[i]}
+                rx={Math.min(2.5, barW / 2)}
+                fill={pt.tokens === maxTokens && maxTokens > 0 ? "url(#trend-bar-peak-grad)" : "url(#trend-bar-grad)"}
+                class="bar"
+                class:peak={pt.tokens === maxTokens && maxTokens > 0}
+                class:active={hoverIdx === i}
+                aria-hidden="true"
+                onmouseenter={() => (hoverIdx = i)}
+                onmouseleave={() => (hoverIdx = null)}
+              />
+            {/each}
+          {:else}
+            <!-- area fill under the line -->
+            {#if areaPoints}
+              <polygon points={areaPoints} fill="url(#trend-area-grad)" />
+            {/if}
+            <!-- the line -->
+            <polyline points={linePoints} class="trend-line" />
           {/if}
-          <!-- the line -->
-          <polyline points={linePoints} class="trend-line" />
           <!-- Y axis (left) + X axis (bottom) -->
           <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B} class="axis-line" />
           <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} class="axis-line" />
           <!-- nodes: decorative (the svg carries a text summary; per-node
-               labels made screen-reader output noisy). The peak node gets a
-               highlight ring so the max day reads at a glance. -->
+               labels made screen-reader output noisy). In bars mode the dot
+               caps the bar. The peak node gets a highlight ring. -->
           {#each chartPoints as pt, i (pt.date)}
             {#if pt.tokens === maxTokens && maxTokens > 0}
               <circle
@@ -299,12 +376,51 @@
     flex-direction: column;
     gap: 10px;
   }
+  .range-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px;
+  }
   .range-label {
     font-size: 0.8667rem;
     color: var(--text);
     font-weight: 400;
-    padding: 0 2px;
   }
+  .mode-toggle {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--surface-tint);
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.15s;
+  }
+  .mode-btn svg { width: 13px; height: 13px; }
+  .mode-btn:hover { color: var(--amber); }
+  .mode-btn.on {
+    background: var(--surface-tint-strong);
+    color: var(--amber);
+  }
+  /* Bars-mode bar: default gradient fill comes from the SVG fill attribute;
+   * hover dims instead of recoloring (gradient is per-element). Light theme
+   * swaps in its own darker gradients via CSS (fill is overridable). */
+  .bar { transition: opacity 0.12s; }
+  .bar.active { opacity: 0.75; }
+  :global([data-theme="light"]) .bar { fill: url(#trend-bar-light-grad); }
+  :global([data-theme="light"]) .bar.peak { fill: url(#trend-bar-light-peak-grad); }
   .chart-grid {
     display: flex;
     flex-direction: column;

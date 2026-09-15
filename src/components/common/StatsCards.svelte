@@ -111,7 +111,7 @@
     color: var(--text-faint);
   }
   .scell .v {
-    font-size: 1.333rem;
+    font-size: 1.5rem;
     font-weight: 500;
     margin-top: 2px;
     display: flex;

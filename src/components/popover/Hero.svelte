@@ -80,13 +80,19 @@
     flex-direction: column;
     gap: 5px;
   }
+  /* Hero number: large + amber gradient text (DeepSeekMonitor-style focal
+   * point). The gradient lives on the digits; nested unit/delta spans opt
+   * back into solid fills below. */
   .big {
     font-family: "Fraunces", var(--font-ui);
-    font-size: 2rem;
+    font-size: 2.5rem;
     font-weight: 500;
-    line-height: 1.12;
+    line-height: 1.08;
     letter-spacing: 0.01em;
-    color: var(--text);
+    background: linear-gradient(160deg, #f9e7bb 0%, #e8b04b 52%, #cd943c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
     display: flex;
     align-items: baseline;
     gap: 0;
@@ -98,9 +104,10 @@
     min-width: 0;
   }
   .big-unit {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     font-weight: 600;
-    color: var(--text-dim);
+    background: none;
+    -webkit-text-fill-color: var(--text-dim);
     font-family: var(--font-ui);
     user-select: text;
     -webkit-user-select: text;
@@ -143,6 +150,16 @@
     font-size: 0.8rem;
     font-weight: 600;
     font-family: var(--font-ui);
+    /* Opt out of the parent's gradient text-clip: keep the up/down colors. */
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+  /* Light theme: the pale top of the dark gradient would vanish on a light
+   * background — switch to a darker amber ramp. */
+  :global([data-theme="light"]) .big {
+    background: linear-gradient(160deg, #b57e1c 0%, #9a6a12 55%, #7d5510 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
   }
   .delta-unit { font-size: 0.6rem; margin-left: 2px; }
   .delta.up { color: var(--lime); }

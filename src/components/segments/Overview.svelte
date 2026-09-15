@@ -255,14 +255,18 @@ import ToolIcon from "../ui/ToolIcon.svelte";
 
 <style>
   .ov-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
-  /* Borderless elevation: cards separate from the background by color step +
-   * a faint top highlight instead of a hard 1px line. */
+  /* Borderless elevation: cards separate from the background by a clearly
+   * readable color step + a faint top highlight instead of a hard 1px line. */
   .module {
-    background: var(--surface-tint);
+    background: rgba(255, 255, 255, 0.055);
     border: none;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  :global([data-theme="light"]) .module {
+    background: rgba(0, 0, 0, 0.05);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
   .sec-h {
     font-size: 0.8667rem; font-weight: 700;
@@ -284,13 +288,17 @@ import ToolIcon from "../ui/ToolIcon.svelte";
   }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
   .scell {
-    background: var(--surface-tint-strong); border: none;
+    background: rgba(255, 255, 255, 0.09); border: none;
     border-radius: 10px; padding: 10px 11px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  :global([data-theme="light"]) .scell {
+    background: rgba(0, 0, 0, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
   .scell .k { font-size: 0.7333rem; color: var(--text-faint); }
   .scell .v {
-    font-size: 1.333rem; font-weight: 500; color: var(--text); margin-top: 2px;
+    font-size: 1.45rem; font-weight: 500; color: var(--text); margin-top: 2px;
     display: flex; align-items: baseline; gap: 0;
   }
   .scell .v .u { font-size: 0.7333rem; color: var(--text-faint); font-weight: 600; }
