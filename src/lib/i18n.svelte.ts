@@ -353,6 +353,7 @@ const DICT: Record<string, Record<string, string>> = {
   "trends.chartMode": { zh: "图表模式", en: "Chart mode" },
   "trends.chartBars": { zh: "柱状图", en: "Bar chart" },
   "trends.chartLine": { zh: "折线图", en: "Line chart" },
+  "detail.costPerMTok": { zh: "每百万 token 成本", en: "Cost / 1M tokens" },
   "collection.track": { zh: "追踪", en: "Track" },
   "collection.show": { zh: "显示", en: "Show" },
   "collection.moveUp": { zh: "上移", en: "Move up" },

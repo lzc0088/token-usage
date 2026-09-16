@@ -44,6 +44,9 @@ pub struct Config {
     /// Hero token-rate readout mode — "speed" (output tok/s) | "burn" (total tok/min).
     #[serde(default = "default_token_rate_mode")]
     pub token_rate_mode: String,
+    /// Trend chart rendering — "bars" (gradient rounded bars, default) | "line".
+    #[serde(default = "default_trend_chart_mode")]
+    pub trend_chart_mode: String,
     /// Auto-hide popover when window loses focus.
     #[serde(default = "default_true")]
     pub auto_close_on_blur: bool,
@@ -153,6 +156,7 @@ impl Default for Config {
             language: default_language(),
             default_period: default_period(),
             token_rate_mode: default_token_rate_mode(),
+            trend_chart_mode: default_trend_chart_mode(),
             auto_close_on_blur: default_true(),
             trigger_mode: default_trigger_mode(),
             window_display_mode: default_window_display_mode(),
@@ -193,6 +197,9 @@ fn default_period() -> String {
 }
 fn default_token_rate_mode() -> String {
     "speed".into()
+}
+fn default_trend_chart_mode() -> String {
+    "bars".into()
 }
 fn default_true() -> bool {
     true

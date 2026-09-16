@@ -347,25 +347,43 @@ static TOKEN_CACHE: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<String, String>>,
 > = std::sync::OnceLock::new();
 
+/// Cache key: the bare username in production. Under test, cargo runs cases
+/// on parallel threads named after each test — namespacing the key by thread
+/// keeps one case's `clear_token_cache` from racing another's set (a 2026-09
+/// flake where a sibling test's clear wiped a token mid-assert).
+fn cache_key(username: &str) -> String {
+    #[cfg(test)]
+    {
+        let t = std::thread::current().name().unwrap_or("").to_string();
+        format!("{t}|{username}")
+    }
+    #[cfg(not(test))]
+    {
+        username.to_string()
+    }
+}
+
 fn cached_token(username: &str) -> Option<String> {
     let map = TOKEN_CACHE.get_or_init(Default::default);
-    map.lock().ok()?.get(username).cloned()
+    map.lock().ok()?.get(&cache_key(username)).cloned()
 }
 
 fn set_cached_token(username: &str, token: &str) {
     if let Some(map) = TOKEN_CACHE.get() {
         if let Ok(mut m) = map.lock() {
-            m.insert(username.to_string(), token.to_string());
+            m.insert(cache_key(username), token.to_string());
         }
     }
 }
 
-/// Test hook: drop cached tokens so tests don't leak state into each other.
+/// Test hook: drop THIS thread's cached tokens so tests don't leak state
+/// into each other (namespaced — see [`cache_key`]).
 #[cfg(test)]
 fn clear_token_cache() {
     if let Some(map) = TOKEN_CACHE.get() {
         if let Ok(mut m) = map.lock() {
-            m.clear();
+            let prefix = cache_key("");
+            m.retain(|k, _| !k.starts_with(&prefix));
         }
     }
 }

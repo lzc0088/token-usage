@@ -18,8 +18,29 @@
   let hoverIdx = $state<number | null>(null);
   let chartW = $state(320);
   // Chart rendering mode: gradient rounded bars (default, best for ≤31 daily
-  // buckets) or the classic line+area. Per-view transient state.
+  // buckets) or the classic line+area. Persisted to config so the choice
+  // survives page switches and app restarts.
   let chartMode = $state<"bars" | "line">("bars");
+
+  $effect(() => {
+    let cancelled = false;
+    api.getConfig()
+      .then((c) => {
+        if (cancelled) return;
+        if (c.trend_chart_mode === "line" || c.trend_chart_mode === "bars") {
+          chartMode = c.trend_chart_mode;
+        }
+      })
+      .catch(() => { /* config read failed — keep the default */ });
+    return () => { cancelled = true; };
+  });
+
+  function setChartMode(mode: "bars" | "line"): void {
+    chartMode = mode;
+    api.getConfig()
+      .then((c) => api.setConfig({ ...c, trend_chart_mode: mode }))
+      .catch(() => { /* persistence failed — the in-memory toggle still applies */ });
+  }
   // Generation counter — discards stale responses when the period changes
   // while a fetch is in flight (same pattern as Overview/Limits).
   let loadGen = 0;
@@ -213,7 +234,7 @@
           title={t("trends.chartBars")}
           aria-label={t("trends.chartBars")}
           aria-pressed={chartMode === "bars"}
-          onclick={() => (chartMode = "bars")}
+          onclick={() => setChartMode("bars")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="20" x2="6" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/></svg>
         </button>
@@ -224,7 +245,7 @@
           title={t("trends.chartLine")}
           aria-label={t("trends.chartLine")}
           aria-pressed={chartMode === "line"}
-          onclick={() => (chartMode = "line")}
+          onclick={() => setChartMode("line")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 10 13 14 21 5"/></svg>
         </button>

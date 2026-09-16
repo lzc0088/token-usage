@@ -72,6 +72,15 @@
     ];
   }
 
+  /** $ per 1M tokens — the price-efficiency readout (DeepSeekMonitor's T/¥
+   *  idea in cost units). "—" when the entry has no tokens (cost-only row). */
+  function perMillionCost(e: BreakdownEntry): string {
+    if (e.tokens <= 0) return "—";
+    const perM = (e.cost_usd / e.tokens) * 1_000_000;
+    if (perM < 0.01) return "<$0.01";
+    return `$${perM.toFixed(2)}`;
+  }
+
   const sorted = $derived.by(() => {
     const arr = [...entries];
     arr.sort((a, b) => {
@@ -116,6 +125,7 @@
     <div class="bd-detail">
       <div class="det-row"><span>{t("detail.sessionCount")}</span><span class="det-val">{e.messages}</span></div>
       <div class="det-row"><span>{t("detail.costRatio")}</span><span class="det-val">{e.cost_pct.toFixed(1)}%</span></div>
+      <div class="det-row"><span>{t("detail.costPerMTok")}</span><span class="det-val">{perMillionCost(e)}</span></div>
       <div class="det-sep"></div>
       {#each tokenComposition(e) as tc (tc.key)}
         {@const tcp = e.tokens > 0 ? (tc.tokens / e.tokens) * 100 : 0}

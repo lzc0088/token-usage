@@ -242,6 +242,8 @@ export interface Config {
   /** Token-rate readout mode: "speed" (output tokens/s of model-busy time)
    *  | "burn" (total tokens/min). */
   token_rate_mode?: "speed" | "burn";
+  /** Trend chart rendering: "bars" (gradient rounded bars) | "line". */
+  trend_chart_mode?: "bars" | "line";
   auto_close_on_blur?: boolean;
   /** Popover trigger: "click" (tray click) | "hover" (mouse over tray). */
   trigger_mode?: "click" | "hover";
