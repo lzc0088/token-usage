@@ -24,6 +24,11 @@ pub struct SessionVm {
     pub last_used_at: Option<String>,
     pub project_name: Option<String>,
     pub project_path: Option<String>,
+    /// Human-readable session title (Claude ai-title / Codex threads.title),
+    /// resolved from local stores with an in-memory cache. None when the tool
+    /// doesn't record titles or the row is missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -54,6 +59,11 @@ pub fn query(
     let proj_map = claude_projects_dir
         .map(crate::collector::workspace::session_project_map)
         .unwrap_or_default();
+    // claude_projects_dir is <home>/.claude/projects — walk up two levels for
+    // the home dir the title resolver reads (~/.claude transcripts, ~/.codex).
+    let home_dir = claude_projects_dir
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent());
 
     let mut stmt = conn.prepare(
         "SELECT tool, session_id,
@@ -70,7 +80,7 @@ pub fn query(
          ORDER BY tokens DESC
          LIMIT ?1",
     )?;
-    let out = stmt
+    let out: Vec<_> = stmt
         .query_map(rusqlite::params![cap, min_messages], |r| {
             let sid: String = r.get::<_, String>(1)?;
             let (proj_name, proj_path, file_mtime) =
@@ -88,9 +98,20 @@ pub fn query(
                 last_used_at: file_mtime.or(db_time),
                 project_name: (!proj_name.is_empty()).then_some(proj_name),
                 project_path: (!proj_path.is_empty()).then_some(proj_path),
+                title: None,
             })
         })?
         .collect::<Result<_, _>>()?;
+    // Resolve titles after collecting (cache-backed; the first call per
+    // session does the file read, later calls are map lookups).
+    let out = out
+        .into_iter()
+        .map(|mut vm| {
+            vm.title =
+                crate::collector::session_titles::session_title(home_dir, &vm.tool, &vm.session_id);
+            vm
+        })
+        .collect();
     Ok(out)
 }
 

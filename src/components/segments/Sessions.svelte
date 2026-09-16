@@ -212,8 +212,15 @@
           onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(s.tool, s.session_id); } }}
         >
           <div class="s-main">
-            <div class="s-line s-l1"><span class="s-proj">{projectLabel(s)}</span></div>
-            <div class="s-line s-l2"><span class="s-id">{s.session_id}</span></div>
+            {#if s.title}
+              <!-- Title row (from the tool's own metadata) is the headline;
+                   project name moves down next to the id. -->
+              <div class="s-line s-l1"><span class="s-proj">{s.title}</span></div>
+              <div class="s-line s-l2"><span class="s-proj-inline">{projectLabel(s)}</span><span class="s-id">{s.session_id}</span></div>
+            {:else}
+              <div class="s-line s-l1"><span class="s-proj">{projectLabel(s)}</span></div>
+              <div class="s-line s-l2"><span class="s-id">{s.session_id}</span></div>
+            {/if}
             <div class="s-line s-l3">
               <ToolIcon tool={s.tool} badge={false} size={9} />
               <span class="s-tool-tag model-colored" style="color:{tc};background:{tc}18;border-color:{tc}33">{toolMeta(s.tool).label}</span>
@@ -295,6 +302,9 @@
   .s-line { display: flex; align-items: baseline; gap: 6px; }
   .s-l1 .s-proj { font-size: 0.8667rem; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .s-l2 .s-id { font-family: var(--font-mono); font-size: 0.6667rem; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; -webkit-user-select: text; }
+  /* When a session has a title, the project name moves down beside the id. */
+  .s-l2 .s-proj-inline { font-size: 0.6667rem; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+  .s-l2 .s-proj-inline::after { content: " ·"; color: var(--text-faint); }
   .s-l3 { display: flex; align-items: center; gap: 4px; }
   .s-tool-tag { font-size: 0.6667rem; white-space: nowrap; }
   .s-tool-tag.model-colored { padding: 0px 5px; border-radius: 3px; line-height: 1.6; border: 1px solid; }

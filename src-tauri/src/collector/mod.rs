@@ -8,6 +8,7 @@ pub mod health;
 pub mod project_snapshot;
 pub mod runtime;
 pub mod scheduler;
+pub mod session_titles;
 pub mod tokscale;
 pub mod watcher;
 pub mod workspace;

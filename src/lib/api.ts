@@ -83,6 +83,9 @@ export interface SessionVm {
   last_used_at: string | null;
   project_name: string | null;
   project_path: string | null;
+  /** Human-readable title (Claude ai-title / Codex threads.title), resolved
+   *  from local stores by the backend. Undefined when the tool records none. */
+  title?: string;
 }
 
 export interface SessionDetailRow {
