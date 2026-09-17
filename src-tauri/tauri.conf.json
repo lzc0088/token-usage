@@ -49,6 +49,21 @@
         "devtools": true
       },
       {
+        "label": "widget",
+        "title": "Token Usage · 桌面小组件",
+        "url": "/",
+        "width": 250,
+        "height": 196,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "skipTaskbar": true,
+        "center": false,
+        "devtools": false
+      },
+      {
         "label": "floating",
         "url": "floating.html",
         "width": 44,

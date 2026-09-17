@@ -29,6 +29,7 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
     if window_behaviour_changed(&prev, &config) {
         crate::ui::window::apply_window_config(&app, &conn);
         crate::ui::floating::sync_floating(&app, &conn);
+        crate::ui::desktop_widget::sync_widget(&app, &conn);
     }
     // Tray-display changes (mode/currency) must repaint the menu-bar icon
     // immediately — otherwise the bitmap text lags until the next collector
@@ -51,6 +52,7 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.floating_enabled != next.floating_enabled
         || prev.floating_display != next.floating_display
         || prev.floating_position != next.floating_position
+        || prev.widget_enabled != next.widget_enabled
 }
 
 /// Fields that change what the tray icon bitmap renders.

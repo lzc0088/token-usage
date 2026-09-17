@@ -306,6 +306,10 @@ export interface Config {
   overview_quota_vendors?: string[] | null;
   /** Show a floating data widget on the desktop (Windows/Linux only). */
   floating_enabled?: boolean;
+  /** Desktop widget card (today's usage + tightest quotas + sparkline). */
+  widget_enabled?: boolean;
+  /** Last widget position in logical px [x, y]. */
+  widget_pos?: [number, number] | null;
   /** Floating widget display mode. */
   floating_display?: "today_tokens" | "today_cost" | "total_tokens" | "total_cost";
   /** Floating widget screen edge: "left" | "right". */

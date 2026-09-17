@@ -1,6 +1,7 @@
 import "./app.css";
 import App from "./App.svelte";
 import SettingsApp from "./views/SettingsApp.svelte";
+import WidgetApp from "./views/WidgetApp.svelte";
 import { mount } from "svelte";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./lib/api";
@@ -49,10 +50,10 @@ async function init(): Promise<void> {
     document.head.appendChild(link);
   }
 
-  // Branch on the window label: the `settings` window mounts the settings UI,
-  // every other window (the `main` popover) mounts the app.
+  // Branch on the window label: `settings` mounts the settings UI, `widget`
+  // mounts the desktop card, every other window mounts the main popover.
   const label = getCurrentWindow().label;
-  const Root = label === "settings" ? SettingsApp : App;
+  const Root = label === "settings" ? SettingsApp : label === "widget" ? WidgetApp : App;
 
   mount(Root, {
     target: document.getElementById("app")!,

@@ -319,6 +319,24 @@
     {/if}
   </div>
 
+  <!-- ══ 桌面小组件（macOS 桌面级钉住的用量卡片；其他平台为普通小窗） ══ -->
+  <div class="section-title">{t("window.widget")}</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">{t('window.widget')}<div class="hint">{t('window.widgetHint')}</div></div>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={!!config.widget_enabled}
+          role="switch"
+          aria-checked={!!config.widget_enabled}
+          aria-label={t("window.widget")}
+          onclick={() => onUpdate({ widget_enabled: !config.widget_enabled })}
+        ></button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ 悬浮（macOS 不支持：菜单栏标题已显示读数） ══ -->
   {#if platform !== "macos"}
   <div class="section-title">{t("window.floating")}</div>
