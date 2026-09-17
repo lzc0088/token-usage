@@ -12,7 +12,9 @@
     "test": "vitest run",
     "fetch-tokscale": "node scripts/fetch-tokscale.mjs",
     "pretauri": "npm run fetch-tokscale -- --latest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "widget:build": "bash macos-widget/build.sh",
+    "widget:install": "bash scripts/install-widget.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

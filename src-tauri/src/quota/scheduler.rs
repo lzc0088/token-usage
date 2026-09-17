@@ -419,6 +419,9 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             // Notify windows so the "updated" time and quota cards refresh live
             // without the user re-opening the page.
             let _ = app.emit("quota:updated", ());
+            // The native widget's snapshot includes quota windows — refresh it
+            // (debounced; also covers the first-refresh path above).
+            crate::ui::widget_snapshot::export_debounced(&app);
             dispatch_notifications(&app).await;
             // quota_min tray mode reads the quota cache — repaint so the
             // tightest percentage stays live between collector ticks.

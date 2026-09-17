@@ -34,3 +34,6 @@ CLAUDE.md
 .claude/
 assets/design-scripts/
 docs/
+
+# WidgetKit extension build output
+macos-widget/dist/

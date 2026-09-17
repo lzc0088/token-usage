@@ -670,6 +670,19 @@ pub fn run() {
                 }
             });
 
+            // ── native widget snapshot: initial + periodic backstop ──────────
+            // Event-driven exports (today scan / quota refresh) are the fast
+            // path; this loop guarantees a fresh snapshot even if events were
+            // missed (first launch before any scan, resumed-from-suspend gaps).
+            let snap_h = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                loop {
+                    ui::widget_snapshot::export_snapshot(&snap_h);
+                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

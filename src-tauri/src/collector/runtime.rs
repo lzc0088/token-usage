@@ -403,6 +403,8 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     // Notify frontend to refetch breakdown/trends (daily_usage
                     // was just updated with fresh today data).
                     let _ = app.emit("collection:updated", ());
+                    // Refresh the native widget's snapshot (debounced).
+                    crate::ui::widget_snapshot::export_debounced(&app);
 
                     // Rate-limited project snapshot rebuild: keep projects page
                     // in sync with live data without running tokscale on every tick.
