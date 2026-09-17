@@ -59,9 +59,11 @@ if [ -n "$IDENTITY" ]; then
     echo "[install-widget] codesign failed:" >&2
     cat /tmp/install-widget-codesign.err >&2
     echo >&2
-    echo "  errSecInternalComponent = the keychain needs an interactive" >&2
-    echo "  unlock for codesign. Run this script from YOUR terminal (not an" >&2
-    echo "  agent shell) — macOS will prompt once; choose \"始终允许\"." >&2
+    echo "  errSecInternalComponent = codesign cannot read the private key." >&2
+    echo "  Fix (once, in YOUR terminal):" >&2
+    echo "    security unlock-keychain" >&2
+    echo "    security set-key-partition-list -S apple-tool:,apple: -s -k '<登录密码>' ~/Library/Keychains/login.keychain-db" >&2
+    echo "  then re-run this script." >&2
     exit 1
   fi
   echo "[install-widget] re-signed app with $IDENTITY (+ app-group entitlements)"

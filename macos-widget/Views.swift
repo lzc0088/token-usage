@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 // Widget views — a compact port of the app's design system: warm-black
 // surface, amber gradient digits, borderless elevation. Colors are literals
