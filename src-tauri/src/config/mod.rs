@@ -64,14 +64,6 @@ pub struct Config {
     /// Show the app icon in the Dock (menu-bar apps usually hide it).
     #[serde(default)]
     pub show_in_dock: bool,
-    /// Desktop widget (macOS: pinned to the desktop window level; other
-    /// platforms: a normal small window). Shows today's usage + top quotas +
-    /// a 7-day sparkline.
-    #[serde(default)]
-    pub widget_enabled: bool,
-    /// Last widget position in logical px (x, y) — restored on launch.
-    #[serde(default)]
-    pub widget_pos: Option<(f64, f64)>,
     /// Global hotkey to show/hide the popover (empty = not set).
     #[serde(default)]
     pub hotkey: String,
@@ -182,8 +174,6 @@ impl Default for Config {
             window_display_mode: default_window_display_mode(),
             tray_display: default_tray_display(),
             show_in_dock: false,
-            widget_enabled: false,
-            widget_pos: None,
             hotkey: String::new(),
             theme: default_theme(),
             animation: default_animation(),

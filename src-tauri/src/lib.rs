@@ -130,7 +130,7 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     // Load current config for checkmark state AND language.
-    let (tray_sel, win_sel, theme_sel, widget_on, is_en) = app
+    let (tray_sel, win_sel, theme_sel, is_en) = app
         .state::<AppState>()
         .load_config()
         .map(|c| {
@@ -138,7 +138,6 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
                 c.tray_display,
                 c.window_display_mode,
                 c.theme,
-                c.widget_enabled,
                 c.language == "en",
             )
         })
@@ -147,7 +146,6 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
                 "icon_only".into(),
                 "normal".into(),
                 "system".into(),
-                false,
                 false,
             )
         });
@@ -267,7 +265,6 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
     )?;
 
     let sep = || PredefinedMenuItem::separator(app);
-    let widget_check = if widget_on { "✓ " } else { "    " };
     Menu::with_items(
         app,
         &[
@@ -277,10 +274,6 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
             &win_sub,
             &theme_sub,
             &sep()?,
-            &menu_item(
-                "widget_toggle",
-                &format!("{widget_check}{}", label("桌面小组件", "Desktop Widget")),
-            )?,
             &menu_item("settings", label("设置", "Settings"))?,
             &sep()?,
             &MenuItem::with_id(
@@ -652,9 +645,6 @@ pub fn run() {
                 ui::window::apply_window_features(app.handle(), &conn);
                 // Sync floating widget visibility + handle position with config.
                 ui::floating::sync_floating(app.handle(), &conn);
-                // Desktop widget: visibility + last position (level is applied
-                // inside sync even while hidden, so the first show is correct).
-                ui::desktop_widget::sync_widget(app.handle(), &conn);
                 // Pulse panel: floating quota rings.
                 ui::pulse::sync_pulse(app.handle(), &conn);
             }
@@ -668,7 +658,6 @@ pub fn run() {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     ui::floating::persist_handle_pos(&persist_h);
-                    ui::desktop_widget::persist_widget_pos(&persist_h);
                     ui::pulse::persist_pulse_pos(&persist_h);
                 }
             });
@@ -846,23 +835,6 @@ pub fn run() {
                             let _ = config::with_config(c, |cfg| {
                                 cfg.theme = theme.to_string();
                             });
-                        });
-                        false
-                    }
-                    "widget_toggle" => {
-                        // Flip the desktop-widget flag and apply immediately
-                        // (show/hide inside sync_widget). Deferred window ops
-                        // per the "refresh" handler's deadlock note.
-                        let _ = config::with_config(c, |cfg| {
-                            cfg.widget_enabled = !cfg.widget_enabled;
-                        });
-                        let app_c = app.clone();
-                        let db_c = app.state::<AppState>().db.clone();
-                        tauri::async_runtime::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            if let Ok(conn) = db_c.lock() {
-                                crate::ui::desktop_widget::sync_widget(&app_c, &conn);
-                            }
                         });
                         false
                     }
