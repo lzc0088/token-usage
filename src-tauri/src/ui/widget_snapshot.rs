@@ -1,29 +1,23 @@
-//! Widget snapshot exporter — writes a compact JSON snapshot of today's
-//! usage / quotas / breakdowns into the shared App Group container so the
-//! native macOS WidgetKit extension (`macos-widget/`) can render it.
+//! Widget snapshot exporter — feeds a compact JSON snapshot of today's
+//! usage / quotas / breakdowns to the native macOS WidgetKit extension
+//! (`macos-widget/`).
 //!
-//! The main app is NOT sandboxed, so it writes the group-container path
-//! directly; the widget extension (sandboxed) reads it via its app-group
-//! entitlement. Atomic write (tmp + rename) so a concurrently-refreshing
-//! widget never sees a half-written file.
-
-use std::path::PathBuf;
+//! No App Group: the system silently ignores app-group entitlements under
+//! ad-hoc signing (no Team ID), so sharing runs through a publisher helper
+//! that embeds the WIDGET extension's bundle identity — its
+//! UserDefaults.standard writes land in the widget's sandbox container,
+//! the exact plist the widget reads (Metrik's proven pattern). After
+//! publishing, a reloader helper (host app's bundle identity) asks
+//! WidgetCenter to refresh the timelines.
 
 use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
 use crate::state::AppState;
 use crate::utils::time::now_ms;
 
-/// App Group identifier — MUST match the widget extension's entitlements.
-///
-/// Team-ID prefixed form (`group.<TEAMID>.…`): works with Developer ID
-/// signing WITHOUT a provisioning profile (Apple's rule for manual
-/// distribution — token-monitor ships the same way). A bare `group.*`
-/// identifier would require Developer ID provisioning profiles for both
-/// the host app and the widget extension (App-Store-style registration).
-const APP_GROUP: &str = "group.2F74TS79TL.tokenusage";
-const SNAPSHOT_FILE: &str = "widget_snapshot.json";
 /// How many top tools/models to export (widget shows 4 rows).
 const TOP_N: usize = 4;
 /// Spark window (days) — matches the widget's sparkline.
@@ -70,63 +64,83 @@ pub struct BreakdownRow {
     pub cost_usd: f64,
 }
 
-/// The group-container directory for the app group.
-///
-/// macOS 15+ requires the process to resolve the container through
-/// `NSFileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
-/// first — constructing `~/Library/Group Containers/<group>` by hand
-/// triggers a per-launch "App Data" consent prompt (the token-monitor
-/// project hit exactly this, 2026-09). When the app carries the app-group
-/// entitlement (provisioned release builds) the API returns the authorized
-/// path; otherwise (dev, ad-hoc) it returns nil and we fall back to the
-/// plain path join.
-pub fn snapshot_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
+/// Resolve a bundled helper's path: env override first (tests / dev), then
+/// `<exe>/../../Helpers/<name>` (the .app layout: Contents/MacOS/exe →
+/// Contents/Helpers/name). Returns None when the helper isn't shipped —
+/// callers skip quietly (non-macOS builds, `tauri dev` runs).
+fn helper_path(env_var: &str, name: &str) -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(env_var) {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let contents = exe.parent()?.parent()?;
+    let helper = contents.join("Helpers").join(name);
+    helper.is_file().then_some(helper)
+}
+
+fn publisher_path() -> Option<PathBuf> {
+    helper_path("TOKEN_USAGE_WIDGET_PUBLISHER", "token-usage-widget-publish")
+}
+
+fn reloader_path() -> Option<PathBuf> {
+    helper_path("TOKEN_USAGE_WIDGET_RELOADER", "token-usage-widget-reload")
+}
+
+/// Feed the snapshot JSON to the publisher helper via stdin; it writes the
+/// widget container's UserDefaults. Best-effort: missing helper (dev run,
+/// non-macOS) or a failed spawn logs and moves on.
+fn publish_snapshot(snapshot_json: &[u8]) {
+    #[cfg(not(target_os = "macos"))]
     {
-        if let Some(p) = ns_group_container(APP_GROUP) {
-            return Some(p);
+        let _ = snapshot_json;
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(publisher) = publisher_path() {
+        match Command::new(&publisher)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(mut child) => {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    if stdin.write_all(snapshot_json).is_err() || stdin.flush().is_err() {
+                        tracing::warn!("widget snapshot: publisher stdin write failed");
+                    }
+                }
+                // Drop stdin to let the publisher finish reading.
+                drop(child.stdin.take());
+                match child.wait() {
+                    Ok(st) if st.success() => {}
+                    other => tracing::warn!(status = ?other, "widget publisher exited nonzero"),
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "widget snapshot: cannot spawn publisher"),
         }
     }
-    dirs::home_dir().map(|h| h.join("Library").join("Group Containers").join(APP_GROUP))
 }
 
-/// Resolve the App Group container via Foundation (macOS only). Returns nil
-/// when the process lacks the app-group entitlement — callers fall back to
-/// the manual path.
+/// Ask WidgetCenter to refresh our widget kinds (via the host-identity
+/// helper). Fire-and-forget.
 #[cfg(target_os = "macos")]
-fn ns_group_container(group: &str) -> Option<PathBuf> {
-    use objc::{msg_send, sel, sel_impl};
-    use std::ffi::{CStr, CString};
-    unsafe {
-        let fm_cls = objc::runtime::Class::get("NSFileManager")?;
-        let str_cls = objc::runtime::Class::get("NSString")?;
-        let fm: *mut objc::runtime::Object = msg_send![fm_cls, defaultManager];
-        if fm.is_null() {
-            return None;
+fn request_reload() {
+    if let Some(reloader) = reloader_path() {
+        if let Err(e) = Command::new(&reloader)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .and_then(|mut c| c.wait().map(|_| ()).map_err(|e| e.into()))
+        {
+            tracing::warn!(error = ?e, "widget reloader spawn failed");
         }
-        let c_group = CString::new(group).ok()?;
-        let group_str: *mut objc::runtime::Object =
-            msg_send![str_cls, stringWithUTF8String: c_group.as_ptr()];
-        if group_str.is_null() {
-            return None;
-        }
-        let url: *mut objc::runtime::Object =
-            msg_send![fm, containerURLForSecurityApplicationGroupIdentifier: group_str];
-        if url.is_null() {
-            return None; // no entitlement / group unknown to the system
-        }
-        let c_path: *const std::os::raw::c_char = msg_send![url, fileSystemRepresentation];
-        if c_path.is_null() {
-            return None;
-        }
-        let path = CStr::from_ptr(c_path).to_string_lossy().into_owned();
-        (!path.is_empty()).then(|| PathBuf::from(path))
     }
 }
 
-fn snapshot_path() -> Option<PathBuf> {
-    snapshot_dir().map(|d| d.join(SNAPSHOT_FILE))
-}
+#[cfg(not(target_os = "macos"))]
+fn request_reload() {}
 
 /// Assemble the snapshot from live caches + DB. Never fails hard — missing
 /// pieces degrade to empty blocks so the widget still renders a frame.
@@ -227,34 +241,17 @@ pub fn build_snapshot(state: &AppState) -> WidgetSnapshot {
     }
 }
 
-/// Serialize + atomically write the snapshot into the App Group container.
-/// Best-effort: failures are logged, never propagated (the widget simply
-/// keeps the previous frame).
+/// Serialize the snapshot, hand it to the publisher helper, then ask
+/// WidgetCenter for a reload. Best-effort: failures are logged, never
+/// propagated (the widget simply keeps the previous frame).
 pub fn export_snapshot(app: &AppHandle) {
     let state = app.state::<AppState>();
     let snap = build_snapshot(&state);
-    let Some(path) = snapshot_path() else {
-        tracing::warn!("widget snapshot: no home dir, skip");
-        return;
-    };
-    if let Some(dir) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            tracing::warn!(error = %e, "widget snapshot: create group dir failed");
-            return;
-        }
-    }
     match serde_json::to_vec(&snap) {
         Ok(bytes) => {
-            let tmp = path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&tmp, &bytes) {
-                tracing::warn!(error = %e, "widget snapshot: write failed");
-                return;
-            }
-            if let Err(e) = std::fs::rename(&tmp, &path) {
-                tracing::warn!(error = %e, "widget snapshot: rename failed");
-            } else {
-                tracing::debug!(bytes = bytes.len(), "widget snapshot exported");
-            }
+            publish_snapshot(&bytes);
+            request_reload();
+            tracing::debug!(bytes = bytes.len(), "widget snapshot published");
         }
         Err(e) => tracing::warn!(error = %e, "widget snapshot: serialize failed"),
     }

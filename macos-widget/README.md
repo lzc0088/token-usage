@@ -8,43 +8,41 @@
 | 额度 | 小 / 中 | 最紧张的额度窗口进度（小号 1 条 / 中号 4 条，≥80% 转琥珀警示色） |
 | 用量细分 | 中 | 今日 token Top 4，添加时可选择**按工具 / 按模型** |
 
-## 架构
+## 架构（Metrik 的免 App Group 方案）
 
 ```
-Rust 主进程 ──(today/quota 数据变化 60s 防抖 + 5min 兜底)──▶ App Group 快照 JSON
-macOS 系统 ──(每 ~15min 周期刷新)──▶ TokenUsageWidget.appex（.app/Contents/PlugIns/）
+Rust 主进程 ──stdin──▶ publisher helper（嵌 widget bundle id）
+                            │ UserDefaults.standard
+                            ▼
+              widget 扩展容器的 preferences plist ◀── widget 直接读
+Rust 主进程 ──▶ reloader helper（嵌宿主 bundle id）──▶ WidgetCenter.reloadTimelines
 ```
 
-- 快照：`src-tauri/src/ui/widget_snapshot.rs` 写 `widget_snapshot.json`（原子写）
-- 路径解析走 `NSFileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
-  （macOS 15+ 手拼 `~/Library/Group Containers/` 会触发 TCC 拒绝/弹窗）
-- App Group：`group.2F74TS79TL.tokenusage`（**TeamID 前缀**形式 —— Developer ID
-  签名无需 provisioning profile；三处必须一致：`widget_snapshot.rs` 的
-  `APP_GROUP`、`TokenUsageWidget.entitlements`、`src-tauri/Entitlements.plist`）
-- 刷新：WidgetKit 系统预算（~15 分钟），WidgetCenter 无 ObjC 桥无法由 Rust 主动
-  触发 —— 与 token-monitor 的最终形态一致
+- **不用 App Group**：无 Team ID 的 ad-hoc 签名下系统静默忽略 app group
+  （macOS 15+ 手拼 `~/Library/Group Containers/` 也会被 TCC 拒绝）。publisher
+  helper 嵌 **widget 扩展的 bundle id**（`com.tokenusage.desktop.widget`），其
+  `UserDefaults.standard` 写入直接落进 widget 沙盒容器的同一份 plist
+- **主动刷新**：reloader helper 嵌**宿主 app 的 bundle id**，直接调
+  `WidgetCenter.reloadTimelines(ofKind:)`（数据更新即刷新，不再等 15 分钟周期）
+- **全 ad-hoc 签名即可上小组件库**（无需 Developer ID / 钥匙串授权；
+  发布时 CI 的 Developer ID 签名同样兼容）
+- appex 的 `CFBundleVersion` 必须与主 app 一致 —— WidgetKit 把扩展的 bundle
+  stub 归档进 timeline 并按 LaunchServices 校验，版本不一致会让升级后的
+  缓存 stub 失配
 
-## 本地构建与手测
+## 构建
 
-```bash
-npm run tauri build          # 主 app（Rust 常量变化时必须重跑）
-npm run widget:install       # 编译+签 .appex，塞入 .app 并带 entitlements 重签
-open "src-tauri/target/release/bundle/macos/Token Usage.app"
-```
+- `macos-widget/build.sh`：swiftc 直编（无 Xcode 工程）appex + 2 个 helper，
+  `-application-extension -Xlinker -e -Xlinker _NSExtensionMain` 入口、
+  `TAURI_ENV_ARCH=universal` 时双架构
+- 正式构建：`tauri.conf.json` 的 `beforeBundleCommand` 自动编译，
+  `bundle.resources` 把 appex 映射到 `PlugIns/`、helpers 到 `Helpers/`
+- 本地快速迭代：`npm run tauri build` 后 `npm run widget:install`（对已有
+  bundle 重新嵌入）
 
-启动 ~30s 后快照落盘，然后：桌面右键 → 编辑小组件 → 搜索 Token Usage。
+## 验证清单
 
-**注意**：本机钥匙串需有 Developer ID 证书（signingIdentity 从 tauri.conf 读取）；
-adhoc 签名的 appex 无法通过 App Group 沙盒访问（小组件库也不会收录）。
-
-## 正式发布
-
-TeamID 前缀 App Group + Developer ID 签名即可随版分发（当前配置）。
-若未来要换成非 TeamID 前缀的 group（`group.xxx`），需按 token-monitor #689 的
-方式申请 Developer ID provisioning profiles（主 app 与 appex 各一）并配 CI secrets。
-
-## 关键文件
-
-- `Snapshot.swift` / `Provider.swift` / `Views.swift` / `TokenUsageWidget.swift`
-- `Info.plist`（`com.apple.widgetkit-extension`；bundle id 为主 app id + `.widget`）
-- `build.sh`（swiftc 直编 .appex，无 Xcode 工程；`--universal` 产双架构）
+1. `.app/Contents/PlugIns/TokenUsageWidget.appex` 存在且 adhoc 签名
+2. 启动 app → `log stream --predicate 'subsystem == "com.tokenusage.desktop.widget"'`
+   或直接 `defaults read` widget 容器 plist 出现 `widgetSnapshotJSON`
+3. 桌面右键 → 编辑小组件 → 搜索 Token Usage

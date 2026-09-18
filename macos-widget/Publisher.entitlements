@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Widget extensions are sandboxed by the system; no App Group needed —
-         the snapshot arrives through the publisher helper writing this
-         extension's standard UserDefaults domain (shared bundle identity). -->
+    <!-- Sandboxed so its UserDefaults.standard resolves into the widget
+         extension's container (same bundle identity). No App Group: it is
+         silently ignored under ad-hoc signing without a Team ID. -->
     <key>com.apple.security.app-sandbox</key>
     <true/>
 </dict>

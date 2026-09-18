@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Linked into token-usage-widget-publish's __TEXT __info_plist section:
+         a sandboxed standalone executable needs a bundle identifier, or
+         libsecinit crashes with SIGTRAP before main() runs. The publisher
+         deliberately shares the WIDGET extension's identity so both processes
+         resolve to the same standard container. -->
+    <key>CFBundleIdentifier</key>
+    <string>com.tokenusage.desktop.widget</string>
+    <key>CFBundleName</key>
+    <string>token-usage-widget-publish</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+</dict>
+</plist>

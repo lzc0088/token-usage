@@ -6,17 +6,11 @@
          Tauri's Rust binary + system WebView don't need JIT or unsigned
          memory. Keep it minimal to avoid codesign re-sign loops.
          (NOTE: the file is named lowercase `entitlements.plist` on disk —
-         macOS FS is case-insensitive, don't add a capitalized sibling.) -->
+         macOS FS is case-insensitive, don't add a capitalized sibling.)
+         No App Group: the widget shares data through the publisher helper's
+         UserDefaults (bundle-identity sharing), which works under ad-hoc
+         signing where app groups are silently ignored. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
-    <!-- App Group for the native macOS widget extension (macos-widget/).
-         Team-ID prefixed form works with Developer ID signing without a
-         provisioning profile. MUST match APP_GROUP in
-         src/ui/widget_snapshot.rs and the widget extension's entitlements.
-         No app-sandbox here: the host stays non-sandboxed (Tauri default). -->
-    <key>com.apple.security.application-groups</key>
-    <array>
-        <string>group.2F74TS79TL.tokenusage</string>
-    </array>
 </dict>
 </plist>

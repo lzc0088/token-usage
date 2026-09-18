@@ -11,7 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "fetch-tokscale": "node scripts/fetch-tokscale.mjs",
-    "pretauri": "npm run fetch-tokscale -- --latest",
+    "pretauri": "npm run fetch-tokscale -- --latest && bash macos-widget/build.sh",
     "tauri": "tauri",
     "widget:build": "bash macos-widget/build.sh",
     "widget:install": "bash scripts/install-widget.sh"

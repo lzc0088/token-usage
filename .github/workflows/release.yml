@@ -156,8 +156,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Read by scripts/sign-sidecar.sh (runs as beforeBundleCommand).
+          # Read by scripts/sign-sidecar.sh AND Tauri's bundler (signs the
+          # .app with entitlements incl. the widget appex — Tauri reads the
+          # APPLE_SIGNING_IDENTITY env var; the conf keeps no identity so
+          # local dev builds stay ad-hoc).
           APPLE_SIGN_IDENTITY: "Developer ID Application: Ze Chuan Liu (2F74TS79TL)"
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Ze Chuan Liu (2F74TS79TL)"
           # Updater signing key — signs the update packages (.tar.gz/.exe/.AppImage)
           # so the in-app updater can verify them against the pubkey in
           # tauri.conf.json. tauri-action auto-generates latest.json + .sig

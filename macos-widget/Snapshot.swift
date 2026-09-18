@@ -32,18 +32,19 @@ struct Snapshot: Codable {
     let models: [BreakdownRow]
     let spark: [Int]
 
-    // ── App Group loading ────────────────────────────────────────────────
-    // Must match `APP_GROUP` in src-tauri/src/ui/widget_snapshot.rs.
-    static let appGroup = "group.2F74TS79TL.tokenusage"
+    // ── Snapshot loading ─────────────────────────────────────────────────
+    // The host app feeds JSON to a publisher helper that embeds THIS
+    // extension's bundle identity — its UserDefaults.standard writes land in
+    // this extension's sandbox container, the exact plist our own
+    // UserDefaults.standard reads. No App Group needed (App Groups are
+    // silently ignored by the system under ad-hoc signing without a Team ID
+    // — the Metrik project proved this pattern works for local builds).
+    static let snapshotKey = "widgetSnapshotJSON"
 
     static func load() -> Snapshot? {
-        guard
-            let container = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroup
-            )
-        else { return nil }
-        let url = container.appendingPathComponent("widget_snapshot.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = UserDefaults.standard.data(forKey: snapshotKey) else {
+            return nil
+        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try? decoder.decode(Snapshot.self, from: data)
