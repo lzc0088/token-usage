@@ -414,20 +414,6 @@
         onchange={(v) => onUpdate({ pulse_size: v as "small" | "medium" | "large" })}
       />
     </div>
-    <div class="box-row">
-      <div class="lab">位置</div>
-      <Select
-        class="sel"
-        style="min-width:150px"
-        value={config.pulse_position || "right"}
-        options={[
-          { value: "right", label: "右侧" },
-          { value: "left", label: "左侧" },
-          { value: "top", label: "顶部" },
-        ]}
-        onchange={(v) => onUpdate({ pulse_position: v as "left" | "right" | "top" })}
-      />
-    </div>
     {/if}
   </div>
   {/if}

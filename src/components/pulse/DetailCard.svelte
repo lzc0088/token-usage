@@ -22,10 +22,10 @@
 
   interface Props {
     quota: PulseQuota;
-    position: string;
+    cardSide?: "left" | "right";
   }
 
-  let { quota, position }: Props = $props();
+  let { quota, cardSide = "left" }: Props = $props();
 
   // Vendor display names.
   const vendorNames: Record<string, string> = {
@@ -91,27 +91,19 @@
 
   </script>
 
-<div class="detail-card" class:left={position === "left"}>
+<div class="detail-card">
   <!-- Pointer shape (curved tail pointing toward the ring) -->
   <svg
     class="card-pointer"
     viewBox="0 0 20 40"
     preserveAspectRatio="none"
     aria-hidden="true"
+    class:flip={cardSide === "right"}
   >
-    {#if position === "left"}
-      <!-- Pointer on right side, pointing right -->
-      <path
-        d="M 0,0 C 6,10 14,15 20,20 C 14,25 6,30 0,40 Z"
-        fill="var(--pulse-card-bg)"
-      />
-    {:else}
-      <!-- Pointer on left side, pointing left -->
-      <path
-        d="M 20,0 C 14,10 6,15 0,20 C 6,25 14,30 20,40 Z"
-        fill="var(--pulse-card-bg)"
-      />
-    {/if}
+    <path
+      d="M 20,0 C 14,10 6,15 0,20 C 6,25 14,30 20,40 Z"
+      fill="var(--pulse-card-bg)"
+    />
   </svg>
 
   <!-- Card body -->
@@ -176,10 +168,6 @@
     flex-shrink: 0;
   }
 
-  .detail-card.left {
-    flex-direction: row-reverse;
-  }
-
   @keyframes cardIn {
     from {
       opacity: 0;
@@ -196,6 +184,7 @@
   .card-pointer {
     position: absolute;
     top: 50%;
+    left: -17px;
     width: 18px;
     height: 36px;
     transform: translateY(-50%);
@@ -203,12 +192,10 @@
     pointer-events: none;
   }
 
-  .detail-card:not(.left) .card-pointer {
-    left: -17px;
-  }
-
-  .detail-card.left .card-pointer {
+  .card-pointer.flip {
+    left: auto;
     right: -17px;
+    transform: translateY(-50%) scaleX(-1);
   }
 
   /* ── Card content ──────────────────────────────────────────────────── */

@@ -395,6 +395,15 @@ pub fn expand_pulse(app: AppHandle, vendor: Option<String>) -> Result<(), String
     Ok(())
 }
 
+/// Persist the pulse panel position after a frontend drag.
+#[tauri::command]
+pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let state = app.state::<crate::state::AppState>();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::ui::pulse::save_pos(&conn, x, y);
+    Ok(())
+}
+
 /// Collapse the pulse panel back to ring-only.
 #[tauri::command]
 pub fn collapse_pulse(app: AppHandle) -> Result<(), String> {

@@ -316,8 +316,6 @@ export interface Config {
   pulse_layout?: "vertical" | "horizontal";
   /** Pulse ring size: "small" | "medium" | "large". */
   pulse_size?: "small" | "medium" | "large";
-  /** Pulse screen edge: "left" | "right" | "top". */
-  pulse_position?: "left" | "right" | "top";
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────

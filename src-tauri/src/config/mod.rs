@@ -149,9 +149,6 @@ pub struct Config {
     /// Pulse ring size: "small" (36px) | "medium" (48px) | "large" (60px).
     #[serde(default = "default_pulse_size")]
     pub pulse_size: String,
-    /// Pulse screen edge: "left" | "right" (vertical) or "top" (horizontal).
-    #[serde(default = "default_pulse_position")]
-    pub pulse_position: String,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -200,7 +197,6 @@ impl Default for Config {
             pulse_enabled: default_false(),
             pulse_layout: default_pulse_layout(),
             pulse_size: default_pulse_size(),
-            pulse_position: default_pulse_position(),
         }
     }
 }
@@ -276,9 +272,6 @@ fn default_pulse_layout() -> String {
 }
 fn default_pulse_size() -> String {
     "medium".into()
-}
-fn default_pulse_position() -> String {
-    "right".into()
 }
 
 // Stable config keys.

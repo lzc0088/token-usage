@@ -2,7 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability set for the main popover and settings windows",
-  "windows": ["main", "settings", "floating", "pulse"],
+  "windows": [
+    "main",
+    "settings",
+    "floating",
+    "pulse"
+  ],
   "permissions": [
     "core:default",
     "shell:default",
@@ -11,6 +16,7 @@
     "core:window:allow-hide",
     "core:window:allow-show",
     "updater:default",
-    "notification:default"
+    "notification:default",
+    "core:window:allow-set-position"
   ]
 }

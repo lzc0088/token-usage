@@ -85,7 +85,6 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
         size: cfg.pulse_size.clone(),
         ring_diameter: ring_diameter(&cfg.pulse_size),
         theme: resolved_theme(app, &cfg),
-        position: cfg.pulse_position.clone(),
     };
 
     if let Some(w) = app.get_webview_window("pulse") {
@@ -132,10 +131,7 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                                 resets_at: w.resets_at.clone(),
                             })
                             .collect(),
-                        critical_pct: critical_window
-                            .as_ref()
-                            .map(|w| w.used_pct)
-                            .unwrap_or(0.0),
+                        critical_pct: critical_window.as_ref().map(|w| w.used_pct).unwrap_or(0.0),
                         critical_label: critical_window
                             .as_ref()
                             .map(|w| w.label.clone())
@@ -230,7 +226,8 @@ fn load_quota_count(app: &AppHandle) -> usize {
     load_quotas(&conn).len().max(1)
 }
 
-/// Position the pulse panel at the configured screen edge.
+/// Position the pulse panel. Uses saved position if available, otherwise defaults
+/// to the right edge of the primary monitor.
 fn position_pulse(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -259,7 +256,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
         return;
     }
 
-    // Default position: right edge, 30% from top.
+    // Default: right edge, 30% from top.
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
     };
@@ -268,16 +265,15 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-
-    let (px, py) = match cfg.pulse_position.as_str() {
-        "left" => (mx, my + mh * 0.30),
-        "top" => (mx + mw * 0.5 - w / 2.0, my + 28.0), // below menu bar
-        _ => (mx + mw - w, my + mh * 0.30),            // right
-    };
+    let px = mx + mw - w;
+    let py = my + mh * 0.30;
     let _ = win.set_position(LogicalPosition::new(px, py));
 }
 
-/// Persist the pulse panel's resting position (called from a 1s poller).
+/// Save the pulse panel position (logical px) to the KV store.
+pub fn save_pos(conn: &Connection, x: i32, y: i32) {
+    let _ = crate::config::set_raw(conn, POS_KEY, &format!("{x},{y}"));
+}
 pub fn persist_pulse_pos(app: &AppHandle) {
     let Some(h) = app.get_webview_window("pulse") else {
         return;
@@ -298,7 +294,7 @@ pub fn persist_pulse_pos(app: &AppHandle) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let _ = crate::config::set_raw(&conn, POS_KEY, &format!("{wx},{wy}"));
+    save_pos(&conn, wx, wy);
 }
 
 /// Read the persisted window position.
@@ -351,7 +347,6 @@ pub struct PulseData {
     pub size: String,
     pub ring_diameter: f64,
     pub theme: String,
-    pub position: String,
 }
 
 #[derive(serde::Serialize, Clone)]

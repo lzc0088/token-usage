@@ -55,7 +55,6 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.pulse_enabled != next.pulse_enabled
         || prev.pulse_layout != next.pulse_layout
         || prev.pulse_size != next.pulse_size
-        || prev.pulse_position != next.pulse_position
 }
 
 /// Fields that change what the tray icon bitmap renders.
