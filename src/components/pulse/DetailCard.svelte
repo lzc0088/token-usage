@@ -67,69 +67,99 @@
       return null;
     }
   }
-</script>
+
+  </script>
 
 <div class="detail-card" class:left={position === "left"}>
-  <div class="card-header">
-    <span class="vendor-name">{displayName}</span>
-    {#if quota.plan}
-      <span class="plan-badge">{quota.plan}</span>
+  <!-- Pointer shape (curved tail pointing toward the ring) -->
+  <svg
+    class="card-pointer"
+    viewBox="0 0 20 40"
+    preserveAspectRatio="none"
+    aria-hidden="true"
+  >
+    {#if position === "left"}
+      <!-- Pointer on right side, pointing right -->
+      <path
+        d="M 0,0 C 6,10 14,15 20,20 C 14,25 6,30 0,40 Z"
+        fill="var(--pulse-card-bg)"
+      />
+    {:else}
+      <!-- Pointer on left side, pointing left -->
+      <path
+        d="M 20,0 C 14,10 6,15 0,20 C 6,25 14,30 20,40 Z"
+        fill="var(--pulse-card-bg)"
+      />
+    {/if}
+  </svg>
+
+  <!-- Card body -->
+  <div class="card-content">
+    <div class="card-header">
+      <span class="vendor-name">{displayName}</span>
+      {#if quota.plan}
+        <span class="plan-badge">{quota.plan}</span>
+      {/if}
+    </div>
+
+    <div class="window-list">
+      {#each quota.windows as win (win.label)}
+        <div class="window-row">
+          <div class="window-top">
+            <span class="window-label">{win.label}</span>
+            <span class="window-pct" style="color:{barColor(win.used_pct)}">
+              {Math.round(win.used_pct)}%
+            </span>
+          </div>
+          <div class="bar-track">
+            <div
+              class="bar-fill"
+              style="width:{Math.min(win.used_pct, 100)}%;background:{barColor(win.used_pct)}"
+            ></div>
+          </div>
+          {#if relativeReset(win.resets_at)}
+            <span class="reset-time">⏱ {relativeReset(win.resets_at)}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    {#if quota.balance}
+      <div class="balance-row">
+        <span class="balance-label">余额</span>
+        <span class="balance-amount">
+          {quota.balance.currency} {quota.balance.amount.toFixed(2)}
+        </span>
+      </div>
     {/if}
   </div>
-
-  <div class="window-list">
-    {#each quota.windows as win (win.label)}
-      <div class="window-row">
-        <div class="window-top">
-          <span class="window-label">{win.label}</span>
-          <span class="window-pct" style="color:{barColor(win.used_pct)}">
-            {Math.round(win.used_pct)}%
-          </span>
-        </div>
-        <div class="bar-track">
-          <div
-            class="bar-fill"
-            style="width:{Math.min(win.used_pct, 100)}%;background:{barColor(win.used_pct)}"
-          ></div>
-        </div>
-        {#if relativeReset(win.resets_at)}
-          <span class="reset-time">⏱ {relativeReset(win.resets_at)}</span>
-        {/if}
-      </div>
-    {/each}
-  </div>
-
-  {#if quota.balance}
-    <div class="balance-row">
-      <span class="balance-label">余额</span>
-      <span class="balance-amount">
-        {quota.balance.currency} {quota.balance.amount.toFixed(2)}
-      </span>
-    </div>
-  {/if}
 </div>
 
 <style>
   .detail-card {
+    position: relative;
+    display: flex;
     background: var(--pulse-card-bg);
-    border-radius: 12px;
-    padding: 14px;
-    min-width: 200px;
-    max-width: 240px;
-    margin-top: 8px;
-    animation: cardIn 0.2s ease-out;
+    border-radius: 16px;
+    min-width: 210px;
+    max-width: 250px;
+    animation: cardIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: var(--pulse-text);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    /* Prevent the card from overflowing the panel */
+    flex-shrink: 0;
   }
 
   .detail-card.left {
-    margin-top: 0;
-    margin-left: 8px;
+    flex-direction: row-reverse;
   }
 
   @keyframes cardIn {
     from {
       opacity: 0;
-      transform: translateY(-4px) scale(0.96);
+      transform: translateY(-6px) scale(0.94);
     }
     to {
       opacity: 1;
@@ -137,36 +167,71 @@
     }
   }
 
+  /* ── Pointer ──────────────────────────────────────────────────────── */
+
+  .card-pointer {
+    position: absolute;
+    top: 50%;
+    width: 20px;
+    height: 40px;
+    transform: translateY(-50%);
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+
+  .detail-card:not(.left) .card-pointer {
+    left: -19px;
+  }
+
+  .detail-card.left .card-pointer {
+    right: -19px;
+  }
+
+  /* ── Card content ──────────────────────────────────────────────────── */
+
+  .card-content {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 210px;
+  }
+
   .card-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 2px;
   }
 
   .vendor-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
+    letter-spacing: -0.01em;
   }
 
   .plan-badge {
     font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 4px;
+    padding: 1px 7px;
+    border-radius: 5px;
     background: rgba(255, 255, 255, 0.08);
     color: var(--pulse-text-dim);
+    font-weight: 500;
+    letter-spacing: 0.01em;
   }
 
   .window-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
   }
 
   .window-row {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
   }
 
   .window-top {
@@ -176,40 +241,45 @@
   }
 
   .window-label {
-    font-size: 11px;
+    font-size: 11.5px;
     color: var(--pulse-text-dim);
+    font-weight: 400;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
   }
 
   .window-pct {
     font-size: 12px;
-    font-weight: 700;
-    font-family: "SF Mono", "JetBrains Mono", monospace;
+    font-weight: 600;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    letter-spacing: -0.02em;
   }
 
   .bar-track {
-    height: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 2px;
+    height: 5px;
+    background: var(--pulse-bar-track);
+    border-radius: 3px;
     overflow: hidden;
   }
 
   .bar-fill {
     height: 100%;
-    border-radius: 2px;
-    transition: width 0.4s ease;
+    border-radius: 3px;
+    transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   .reset-time {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--pulse-text-dim);
-    font-family: "SF Mono", "JetBrains Mono", monospace;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    opacity: 0.7;
   }
 
   .balance-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-top: 8px;
+    margin-top: 4px;
     padding-top: 8px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
@@ -217,11 +287,13 @@
   .balance-label {
     font-size: 11px;
     color: var(--pulse-text-dim);
+    font-weight: 400;
   }
 
   .balance-amount {
     font-size: 13px;
     font-weight: 600;
-    font-family: "SF Mono", "JetBrains Mono", monospace;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    letter-spacing: -0.01em;
   }
 </style>

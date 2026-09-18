@@ -4,12 +4,26 @@
     pct: number;
     label: string;
     diameter: number;
-    color: string;
     onHover: () => void;
     onLeave: () => void;
+    isRunning?: boolean;
+    isRefreshing?: boolean;
+    secondPct?: number;
+    showsRemaining?: boolean;
   }
 
-  let { vendor, pct, label, diameter, color, onHover, onLeave }: Props = $props();
+  let {
+    vendor,
+    pct,
+    label,
+    diameter,
+    onHover,
+    onLeave,
+    isRunning = false,
+    isRefreshing = false,
+    secondPct,
+    showsRemaining = false,
+  }: Props = $props();
 
   // Vendor display names.
   const vendorNames: Record<string, string> = {
@@ -28,21 +42,77 @@
 
   let displayName = $derived(vendorNames[vendor] ?? vendor);
 
-  // SVG ring math.
-  let strokeWidth = $derived(Math.max(3, diameter * 0.08));
-  let radius = $derived((diameter - strokeWidth) / 2);
-  let circumference = $derived(2 * Math.PI * radius);
-  let offset = $derived(circumference * (1 - Math.min(pct, 100) / 100));
-
-  // Initials for the center badge.
+  // Centre-disc initials.
   let initials = $derived(
     displayName
-      .split(/[\s·-]+/)
-      .map((w) => w[0])
+      .split(/[\s·\-]+/)
+      .map((w) => w[0] ?? "")
       .join("")
       .slice(0, 2)
       .toUpperCase()
   );
+
+  // ── Ring geometry ──────────────────────────────────────────────────────
+
+  let strokeWidth = $derived(Math.max(3, diameter * 0.10));
+  let radius = $derived((diameter - strokeWidth) / 2);
+  let circumference = $derived(2 * Math.PI * radius);
+  let centerRadius = $derived(Math.max(4, (diameter - strokeWidth * 2 - 8) / 2));
+
+  // ── Computed display values ────────────────────────────────────────────
+
+  let usedPct = $derived(Math.min(100, Math.max(0, pct)));
+  let displayPct = $derived(showsRemaining ? 100 - usedPct : usedPct);
+  let offset = $derived(circumference * (1 - displayPct / 100));
+  let arcColor = $derived(ringColor(usedPct));
+
+  // Second (inner) ring) — null when not shown.
+  let secondOffset = $derived(
+    secondPct == null
+      ? null
+      : Math.max(0, Math.min(100, secondPct)) === 100
+        ? 0
+        : circumference * (1 - Math.max(0, Math.min(100, secondPct)) / 100)
+  );
+
+  // Unique filter ID per vendor.
+  let filterId = $derived(`halo-${vendor}`);
+
+  function ringColor(pct: number): string {
+    if (pct >= 100) return "var(--pulse-exhausted)";
+    if (pct >= 75) return "var(--pulse-warning)";
+    if (pct >= 50) return "var(--pulse-caution)";
+    return "var(--pulse-good)";
+  }
+
+  // ── Busy / refresh arc animation ────────────────────────────────────────
+
+  let busyRotation = $state(0);
+  let refreshRotation = $state(0);
+
+  // Animate busy mark (slow constant rotation).
+  $effect(() => {
+    if (!isRunning) return;
+    let raf: number;
+    const tick = () => {
+      busyRotation = (busyRotation + 0.8) % 360;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  });
+
+  // Animate refresh mark (faster, constant).
+  $effect(() => {
+    if (!isRefreshing) return;
+    let raf: number;
+    const tick = () => {
+      refreshRotation = (refreshRotation + 1.5) % 360;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  });
 </script>
 
 <button
@@ -50,7 +120,7 @@
   style="width:{diameter}px;height:{diameter}px"
   onmouseenter={onHover}
   onmouseleave={onLeave}
-  aria-label="{displayName} {label}: {Math.round(pct)}%"
+  aria-label="{displayName} {label}: {Math.round(usedPct)}%"
 >
   <svg
     class="ring-svg"
@@ -58,40 +128,148 @@
     width={diameter}
     height={diameter}
   >
-    <!-- Background track -->
+    <defs>
+      <!-- Halo glow: blur the arc and let the center disc mask it out. -->
+      <filter
+        id={filterId}
+        x="-50%"
+        y="-50%"
+        width="200%"
+        height="200%"
+      >
+        <feGaussianBlur
+          in="SourceGraphic"
+          stdDeviation="{Math.max(2, diameter * 0.07)}"
+          result="blur"
+        />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+
+    <!-- ── Background track ──────────────────────────────────────────── -->
     <circle
       cx={diameter / 2}
       cy={diameter / 2}
       r={radius}
       fill="none"
-      stroke="currentColor"
+      stroke="var(--pulse-track)"
       stroke-width={strokeWidth}
-      opacity="0.12"
     />
-    <!-- Progress arc -->
+
+    <!-- ── Halo glow (wider blurred arc) ─────────────────────────────── -->
     <circle
-      class="progress-arc"
       cx={diameter / 2}
       cy={diameter / 2}
       r={radius}
       fill="none"
-      stroke={color}
+      stroke={arcColor}
+      stroke-width={strokeWidth * 2}
+      stroke-linecap="round"
+      stroke-dasharray={circumference}
+      stroke-dashoffset={offset}
+      transform="rotate(-90 {diameter / 2} {diameter / 2})"
+      opacity="0.15"
+      filter="url(#{filterId})"
+    />
+
+    <!-- ── Second inner ring ──────────────────────────────────────────── -->
+    {#if secondPct != null && secondOffset != null}
+      <circle
+        cx={diameter / 2}
+        cy={diameter / 2}
+        r={Math.max(4, radius - strokeWidth * 0.8)}
+        fill="none"
+        stroke={arcColor}
+        stroke-width={strokeWidth * 0.45}
+        stroke-linecap="round"
+        stroke-dasharray={2 * Math.PI * Math.max(4, radius - strokeWidth * 0.8)}
+        stroke-dashoffset={secondOffset}
+        transform="rotate(-90 {diameter / 2} {diameter / 2})"
+        opacity="0.35"
+      />
+    {/if}
+
+    <!-- ── Busy travelling mark ────────────────────────────────────────── -->
+    {#if isRunning}
+      <circle
+        cx={diameter / 2}
+        cy={diameter / 2}
+        r={radius}
+        fill="none"
+        stroke={arcColor}
+        stroke-width={strokeWidth * 0.35}
+        stroke-linecap="round"
+        stroke-dasharray="{circumference * 0.22} {circumference * 0.78}"
+        transform="rotate({busyRotation} {diameter / 2} {diameter / 2})"
+        opacity="0.8"
+      />
+    {/if}
+
+    <!-- ── Refresh spinning arc ────────────────────────────────────────── -->
+    {#if isRefreshing}
+      <circle
+        cx={diameter / 2}
+        cy={diameter / 2}
+        r={radius}
+        fill="none"
+        stroke="var(--pulse-text-dim)"
+        stroke-width={strokeWidth * 0.3}
+        stroke-linecap="round"
+        stroke-dasharray="{circumference * 0.35} {circumference * 0.65}"
+        transform="rotate({refreshRotation} {diameter / 2} {diameter / 2})"
+        opacity="0.6"
+      />
+    {/if}
+
+    <!-- ── Usage arc (main progress) ───────────────────────────────────── -->
+    <circle
+      class="usage-arc"
+      cx={diameter / 2}
+      cy={diameter / 2}
+      r={radius}
+      fill="none"
+      stroke={arcColor}
       stroke-width={strokeWidth}
       stroke-linecap="round"
       stroke-dasharray={circumference}
       stroke-dashoffset={offset}
       transform="rotate(-90 {diameter / 2} {diameter / 2})"
     />
+
+    <!-- ── Center disc (dark, creates separation) ──────────────────────── -->
+    <circle
+      cx={diameter / 2}
+      cy={diameter / 2}
+      r={centerRadius}
+      fill="var(--pulse-ring-bg)"
+    />
+
+    <!-- ── Center icon: vendor initials ────────────────────────────────── -->
+    <text
+      x={diameter / 2}
+      y={diameter / 2}
+      text-anchor="middle"
+      dominant-baseline="central"
+      fill="var(--pulse-text-dim)"
+      font-size={Math.max(8, centerRadius * 0.82)}
+      font-family="'SF Pro Rounded', 'SF Rounded', 'Helvetica Neue Rounded', -apple-system, sans-serif"
+      font-weight="600"
+      letter-spacing="-0.02em"
+      pointer-events="none"
+    >
+      {initials}
+    </text>
   </svg>
 
-  <!-- Center badge: initials -->
-  <div class="center-badge" style="font-size:{diameter * 0.26}px">
-    {initials}
-  </div>
-
-  <!-- Percentage label below ring -->
-  <div class="pct-label" style="font-size:{Math.max(10, diameter * 0.22)}px">
-    {Math.round(pct)}%
+  <!-- ── Percentage label ──────────────────────────────────────────────── -->
+  <div
+    class="pct-label"
+    style="font-size:{Math.max(10, diameter * 0.24)}px"
+  >
+    {Math.round(displayPct)}{showsRemaining ? "% Left" : "% Used"}
   </div>
 </button>
 
@@ -101,47 +279,38 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     background: none;
     border: none;
     cursor: pointer;
     padding: 0;
-    transition: transform 0.2s ease;
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: var(--pulse-text);
+    -webkit-tap-highlight-color: transparent;
   }
 
   .ring-container:hover {
     transform: scale(1.08);
   }
 
+  .ring-container:active {
+    transform: scale(1.04);
+  }
+
   .ring-svg {
     display: block;
   }
 
-  .progress-arc {
-    transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .center-badge {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--pulse-text-dim);
-    pointer-events: none;
+  .usage-arc {
+    transition: stroke-dashoffset 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   .pct-label {
-    font-weight: 700;
-    font-family: "SF Mono", "JetBrains Mono", "Consolas", monospace;
+    font-weight: 600;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     color: var(--pulse-text);
     line-height: 1;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
+    transition: color 0.3s ease;
   }
 </style>

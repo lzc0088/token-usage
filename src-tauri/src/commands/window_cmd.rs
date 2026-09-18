@@ -402,6 +402,21 @@ pub fn collapse_pulse(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Dismiss (disable) the pulse panel: hide it and set `pulse_enabled = false`
+/// in config so it stays hidden until the user re-enables it in settings.
+#[tauri::command]
+pub fn dismiss_pulse(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<crate::state::AppState>();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut cfg = crate::config::load(&conn).unwrap_or_default();
+    cfg.pulse_enabled = false;
+    let _ = crate::config::save(&conn, &cfg);
+    drop(conn);
+    crate::ui::pulse::hide_pulse(&app);
+    tracing::info!("pulse panel dismissed by user");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

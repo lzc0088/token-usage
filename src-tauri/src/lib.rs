@@ -141,14 +141,7 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<ta
                 c.language == "en",
             )
         })
-        .unwrap_or_else(|_| {
-            (
-                "icon_only".into(),
-                "normal".into(),
-                "system".into(),
-                false,
-            )
-        });
+        .unwrap_or_else(|_| ("icon_only".into(), "normal".into(), "system".into(), false));
 
     // Bilingual labels: (zh, en). All call-sites pass &'static str literals.
     let label = |zh: &'static str, en: &'static str| -> &'static str {
@@ -727,6 +720,7 @@ pub fn run() {
             commands::window_cmd::collapse_floating,
             commands::window_cmd::expand_pulse,
             commands::window_cmd::collapse_pulse,
+            commands::window_cmd::dismiss_pulse,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,

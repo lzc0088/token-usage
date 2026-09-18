@@ -110,6 +110,15 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                         })
                         .cloned();
 
+                    // Sort windows by usage to find the second most critical.
+                    let mut sorted_windows: Vec<_> = q.windows.iter().collect();
+                    sorted_windows.sort_by(|a, b| {
+                        b.used_pct
+                            .partial_cmp(&a.used_pct)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let second = sorted_windows.get(1);
+
                     quotas.push(PulseQuota {
                         vendor: q.vendor.clone(),
                         plan: q.plan_label.clone(),
@@ -135,6 +144,10 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                             amount: b.amount,
                             currency: b.currency.clone(),
                         }),
+                        second_pct: second.map(|w| w.used_pct),
+                        second_label: second.map(|w| w.label.clone()),
+                        is_running: false,
+                        is_refreshing: false,
                     });
                 }
             }
@@ -164,7 +177,10 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         // Horizontal: rings in a row; expand height for card below.
         let ring_count = load_quota_count(app);
         let ring_w = ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0;
-        (ring_w.max(CARD_WIDTH + PANEL_PAD * 2.0), diameter + CARD_ROW_H * 3.0 + PANEL_PAD * 2.0 + RING_GAP)
+        (
+            ring_w.max(CARD_WIDTH + PANEL_PAD * 2.0),
+            diameter + CARD_ROW_H * 3.0 + PANEL_PAD * 2.0 + RING_GAP,
+        )
     } else {
         // Vertical: rings in a column; expand width for card beside.
         (diameter + RING_GAP + CARD_WIDTH + PANEL_PAD * 2.0, 300.0)
@@ -256,7 +272,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     let (px, py) = match cfg.pulse_position.as_str() {
         "left" => (mx, my + mh * 0.30),
         "top" => (mx + mw * 0.5 - w / 2.0, my + 28.0), // below menu bar
-        _ => (mx + mw - w, my + mh * 0.30),             // right
+        _ => (mx + mw - w, my + mh * 0.30),            // right
     };
     let _ = win.set_position(LogicalPosition::new(px, py));
 }
@@ -320,10 +336,7 @@ fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {
     match cfg.theme.as_str() {
         "dark" => "dark".into(),
         "light" => "light".into(),
-        _ => match app
-            .get_webview_window("pulse")
-            .and_then(|w| w.theme().ok())
-        {
+        _ => match app.get_webview_window("pulse").and_then(|w| w.theme().ok()) {
             Some(tauri::Theme::Light) => "light".into(),
             _ => "dark".into(),
         },
@@ -350,6 +363,15 @@ pub struct PulseQuota {
     pub critical_pct: f64,
     pub critical_label: String,
     pub balance: Option<PulseBalance>,
+    /// Second-most-critical window, for the inner ring.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second_label: Option<String>,
+    /// Whether a CLI for this vendor is currently active.
+    pub is_running: bool,
+    /// Whether Pulse is currently fetching a fresh reading.
+    pub is_refreshing: bool,
 }
 
 #[derive(serde::Serialize, Clone)]
