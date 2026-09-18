@@ -148,6 +148,18 @@ pub struct Config {
     /// Triggered when remaining ≤ 20% OR projected exhaustion is within 2 h.
     #[serde(default = "default_true")]
     pub quota_notify_enabled: bool,
+    /// Pulse-style floating quota panel (macOS: NSPanel-level floating rings).
+    #[serde(default = "default_false")]
+    pub pulse_enabled: bool,
+    /// Pulse layout: "vertical" (stack on screen edge) | "horizontal" (row on top).
+    #[serde(default = "default_pulse_layout")]
+    pub pulse_layout: String,
+    /// Pulse ring size: "small" (36px) | "medium" (48px) | "large" (60px).
+    #[serde(default = "default_pulse_size")]
+    pub pulse_size: String,
+    /// Pulse screen edge: "left" | "right" (vertical) or "top" (horizontal).
+    #[serde(default = "default_pulse_position")]
+    pub pulse_position: String,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -195,6 +207,10 @@ impl Default for Config {
             floating_display: default_floating_display(),
             floating_position: default_floating_position(),
             quota_notify_enabled: default_true(),
+            pulse_enabled: default_false(),
+            pulse_layout: default_pulse_layout(),
+            pulse_size: default_pulse_size(),
+            pulse_position: default_pulse_position(),
         }
     }
 }
@@ -263,6 +279,15 @@ fn default_floating_display() -> String {
     "today_tokens".into()
 }
 fn default_floating_position() -> String {
+    "right".into()
+}
+fn default_pulse_layout() -> String {
+    "vertical".into()
+}
+fn default_pulse_size() -> String {
+    "medium".into()
+}
+fn default_pulse_position() -> String {
     "right".into()
 }
 

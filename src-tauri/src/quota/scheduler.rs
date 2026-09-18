@@ -422,6 +422,10 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             // The native widget's snapshot includes quota windows — refresh it
             // (debounced; also covers the first-refresh path above).
             crate::ui::widget_snapshot::export_debounced(&app);
+            // Pulse panel: push fresh quota data to the floating rings.
+            if let Ok(conn) = db.lock() {
+                crate::ui::pulse::push_pulse_data(&app, &conn);
+            }
             dispatch_notifications(&app).await;
             // quota_min tray mode reads the quota cache — repaint so the
             // tightest percentage stays live between collector ticks.

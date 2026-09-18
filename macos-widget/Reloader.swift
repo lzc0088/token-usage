@@ -12,7 +12,9 @@ enum TokenUsageWidgetReloader {
     static func main() {
         WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageTodayOverview")
         WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageQuotas")
-        WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageBreakdown")
+        WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageToolUsage")
+        WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageModelUsage")
+        WidgetCenter.shared.reloadTimelines(ofKind: "TokenUsageTrendChart")
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 }

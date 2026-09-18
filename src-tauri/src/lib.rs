@@ -655,6 +655,8 @@ pub fn run() {
                 // Desktop widget: visibility + last position (level is applied
                 // inside sync even while hidden, so the first show is correct).
                 ui::desktop_widget::sync_widget(app.handle(), &conn);
+                // Pulse panel: floating quota rings.
+                ui::pulse::sync_pulse(app.handle(), &conn);
             }
 
             // ── persist the floating handle's dragged position ──────────────
@@ -667,6 +669,7 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     ui::floating::persist_handle_pos(&persist_h);
                     ui::desktop_widget::persist_widget_pos(&persist_h);
+                    ui::pulse::persist_pulse_pos(&persist_h);
                 }
             });
 
@@ -733,6 +736,8 @@ pub fn run() {
             commands::window_cmd::hide_floating_panel,
             commands::window_cmd::expand_floating,
             commands::window_cmd::collapse_floating,
+            commands::window_cmd::expand_pulse,
+            commands::window_cmd::collapse_pulse,
             commands::exchange::get_exchange_rate,
             commands::exchange::refresh_exchange_rate,
             commands::exchange::get_latest_rate,

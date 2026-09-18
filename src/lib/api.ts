@@ -314,6 +314,14 @@ export interface Config {
   floating_display?: "today_tokens" | "today_cost" | "total_tokens" | "total_cost";
   /** Floating widget screen edge: "left" | "right". */
   floating_position?: "left" | "right";
+  /** Pulse floating quota panel (macOS). */
+  pulse_enabled?: boolean;
+  /** Pulse layout: "vertical" | "horizontal". */
+  pulse_layout?: "vertical" | "horizontal";
+  /** Pulse ring size: "small" | "medium" | "large". */
+  pulse_size?: "small" | "medium" | "large";
+  /** Pulse screen edge: "left" | "right" | "top". */
+  pulse_position?: "left" | "right" | "top";
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────

@@ -25,12 +25,20 @@ struct Snapshot: Codable {
         let costUsd: Double
     }
 
+    struct TrendPoint: Codable {
+        let date: String   // "YYYY-MM-DD"
+        let tokens: Int
+        let costUsd: Double
+        let messages: Int
+    }
+
     let updatedAt: Int64
     let today: TodayBlock
     let quotas: [QuotaRow]
     let tools: [BreakdownRow]
     let models: [BreakdownRow]
     let spark: [Int]
+    let trendPoints: [TrendPoint]?
 
     // ── Snapshot loading ─────────────────────────────────────────────────
     // The host app feeds JSON to a publisher helper that embeds THIS

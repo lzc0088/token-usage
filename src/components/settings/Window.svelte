@@ -387,6 +387,69 @@
   </div>
   {/if}
 
+  <!-- ══ Pulse 浮动面板（macOS 额度圆环 dock） ══ -->
+  {#if platform === "macos"}
+  <div class="section-title">Pulse</div>
+  <div class="section-box">
+    <div class="box-row">
+      <div class="lab">Pulse 浮动面板<div class="hint">屏幕边缘显示各账户额度圆环</div></div>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={!!config.pulse_enabled}
+          role="switch"
+          aria-checked={!!config.pulse_enabled}
+          aria-label="Pulse"
+          onclick={() => onUpdate({ pulse_enabled: !config.pulse_enabled })}
+        ></button>
+      </div>
+    </div>
+    {#if config.pulse_enabled}
+    <div class="box-row">
+      <div class="lab">排版</div>
+      <Select
+        class="sel"
+        style="min-width:150px"
+        value={config.pulse_layout || "vertical"}
+        options={[
+          { value: "vertical", label: "竖排" },
+          { value: "horizontal", label: "横排" },
+        ]}
+        onchange={(v) => onUpdate({ pulse_layout: v as "vertical" | "horizontal" })}
+      />
+    </div>
+    <div class="box-row">
+      <div class="lab">尺寸</div>
+      <Select
+        class="sel"
+        style="min-width:150px"
+        value={config.pulse_size || "medium"}
+        options={[
+          { value: "small", label: "小" },
+          { value: "medium", label: "中" },
+          { value: "large", label: "大" },
+        ]}
+        onchange={(v) => onUpdate({ pulse_size: v as "small" | "medium" | "large" })}
+      />
+    </div>
+    <div class="box-row">
+      <div class="lab">位置</div>
+      <Select
+        class="sel"
+        style="min-width:150px"
+        value={config.pulse_position || "right"}
+        options={[
+          { value: "right", label: "右侧" },
+          { value: "left", label: "左侧" },
+          { value: "top", label: "顶部" },
+        ]}
+        onchange={(v) => onUpdate({ pulse_position: v as "left" | "right" | "top" })}
+      />
+    </div>
+    {/if}
+  </div>
+  {/if}
+
 </div>
 
 <style>

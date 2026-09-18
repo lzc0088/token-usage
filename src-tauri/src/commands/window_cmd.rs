@@ -386,6 +386,22 @@ pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::Floating
     })
 }
 
+// ── Pulse floating panel commands ─────────────────────────────────────────
+
+/// Expand the pulse panel to show detail card for a vendor.
+#[tauri::command]
+pub fn expand_pulse(app: AppHandle, vendor: Option<String>) -> Result<(), String> {
+    crate::ui::pulse::expand_pulse(&app, vendor);
+    Ok(())
+}
+
+/// Collapse the pulse panel back to ring-only.
+#[tauri::command]
+pub fn collapse_pulse(app: AppHandle) -> Result<(), String> {
+    crate::ui::pulse::collapse_pulse(&app);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

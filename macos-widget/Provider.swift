@@ -23,7 +23,16 @@ struct SnapshotEntry: TimelineEntry {
                 .init(key: "glm-5.3", tokens: 32_500_000, pct: 41, costUsd: 6.0),
                 .init(key: "step-3.7-flash", tokens: 43_371_264, pct: 55, costUsd: 6.8),
             ],
-            spark: [42, 61, 38, 75, 52, 90, 68]
+            spark: [42, 61, 38, 75, 52, 90, 68],
+            trendPoints: [
+                .init(date: "2026-09-11", tokens: 4_200_000, costUsd: 3.8, messages: 12),
+                .init(date: "2026-09-12", tokens: 6_100_000, costUsd: 5.2, messages: 18),
+                .init(date: "2026-09-13", tokens: 3_800_000, costUsd: 3.1, messages: 10),
+                .init(date: "2026-09-14", tokens: 7_500_000, costUsd: 6.4, messages: 22),
+                .init(date: "2026-09-15", tokens: 5_200_000, costUsd: 4.5, messages: 15),
+                .init(date: "2026-09-16", tokens: 9_000_000, costUsd: 7.8, messages: 28),
+                .init(date: "2026-09-17", tokens: 6_800_000, costUsd: 5.9, messages: 20),
+            ]
         )
         return SnapshotEntry(date: .now, snapshot: snap)
     }

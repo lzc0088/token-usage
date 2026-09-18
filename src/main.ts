@@ -2,6 +2,7 @@ import "./app.css";
 import App from "./App.svelte";
 import SettingsApp from "./views/SettingsApp.svelte";
 import WidgetApp from "./views/WidgetApp.svelte";
+import PulseApp from "./views/PulseApp.svelte";
 import { mount } from "svelte";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./lib/api";
@@ -53,7 +54,10 @@ async function init(): Promise<void> {
   // Branch on the window label: `settings` mounts the settings UI, `widget`
   // mounts the desktop card, every other window mounts the main popover.
   const label = getCurrentWindow().label;
-  const Root = label === "settings" ? SettingsApp : label === "widget" ? WidgetApp : App;
+  const Root = label === "settings" ? SettingsApp
+    : label === "widget" ? WidgetApp
+    : label === "pulse" ? PulseApp
+    : App;
 
   mount(Root, {
     target: document.getElementById("app")!,

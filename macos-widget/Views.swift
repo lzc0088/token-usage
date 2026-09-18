@@ -230,14 +230,14 @@ struct QuotasView: View {
     private var palette: WidgetPalette { WidgetPalette(dark: scheme == .dark) }
 }
 
-/// 用量细分 — top tools/models with bar rows (dimension via AppIntent).
-struct BreakdownView: View {
-    let entry: DimensionEntry
-    let dimension: Dimension
+/// 工具用量 — today's top tools with bar rows.
+struct ToolUsageView: View {
+    let entry: SnapshotEntry
+    @Environment(\.widgetFamily) private var family
 
     private var rows: [Snapshot.BreakdownRow] {
         guard let snap = entry.snapshot else { return [] }
-        return dimension == .tools ? snap.tools : snap.models
+        return Array(snap.tools.prefix(family == .systemSmall ? 2 : 4))
     }
 
     var body: some View {
@@ -251,29 +251,11 @@ struct BreakdownView: View {
             EmptySnapshotView()
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text(dimension == .tools ? "工具 · 今日" : "模型 · 今日")
+                Text("工具 · 今日")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(palette.textFaint)
                 ForEach(rows, id: \.key) { row in
-                    HStack(spacing: 8) {
-                        Text(SnapshotMeta.toolLabel(row.key))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(palette.text)
-                            .lineLimit(1)
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color.primary.opacity(0.08))
-                                Capsule()
-                                    .fill(palette.amber.opacity(0.85))
-                                    .frame(width: max(3, geo.size.width * row.pct / 100))
-                            }
-                        }
-                        .frame(height: 5)
-                        Text(String(format: "%.1f%%", row.pct))
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(palette.textDim)
-                            .frame(width: 42, alignment: .trailing)
-                    }
+                    BreakdownRowView(row: row, label: SnapshotMeta.toolLabel(row.key), palette: palette)
                 }
                 Spacer(minLength: 0)
             }
@@ -283,6 +265,167 @@ struct BreakdownView: View {
 
     @Environment(\.colorScheme) private var scheme
     private var palette: WidgetPalette { WidgetPalette(dark: scheme == .dark) }
+}
+
+/// 模型用量 — today's top models with bar rows.
+struct ModelUsageView: View {
+    let entry: SnapshotEntry
+    @Environment(\.widgetFamily) private var family
+
+    private var rows: [Snapshot.BreakdownRow] {
+        guard let snap = entry.snapshot else { return [] }
+        return Array(snap.models.prefix(family == .systemSmall ? 2 : 4))
+    }
+
+    var body: some View {
+        content
+            .containerBackground(for: .widget) { palette.surface }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if rows.isEmpty {
+            EmptySnapshotView()
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("模型 · 今日")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.textFaint)
+                ForEach(rows, id: \.key) { row in
+                    BreakdownRowView(row: row, label: SnapshotMeta.toolLabel(row.key), palette: palette)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+        }
+    }
+
+    @Environment(\.colorScheme) private var scheme
+    private var palette: WidgetPalette { WidgetPalette(dark: scheme == .dark) }
+}
+
+/// Shared breakdown row view (tool or model).
+private struct BreakdownRowView: View {
+    let row: Snapshot.BreakdownRow
+    let label: String
+    var palette: WidgetPalette
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(palette.text)
+                .lineLimit(1)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(palette.amber.opacity(0.85))
+                        .frame(width: max(3, geo.size.width * row.pct / 100))
+                }
+            }
+            .frame(height: 5)
+            Text(String(format: "%.1f%%", row.pct))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(palette.textDim)
+                .frame(width: 42, alignment: .trailing)
+        }
+    }
+}
+
+/// 趋势统计 — 7-day bar chart (medium: chart + total; large: + daily detail).
+struct TrendChartView: View {
+    let entry: SnapshotEntry
+    @Environment(\.widgetFamily) private var family
+
+    private var points: [Snapshot.TrendPoint] {
+        entry.snapshot?.trendPoints ?? []
+    }
+
+    private var totalTokens: Int { points.reduce(0) { $0 + $1.tokens } }
+
+    var body: some View {
+        content
+            .containerBackground(for: .widget) { palette.surface }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if points.isEmpty {
+            EmptySnapshotView()
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                // Header
+                HStack {
+                    Text("趋势 · 近 7 日")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(palette.textFaint)
+                    Spacer()
+                    GradientDigits(
+                        value: compactTokens(totalTokens).value,
+                        unit: compactTokens(totalTokens).unit,
+                        size: 14
+                    )
+                }
+
+                // Bar chart
+                barChart
+                    .frame(height: family == .systemLarge ? 52 : 34)
+
+                // Large: daily detail rows
+                if family == .systemLarge {
+                    Divider().overlay(palette.textFaint.opacity(0.2))
+                    ForEach(points.suffix(5).reversed(), id: \.date) { pt in
+                        HStack {
+                            Text(String(pt.date.suffix(5)))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(palette.textDim)
+                            Spacer()
+                            Text(compactTokens(pt.tokens).value + compactTokens(pt.tokens).unit)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(palette.text)
+                            Text(String(format: "$%.1f", pt.costUsd))
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(palette.textDim)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+        }
+    }
+
+    /// Vertical bar chart — one rounded rect per day.
+    private var barChart: some View {
+        GeometryReader { geo in
+            let maxTokens = max(1, points.map(\.tokens).max() ?? 1)
+            HStack(alignment: .bottom, spacing: max(2, geo.size.width * 0.02)) {
+                ForEach(points, id: \.date) { pt in
+                    let frac = CGFloat(pt.tokens) / CGFloat(maxTokens)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(palette.digitGradient)
+                        .frame(height: max(3, geo.size.height * frac))
+                }
+            }
+        }
+    }
+
+    @Environment(\.colorScheme) private var scheme
+    private var palette: WidgetPalette { WidgetPalette(dark: scheme == .dark) }
+}
+
+/// Compact zh-style token count (same logic as Snapshot.tokenText but standalone).
+private func compactTokens(_ n: Int) -> (value: String, unit: String) {
+    let d = Double(n)
+    if d >= 100_000_000 {
+        return (String(format: "%.2f", d / 100_000_000), "亿")
+    }
+    if d >= 10_000 {
+        return (String(format: "%.1f", d / 10_000), "万")
+    }
+    return (String(n), "")
 }
 
 /// Shown before the app has ever exported a snapshot.

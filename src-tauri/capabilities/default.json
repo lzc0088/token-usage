@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability set for the main popover and settings windows",
-  "windows": ["main", "settings", "floating"],
+  "windows": ["main", "settings", "floating", "pulse"],
   "permissions": [
     "core:default",
     "shell:default",

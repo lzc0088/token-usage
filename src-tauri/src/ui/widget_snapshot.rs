@@ -11,7 +11,7 @@
 //! WidgetCenter to refresh the timelines.
 
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
@@ -34,6 +34,9 @@ pub struct WidgetSnapshot {
     pub models: Vec<BreakdownRow>,
     /// Daily token totals, oldest → today (7 entries; shorter when fresh).
     pub spark: Vec<i64>,
+    /// Per-day detail for the trend chart widget (7 entries; superset of spark).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trend_points: Vec<TrendPoint>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -62,6 +65,14 @@ pub struct BreakdownRow {
     pub tokens: i64,
     pub pct: f64,
     pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TrendPoint {
+    pub date: String,
+    pub tokens: i64,
+    pub cost_usd: f64,
+    pub messages: i64,
 }
 
 /// Resolve a bundled helper's path: env override first (tests / dev), then
@@ -132,7 +143,7 @@ fn request_reload() {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .and_then(|mut c| c.wait().map(|_| ()).map_err(|e| e.into()))
+            .and_then(|mut c| c.wait().map(|_| ()))
         {
             tracing::warn!(error = ?e, "widget reloader spawn failed");
         }
@@ -226,10 +237,20 @@ pub fn build_snapshot(state: &AppState) -> WidgetSnapshot {
     });
     quotas.truncate(8);
 
-    // Sparkline: daily totals for the last 7 days.
-    let spark = crate::query::trends::query(&conn, &crate::query::last_n_days(&t, SPARK_DAYS))
-        .map(|tr| tr.points.into_iter().map(|p| p.tokens).collect())
+    // Sparkline + trend detail: daily totals for the last 7 days.
+    let trend_data = crate::query::trends::query(&conn, &crate::query::last_n_days(&t, SPARK_DAYS))
+        .map(|tr| tr.points)
         .unwrap_or_default();
+    let spark: Vec<i64> = trend_data.iter().map(|p| p.tokens).collect();
+    let trend_points: Vec<TrendPoint> = trend_data
+        .into_iter()
+        .map(|p| TrendPoint {
+            date: p.date,
+            tokens: p.tokens,
+            cost_usd: p.cost_usd,
+            messages: p.messages,
+        })
+        .collect();
 
     WidgetSnapshot {
         updated_at: now_ms(),
@@ -238,6 +259,7 @@ pub fn build_snapshot(state: &AppState) -> WidgetSnapshot {
         tools,
         models,
         spark,
+        trend_points,
     }
 }
 
@@ -327,6 +349,12 @@ mod tests {
                 cost_usd: 6.0,
             }],
             spark: vec![42, 61, 38, 75, 52, 90, 68],
+            trend_points: vec![TrendPoint {
+                date: "2026-09-11".into(),
+                tokens: 4_200_000,
+                cost_usd: 3.8,
+                messages: 12,
+            }],
         };
         let v: serde_json::Value = serde_json::to_value(&snap).unwrap();
         // Keys the Swift Codable model expects (snake_case passthrough).
@@ -336,6 +364,8 @@ mod tests {
         assert_eq!(v["quotas"][0]["used_pct"], 34.0);
         assert_eq!(v["tools"][0]["key"], "claude");
         assert_eq!(v["spark"].as_array().unwrap().len(), 7);
+        assert_eq!(v["trend_points"][0]["date"], "2026-09-11");
+        assert_eq!(v["trend_points"][0]["tokens"], 4_200_000);
         // Optional fields are omitted, not nulled.
         let today_str = v["today"].to_string();
         assert!(!today_str.contains("rate_burn"));
@@ -354,11 +384,13 @@ mod tests {
             tools: vec![],
             models: vec![],
             spark: vec![],
+            trend_points: vec![],
         };
         let s = serde_json::to_string(&snap).unwrap();
         assert!(!s.contains("rate_tok_s"));
         assert!(!s.contains("resets_at"));
         assert!(!s.contains("plan"));
+        assert!(!s.contains("trend_points"));
     }
 
     #[test]
