@@ -71,12 +71,18 @@
   }
   init();
 
-  function onRingHover(vendor: string) {
+  function onRingEnter(vendor: string) {
     hoveredVendor = vendor;
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
 
   function onRingLeave() {
+    hoveredVendor = null;
+    // Don't collapse here — let the wrapper handle collapse on full leave.
+    // This prevents flashing when moving from ring to tooltip card.
+  }
+
+  function onWrapperLeave() {
     hoveredVendor = null;
     invoke("collapse_pulse").catch(() => {});
   }
@@ -133,7 +139,7 @@
   <div class="panel-title">{panelTitle}</div>
 
   <!-- Ring rail + tooltip container -->
-  <div class="rail-with-tooltip">
+  <div class="rail-with-tooltip" onmouseleave={onWrapperLeave} role="group">
     <div class="ring-dock">
       {#each data.quotas as quota (quota.vendor)}
         <QuotaRing
@@ -141,7 +147,7 @@
           pct={quota.critical_pct}
           label={quota.critical_label}
           diameter={data.ring_diameter}
-          onHover={() => onRingHover(quota.vendor)}
+          onHover={() => onRingEnter(quota.vendor)}
           onLeave={onRingLeave}
           isRunning={quota.is_running ?? false}
           isRefreshing={quota.is_refreshing ?? false}
@@ -342,7 +348,7 @@
 
   .detail-tooltip {
     position: absolute;
-    pointer-events: none;
+    pointer-events: auto;
     z-index: 20;
     animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
