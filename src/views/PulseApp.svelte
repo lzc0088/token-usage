@@ -90,6 +90,14 @@
       ? data.quotas.find((q) => q.vendor === hoveredVendor) ?? null
       : null
   );
+
+  // Which ring index is hovered (for card positioning).
+  let hoveredIndex = $derived(
+    hoveredVendor ? data.quotas.findIndex((q) => q.vendor === hoveredVendor) : -1
+  );
+
+  // Panel-level title explaining the percentage mode.
+  let panelTitle = $derived("使用量");
 </script>
 
 <div
@@ -121,39 +129,48 @@
     </svg>
   </button>
 
-  <!-- Ring rail -->
-  <div class="ring-dock">
-    {#each data.quotas as quota (quota.vendor)}
-      <QuotaRing
-        vendor={quota.vendor}
-        pct={quota.critical_pct}
-        label={quota.critical_label}
-        diameter={data.ring_diameter}
-        onHover={() => onRingHover(quota.vendor)}
-        onLeave={onRingLeave}
-        isRunning={quota.is_running ?? false}
-        isRefreshing={quota.is_refreshing ?? false}
-        secondPct={quota.second_pct}
-        showsRemaining={false}
-      />
-    {/each}
-    {#if data.quotas.length === 0}
+  <!-- Panel title (mode indicator) -->
+  <div class="panel-title">{panelTitle}</div>
+
+  <!-- Ring rail + tooltip container -->
+  <div class="rail-with-tooltip">
+    <div class="ring-dock">
+      {#each data.quotas as quota (quota.vendor)}
+        <QuotaRing
+          vendor={quota.vendor}
+          pct={quota.critical_pct}
+          label={quota.critical_label}
+          diameter={data.ring_diameter}
+          onHover={() => onRingHover(quota.vendor)}
+          onLeave={onRingLeave}
+          isRunning={quota.is_running ?? false}
+          isRefreshing={quota.is_refreshing ?? false}
+          secondPct={quota.second_pct}
+          showsRemaining={false}
+        />
+      {/each}
+      {#if data.quotas.length === 0}
+        <div
+          class="empty-ring"
+          style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
+        >
+          <span class="empty-icon">📊</span>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Detail tooltip card (anchored to hovered ring) -->
+    {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
-        class="empty-ring"
-        style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
+        class="detail-tooltip"
+        class:vertical={data.layout !== "horizontal"}
+        class:horizontal={data.layout === "horizontal"}
+        style="--hover-index: {hoveredIndex}; --total-rings: {data.quotas.length}; --ring-gap: 10px;"
       >
-        <span class="empty-icon">📊</span>
+        <DetailCard quota={hoveredQuota} position={data.position} />
       </div>
     {/if}
   </div>
-
-  <!-- Detail card (flies out on hover) -->
-  {#if isExpanded && hoveredQuota}
-    <DetailCard
-      quota={hoveredQuota}
-      position={data.position}
-    />
-  {/if}
 </div>
 
 <style>
@@ -296,6 +313,83 @@
 
   .horizontal .ring-dock {
     flex-direction: row;
+  }
+
+  /* ── Panel title ────────────────────────────────────────────────────── */
+
+  .panel-title {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--pulse-text-dim);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
+  }
+
+  .vertical .panel-title {
+    align-self: flex-start;
+    margin-left: 2px;
+  }
+
+  .horizontal .panel-title {
+    align-self: flex-start;
+    margin-bottom: 2px;
+  }
+
+  /* ── Detail tooltip card ────────────────────────────────────────────── */
+
+  .detail-tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 20;
+    animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .vertical .detail-tooltip {
+    left: calc(var(--ring-size) + 16px + 12px);
+    top: calc(
+      36px +
+      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
+      var(--ring-size) / 2
+    );
+    transform: translateY(-50%);
+  }
+
+  .horizontal .detail-tooltip {
+    top: calc(var(--ring-size) + 14px + 8px + 4px + 2px + 8px);
+    left: calc(
+      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
+      var(--ring-size) / 2
+    );
+    transform: translateX(-50%);
+  }
+
+  @keyframes tooltipIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+  }
+
+  .horizontal .detail-tooltip {
+    animation-name: tooltipInH;
+  }
+
+  @keyframes tooltipInH {
+    from {
+      opacity: 0;
+      transform: translateX(-4px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) scale(1);
+    }
   }
 
   /* ── Empty state ───────────────────────────────────────────────────── */

@@ -57,15 +57,36 @@
       const reset = new Date(iso);
       const now = new Date();
       const diff = reset.getTime() - now.getTime();
-      if (diff <= 0) return "已重置";
+      if (diff <= 0) return "Resets now";
       const hours = Math.floor(diff / 3_600_000);
       const mins = Math.floor((diff % 3_600_000) / 60_000);
-      if (hours >= 24) return `${Math.floor(hours / 24)}天后`;
-      if (hours > 0) return `${hours}h${mins > 0 ? mins + "m" : ""}后`;
-      return `${mins}m后`;
+      const days = Math.floor(hours / 24);
+      if (days > 0) return `Resets in ${days}d ${hours % 24}h`;
+      if (hours > 0) return `Resets in ${hours}h${mins > 0 ? " " + mins + "m" : ""}`;
+      return `Resets in ${mins}m`;
     } catch {
       return null;
     }
+  }
+
+  // Split label into quota type + model name subtitle.
+  function splitLabel(raw: string): { type: string; subtitle: string } {
+    const idx = raw.indexOf("·");
+    if (idx >= 0) {
+      return {
+        type: raw.slice(0, idx).trim(),
+        subtitle: raw.slice(idx + 1).trim(),
+      };
+    }
+    // Fallback: try " - " separator
+    const dash = raw.indexOf(" - ");
+    if (dash >= 0) {
+      return {
+        type: raw.slice(0, dash).trim(),
+        subtitle: raw.slice(dash + 3).trim(),
+      };
+    }
+    return { type: raw, subtitle: "" };
   }
 
   </script>
@@ -104,13 +125,17 @@
 
     <div class="window-list">
       {#each quota.windows as win (win.label)}
+        {@const { type: winType, subtitle } = splitLabel(win.label)}
         <div class="window-row">
           <div class="window-top">
-            <span class="window-label">{win.label}</span>
+            <span class="window-label">{winType}</span>
             <span class="window-pct" style="color:{barColor(win.used_pct)}">
               {Math.round(win.used_pct)}%
             </span>
           </div>
+          {#if subtitle}
+            <span class="model-name">{subtitle}</span>
+          {/if}
           <div class="bar-track">
             <div
               class="bar-fill"
@@ -118,7 +143,7 @@
             ></div>
           </div>
           {#if relativeReset(win.resets_at)}
-            <span class="reset-time">⏱ {relativeReset(win.resets_at)}</span>
+            <span class="reset-time">{relativeReset(win.resets_at)}</span>
           {/if}
         </div>
       {/each}
@@ -140,15 +165,14 @@
     position: relative;
     display: flex;
     background: var(--pulse-card-bg);
-    border-radius: 16px;
-    min-width: 210px;
-    max-width: 250px;
-    animation: cardIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    border-radius: 14px;
+    min-width: 200px;
+    max-width: 240px;
+    animation: cardIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: var(--pulse-text);
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    /* Prevent the card from overflowing the panel */
     flex-shrink: 0;
   }
 
@@ -159,7 +183,7 @@
   @keyframes cardIn {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.94);
+      transform: translateY(-5px) scale(0.95);
     }
     to {
       opacity: 1;
@@ -172,40 +196,40 @@
   .card-pointer {
     position: absolute;
     top: 50%;
-    width: 20px;
-    height: 40px;
+    width: 18px;
+    height: 36px;
     transform: translateY(-50%);
     flex-shrink: 0;
     pointer-events: none;
   }
 
   .detail-card:not(.left) .card-pointer {
-    left: -19px;
+    left: -17px;
   }
 
   .detail-card.left .card-pointer {
-    right: -19px;
+    right: -17px;
   }
 
   /* ── Card content ──────────────────────────────────────────────────── */
 
   .card-content {
-    padding: 14px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    min-width: 210px;
+    gap: 8px;
+    min-width: 200px;
   }
 
   .card-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 2px;
+    gap: 6px;
+    margin-bottom: 0;
   }
 
   .vendor-name {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
       -apple-system, sans-serif;
@@ -213,9 +237,9 @@
   }
 
   .plan-badge {
-    font-size: 10px;
-    padding: 1px 7px;
-    border-radius: 5px;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.08);
     color: var(--pulse-text-dim);
     font-weight: 500;
@@ -225,13 +249,13 @@
   .window-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
 
   .window-row {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
 
   .window-top {
@@ -241,57 +265,68 @@
   }
 
   .window-label {
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--pulse-text-dim);
-    font-weight: 400;
+    font-weight: 500;
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
       -apple-system, sans-serif;
   }
 
+  .model-name {
+    font-size: 10px;
+    color: var(--pulse-text-dim);
+    opacity: 0.7;
+    font-weight: 400;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
+    margin-top: -1px;
+  }
+
   .window-pct {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     letter-spacing: -0.02em;
   }
 
   .bar-track {
-    height: 5px;
+    height: 4px;
     background: var(--pulse-bar-track);
-    border-radius: 3px;
+    border-radius: 2px;
     overflow: hidden;
   }
 
   .bar-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 2px;
     transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   .reset-time {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--pulse-text-dim);
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    opacity: 0.7;
+    opacity: 0.6;
+    margin-top: 1px;
   }
 
   .balance-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-top: 4px;
-    padding-top: 8px;
+    margin-top: 2px;
+    padding-top: 6px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .balance-label {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--pulse-text-dim);
     font-weight: 400;
   }
 
   .balance-amount {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     letter-spacing: -0.01em;

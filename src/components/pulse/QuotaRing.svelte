@@ -42,15 +42,23 @@
 
   let displayName = $derived(vendorNames[vendor] ?? vendor);
 
-  // Centre-disc initials.
-  let initials = $derived(
-    displayName
-      .split(/[\s·\-]+/)
-      .map((w) => w[0] ?? "")
-      .join("")
-      .slice(0, 2)
-      .toUpperCase()
-  );
+  // ── Vendor icon paths (24x24 viewBox, minimal geometric marks) ────────
+  // Simple distinctive shapes recognizable at 14–18px rendered size.
+  const vendorIcons: Record<string, { d: string; stroke?: boolean }> = {
+    claude:      { d: "M7 17V7h6v10H7zm2-5.5h2v3H9z" },
+    deepseek:    { d: "M7 17V7h5.5A3.5 3.5 0 0116 10.5v6.5A3.5 3.5 0 0112.5 17H7z" },
+    kimi:        { d: "M8.5 17V7l6.5 5-6.5 5z" },
+    minimax:     { d: "M12 7.5l4.5 9h-9z" },
+    volcengine:  { d: "M12 7.5l4 4.5-4 4.5-4-4.5z" },
+    bailian:     { d: "M7.5 7.5h9v9h-9z" },
+    stepfun:     { d: "M7.5 16.5q4.5-9 9 0", stroke: true },
+    openrouter:  { d: "M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z" },
+    ollama:      { d: "M12 7.5a4.5 4.5 0 114.5 4.5 4.5 4.5 0 01-4.5-4.5z", stroke: true },
+    workbuddy:   { d: "M8 17l7-9.5", stroke: true },
+    qoder:       { d: "M8.5 8.5l7 7m0-7l-7 7", stroke: true },
+  };
+
+  let iconData = $derived(vendorIcons[vendor] ?? { d: "", stroke: false });
 
   // ── Ring geometry ──────────────────────────────────────────────────────
 
@@ -247,30 +255,37 @@
       fill="var(--pulse-ring-bg)"
     />
 
-    <!-- ── Center icon: vendor initials ────────────────────────────────── -->
+    <!-- ── Center icon: vendor SVG mark ─────────────────────────────────── -->
+    {#if iconData.d}
+      <path
+        d={iconData.d}
+        fill={iconData.stroke ? "none" : "var(--pulse-text-dim)"}
+        stroke={iconData.stroke ? "var(--pulse-text-dim)" : "none"}
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        transform="translate({diameter / 2 - 12}, {diameter / 2 - 12}) scale(0.7)"
+        pointer-events="none"
+      />
+    {/if}
+
+    <!-- ── Percentage text (inside ring center) ──────────────────────── -->
     <text
       x={diameter / 2}
-      y={diameter / 2}
+      y={diameter / 2 + centerRadius * 0.55}
       text-anchor="middle"
       dominant-baseline="central"
-      fill="var(--pulse-text-dim)"
-      font-size={Math.max(8, centerRadius * 0.82)}
-      font-family="'SF Pro Rounded', 'SF Rounded', 'Helvetica Neue Rounded', -apple-system, sans-serif"
+      fill="var(--pulse-text)"
+      font-size={Math.max(7, centerRadius * 0.5)}
+      font-family="'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace"
       font-weight="600"
       letter-spacing="-0.02em"
       pointer-events="none"
+      style="opacity: 0.7"
     >
-      {initials}
+      {Math.round(displayPct)}%
     </text>
   </svg>
-
-  <!-- ── Percentage label ──────────────────────────────────────────────── -->
-  <div
-    class="pct-label"
-    style="font-size:{Math.max(10, diameter * 0.24)}px"
-  >
-    {Math.round(displayPct)}{showsRemaining ? "% Left" : "% Used"}
-  </div>
 </button>
 
 <style>
@@ -279,7 +294,6 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 5px;
     background: none;
     border: none;
     cursor: pointer;
@@ -303,14 +317,5 @@
 
   .usage-arc {
     transition: stroke-dashoffset 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-
-  .pct-label {
-    font-weight: 600;
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    color: var(--pulse-text);
-    line-height: 1;
-    letter-spacing: -0.02em;
-    transition: color 0.3s ease;
   }
 </style>
