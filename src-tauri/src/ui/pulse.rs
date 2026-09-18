@@ -30,29 +30,35 @@ const TITLE_BLOCK: f64 = 24.0;
 const PAD_V_MIN: f64 = 14.0;
 
 /// Inverted-S swoop amplitude (flush silhouette): fraction of the content
-/// height, clamped. The panel is tallest at the fused screen edge and the
-/// top/bottom boundaries descend toward the inner side over this range.
-const SWOOP_FRAC: f64 = 0.28;
+/// height, clamped. The top/bottom boundaries leave the fused screen edge
+/// flat, dip deep toward the inner side, then swing back up — a true S with
+/// an inflection, per the reference mock.
+const SWOOP_FRAC: f64 = 0.38;
 const SWOOP_MIN: f64 = 40.0;
-const SWOOP_MAX: f64 = 120.0;
+const SWOOP_MAX: f64 = 150.0;
 
 /// Horizontal window padding (logical px) — flush panels use 18px on the
 /// screen-interior side + 10px on the fused edge; the window keeps slack.
 const PANEL_PAD: f64 = 16.0;
 
-/// Gap between the ring rail and the detail card (logical px).
-const CARD_SPACING: f64 = 12.0;
+/// Gap between the ring rail and the detail card (logical px) — matches the
+/// CSS tooltip offset (22px clear of the panel edge).
+const CARD_SPACING: f64 = 22.0;
 
 /// Detail card width (logical px) — CSS max-width 236 + pointer overhang.
 const CARD_WIDTH: f64 = 240.0;
 
-/// Max full height of the detail card (header + 3 rows + balance). The card
-/// hangs UPWARD from the hovered ring, so the window is lifted by however
-/// much of this is missing above the ring.
-const CARD_H: f64 = 244.0;
+/// Max half-height of the detail card (header + 3 rows + balance). The card
+/// is CENTERED on the hovered ring, so the window is lifted / extended by
+/// whatever this half lacks above/below the ring.
+const CARD_HALF_H: f64 = 132.0;
 
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
+
+/// Lift applied by the last expand (logical px) — collapse reverses exactly
+/// this amount (the height delta alone also includes the bottom extension).
+static LAST_LIFT: std::sync::Mutex<f64> = std::sync::Mutex::new(0.0);
 
 /// Resolve ring diameter from config size string.
 fn ring_diameter(size: &str) -> f64 {
@@ -109,13 +115,26 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     }
 }
 
-/// Load all vendor quotas from the quota_cache table.
+/// Load vendor quotas from the quota_cache table, filtered by the config's
+/// `quota_active_vendors` — the SAME rule the main window's quota page
+/// applies, so the pulse dock shows exactly the enabled accounts.
 fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
+    // null = not configured → show all; otherwise only listed vendors.
+    let active: Option<std::collections::HashSet<String>> = config::load(conn)
+        .ok()
+        .and_then(|c| c.quota_active_vendors)
+        .map(|v| v.into_iter().collect());
+
     let mut quotas: Vec<PulseQuota> = Vec::new();
     if let Ok(mut stmt) = conn.prepare("SELECT data FROM quota_cache") {
         if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
             for row in rows.flatten() {
                 if let Ok(q) = serde_json::from_str::<Quota>(&row) {
+                    if let Some(set) = &active {
+                        if !set.contains(&q.vendor) {
+                            continue;
+                        }
+                    }
                     let critical_window = q
                         .windows
                         .iter()
@@ -186,9 +205,10 @@ fn swoop_c(d: f64, n: usize) -> f64 {
     ((TITLE_BLOCK + dock_height(d, n)) * SWOOP_FRAC).clamp(SWOOP_MIN, SWOOP_MAX)
 }
 
-/// Vertical padding — clears the swoop curve at the content's x-extent.
+/// Vertical padding — clears the swoop's deepest point at the content's
+/// x-extent (the dip bottoms out around 65% of the amplitude mid-panel).
 fn pad_v(d: f64, n: usize) -> f64 {
-    (swoop_c(d, n) * 0.45).ceil().max(PAD_V_MIN)
+    (swoop_c(d, n) * 0.65).ceil().max(PAD_V_MIN)
 }
 
 /// Where the ring rail starts inside the window (pad + title block).
@@ -211,9 +231,9 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
 /// Vertical layout only: the width grows for the card. macOS anchors resizes
 /// at the top-left corner, so the window must grow LEFTWARD when the panel is
 /// fused to the right screen edge — or when rightward growth would run
-/// off-screen — keeping the card inside the visible area. The card hangs
-/// UPWARD from the hovered ring (reference layout), so the window top is
-/// LIFTED by whatever room the card lacks above that ring.
+/// off-screen. The card is CENTERED on the hovered ring: the window top is
+/// LIFTED by whatever the card's upper half lacks above the ring, and the
+/// height extended by whatever the lower half lacks below it.
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -235,11 +255,12 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         .map(|v| load_quota_index(app, v))
         .unwrap_or(0);
     let ring_center = idx as f64 * pitch + d / 2.0;
-    let lift_want = (CARD_H + 24.0 - (rail_top(d, ring_count) + ring_center)).max(0.0);
-    let h_e = h_c + lift_want;
+    let lift_want = (CARD_HALF_H + 8.0 - (rail_top(d, ring_count) + ring_center)).max(0.0);
+    let bottom_want = (CARD_HALF_H + 8.0 - (h_c - rail_top(d, ring_count) - ring_center)).max(0.0);
 
     let mut grow_left = false;
     let mut lift = lift_want;
+    let mut bottom_ext = bottom_want;
     if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
         win.outer_position(),
         win.outer_size(),
@@ -253,7 +274,9 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         let base_py = py + (h_cur - h_c).max(0.0);
         let mon_top = mon.position().y as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+        let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
         lift = lift_want.min((base_py - mon_top - 8.0).max(0.0));
+        bottom_ext = bottom_want.min((mon_bottom - 8.0 - base_py - h_c).max(0.0));
         let target_x = if mon_right - (px + w_e) < 8.0 {
             grow_left = true;
             mon_right - w_e
@@ -266,7 +289,10 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         }
     }
 
-    let _ = win.set_size(LogicalSize::new(w_e, h_e));
+    let _ = win.set_size(LogicalSize::new(w_e, h_c + lift + bottom_ext));
+    if let Ok(mut l) = LAST_LIFT.lock() {
+        *l = lift;
+    }
     let _ = win.emit(
         "pulse:expand",
         serde_json::json!({ "vendor": vendor, "cardLeft": grow_left, "lift": lift }),
@@ -299,7 +325,7 @@ pub fn collapse_pulse(app: &AppHandle) {
         let py = pos.y as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let flush_right = mon_right - (px + size.width as f64 / scale) <= 8.0;
-        let lift = (size.height as f64 / scale - h_c).max(0.0);
+        let lift = *LAST_LIFT.lock().unwrap_or_else(|e| e.into_inner());
         let target_x = if flush_right { mon_right - w_c } else { px };
         let target_y = py + lift;
         if flush_right || lift > 0.5 {
@@ -528,11 +554,11 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*61 + 2*8 = 199,
-        // swoop = clamp(223 * 0.28) ≈ 62.4 → pad = ceil(28.1) = 29,
-        // height = 29*2 + 24 + 199 = 281.
+        // swoop = clamp(223 * 0.38) ≈ 84.7 → pad = ceil(55.1) = 56,
+        // height = 56*2 + 24 + 199 = 335.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 281.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 335.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
@@ -549,7 +575,7 @@ mod tests {
         assert!(c3 > c1, "more rings → deeper swoop");
         assert!(c9 <= SWOOP_MAX, "swoop clamped at the maximum");
         // Padding always clears a fixed fraction of the swoop.
-        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.45);
+        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.65);
     }
 
     #[test]

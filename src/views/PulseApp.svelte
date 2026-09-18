@@ -89,9 +89,9 @@
   const TITLE_BLOCK = 24;
   const PAD_V_MIN = 14;
   // Inverted-S swoop amplitude: fraction of the content height, clamped.
-  const SWOOP_FRAC = 0.28;
+  const SWOOP_FRAC = 0.38;
   const SWOOP_MIN = 40;
-  const SWOOP_MAX = 120;
+  const SWOOP_MAX = 150;
   const PAD_FLUSH_INNER = 18;
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
@@ -104,8 +104,8 @@
   let swoopC = $derived(
     Math.min(Math.max(contentH * SWOOP_FRAC, SWOOP_MIN), SWOOP_MAX)
   );
-  // Vertical padding clears the swoop curve at the content's x-extent.
-  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.45)));
+  // Vertical padding clears the swoop's deepest point (~65% of amplitude).
+  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.65)));
   let panelH = $derived(padV * 2 + contentH);
 
   // Which screen edge the panel is fused to (null = floating pill).
@@ -118,21 +118,21 @@
   );
   let panelW = $derived(data.ring_diameter + padH);
 
-  // Flush silhouette: a large inverted-S (倒S) swoop per the reference — the
-  // panel is tallest AT the fused screen edge; the top/bottom boundaries
-  // descend in one long concave sweep toward the inner side (amplitude =
-  // ~25% of panel height), arriving flat (horizontal tangent) at the edge
-  // and vertical at the straight inner edge. Floating → rounded pill.
+  // Flush silhouette: the reference's true inverted-S (倒S) — leaving the
+  // fused screen edge FLAT, the boundary dips deep toward the panel's inner
+  // third, then swings back UP to a high rounded corner at the inner edge
+  // (an inflected S, not a one-way slope). Both caps mirror; amplitude =
+  // ~28% of panel height. Floating → rounded pill.
   let surfaceStyle = $derived.by(() => {
     const w = panelW;
     const h = Math.max(panelH, SWOOP_MIN);
     const c = Math.min(swoopC, h / 2.5);
     const f = (v: number) => v.toFixed(1);
     if (flushSide === "right") {
-      return `clip-path: path("M 0 ${f(c)} C 0 ${f(c * 0.3)} ${f(w * 0.55)} 0 ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.45)} ${f(h)} 0 ${f(h - c * 0.3)} 0 ${f(h - c)} Z")`;
+      return `clip-path: path("M 0 ${f(c * 0.3)} C ${f(w * 0.08)} ${f(c * 1.2)} ${f(w * 0.55)} ${f(c * 0.3)} ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.55)} ${f(h - c * 0.3)} ${f(w * 0.08)} ${f(h - c * 1.2)} 0 ${f(h - c * 0.3)} Z")`;
     }
     if (flushSide === "left") {
-      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w)} ${f(c * 0.3)} ${f(w * 0.45)} 0 0 0 L 0 ${f(h)} C ${f(w * 0.55)} ${f(h)} ${f(w)} ${f(h - c * 0.3)} ${f(w)} ${f(h - c)} Z")`;
+      return `clip-path: path("M ${f(w)} ${f(c * 0.3)} C ${f(w * 0.92)} ${f(c * 1.2)} ${f(w * 0.45)} ${f(c * 0.3)} 0 0 L 0 ${f(h)} C ${f(w * 0.45)} ${f(h - c * 0.3)} ${f(w * 0.92)} ${f(h - c * 1.2)} ${f(w)} ${f(h - c * 0.3)} Z")`;
     }
     return "";
   });
@@ -305,12 +305,12 @@
       {/if}
     </div>
 
-    <!-- Detail tooltip card — hangs UPWARD from the hovered ring, its
-         bottom-corner pointer beak aligned with the ring's center. -->
+    <!-- Detail tooltip card — centered on the hovered ring, its middle
+         pointer beak aimed at the ring, 14px clear of the panel. -->
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        style="--hover-index: {hoveredIndex}; --ring-gap: {LABEL_H + ITEM_GAP}px; --item-gap: {ITEM_GAP}px; --dock-count: {data.quotas.length};"
+        style="--hover-index: {hoveredIndex}; --ring-gap: {LABEL_H + ITEM_GAP}px;"
       >
         <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
       </div>
@@ -471,34 +471,35 @@
     animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* The card hangs UPWARD from the hovered ring: its bottom edge sits 20px
-     below the ring's center and the pointer beak (at bottom-corner minus
-     20px) lands exactly on the ring — matching the reference. Offsets are
-     rail-relative (the rail's top-left = first ring's top-left); Rust lifts
-     the window top (payload.lift) so the card always fits above. */
+  /* Card is CENTERED on the hovered ring (pointer beak at its vertical
+     middle), kept 22px clear of the panel edge (pad_inner 18 + margin).
+     Rust guarantees the room: the window top is lifted and the height
+     extended (payload.lift) so no CSS clamping is needed — the card never
+     offsets away from the ring. */
   .vertical .detail-tooltip {
-    left: calc(var(--ring-size) + 12px);
-    bottom: calc(
-      (var(--dock-count) - var(--hover-index)) * (var(--ring-size) + var(--ring-gap)) -
-      var(--item-gap) - var(--ring-size) / 2 - 20px
+    left: calc(var(--ring-size) + 22px);
+    top: calc(
+      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
+      var(--ring-size) / 2
     );
+    transform: translateY(-50%);
   }
 
   /* Window grew leftward (fused right / overflow clamped): the card opens
      to the LEFT of the rings, into the screen interior. */
   .vertical.card-left .detail-tooltip {
     left: auto;
-    right: calc(var(--ring-size) + 12px);
+    right: calc(var(--ring-size) + 22px);
   }
 
   @keyframes tooltipIn {
     from {
       opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(-46%) scale(0.96);
     }
     to {
       opacity: 1;
-      transform: none;
+      transform: translateY(-50%) scale(1);
     }
   }
 

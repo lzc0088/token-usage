@@ -170,16 +170,16 @@
   }
 
   /* ── Pointer ────────────────────────────────────────────────────────
-     Anchored at the card's lower corner: the card hangs UPWARD from the
-     hovered ring (reference layout), so the beak sits ~20px above the card
-     bottom — exactly the hovered ring's center. */
+     Vertically centered on the card: the card is centered on the hovered
+     ring, so the centered beak points straight at the ring. */
 
   .card-pointer {
     position: absolute;
-    bottom: 2px;
+    top: 50%;
     left: -17px;
     width: 18px;
     height: 36px;
+    transform: translateY(-50%);
     flex-shrink: 0;
     pointer-events: none;
   }
@@ -187,7 +187,7 @@
   .card-pointer.flip {
     left: auto;
     right: -17px;
-    transform: scaleX(-1);
+    transform: translateY(-50%) scaleX(-1);
   }
 
   /* ── Card content ──────────────────────────────────────────────────── */
