@@ -38,6 +38,13 @@
     theme: string;
   }
 
+  // Expand payload from Rust (ui/pulse.rs expand_pulse).
+  interface ExpandPayload {
+    vendor: string | null;
+    /** true → window grew leftward, so the card opens LEFT of the rings. */
+    cardLeft?: boolean;
+  }
+
   let data = $state<PulseData>({
     quotas: [],
     size: "medium",
@@ -47,36 +54,79 @@
 
   let hoveredVendor = $state<string | null>(null);
   let isExpanded = $state(false);
+  // Which side the detail card opens on — decided by Rust (it knows which
+  // way the window grew) so the card never lands outside the window.
+  let expandCardLeft = $state(false);
 
   // Listen for data updates from Rust.
   listen<PulseData>("pulse:update", (e) => {
     data = e.payload;
   });
 
-  listen<string | null>("pulse:expand", (e) => {
+  listen<ExpandPayload>("pulse:expand", (e) => {
     isExpanded = true;
-    hoveredVendor = e.payload;
+    hoveredVendor = e.payload?.vendor ?? null;
+    expandCardLeft = !!e.payload?.cardLeft;
   });
 
   listen("pulse:collapse", () => {
     isExpanded = false;
     hoveredVendor = null;
+    expandCardLeft = false;
   });
 
-  // Initial data fetch.
-  async function init() {
-    // Data is pushed via event on sync; no separate invoke needed.
-  }
-  init();
+  // ── Layout constants (mirror Rust pulse.rs) ────────────────────────────
+  // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
+  const PAD_V = 14;
+  const TITLE_BLOCK = 24;
+  const LABEL_H = 13;
+  const ITEM_GAP = 4;
+  const PAD_FLUSH_INNER = 18;
+  const PAD_FLUSH_EDGE = 10;
+  const PAD_FLOAT = 16;
+  // Teardrop cap height for the flush (fused-edge) silhouette.
+  const CAP = 24;
+
+  let ringCount = $derived(Math.max(data.quotas.length, 1));
+  let dockH = $derived(
+    ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
+  );
+  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK + dockH);
+
+  // Which screen edge the panel is fused to (null = floating pill).
+  let flushSide = $state<"left" | "right" | null>(null);
+
+  let padH = $derived(
+    flushSide === "left" || flushSide === "right"
+      ? PAD_FLUSH_INNER + PAD_FLUSH_EDGE
+      : PAD_FLOAT * 2
+  );
+  let panelW = $derived(data.ring_diameter + padH);
+
+  // Flush silhouette: inverted-S (倒S) teardrop caps. The top/bottom edges
+  // sweep from the inner side toward the fused edge, arriving smoothly
+  // (vertical tangent) at a tip flush with the screen border — matching the
+  // Pulse dock reference. Floating panels fall back to a rounded pill.
+  let surfaceStyle = $derived.by(() => {
+    const w = panelW;
+    const h = Math.max(panelH, CAP * 3);
+    const c = Math.min(CAP, h / 3);
+    const cTop = (c * 0.35).toFixed(1);
+    const cBot = (c * 0.6).toFixed(1);
+    if (flushSide === "right") {
+      return `clip-path: path("M 0 ${c.toFixed(1)} C 0 ${cTop} ${w} ${cBot} ${w} 0 L ${w} ${h} C ${w} ${(h - c * 0.6).toFixed(1)} 0 ${(h - c * 0.35).toFixed(1)} 0 ${(h - c).toFixed(1)} Z")`;
+    }
+    if (flushSide === "left") {
+      return `clip-path: path("M ${w} ${c.toFixed(1)} C ${w} ${cTop} 0 ${cBot} 0 0 L 0 ${h} C 0 ${(h - c * 0.6).toFixed(1)} ${w} ${(h - c * 0.35).toFixed(1)} ${w} ${(h - c).toFixed(1)} Z")`;
+    }
+    return "";
+  });
 
   // ── Drag + berth fusion ─────────────────────────────────────────────
   // The panel is dragged with the native titlebar-style drag (startDragging),
   // so it keeps following the cursor even when the pointer outruns the tiny
-  // webview. Berth side (which edge is flat) is derived from the live window
-  // position; near an edge the window snaps flush so the flat side fuses
-  // with the screen border.
-  let berthClass = $state("pos-right");
-
+  // webview. Near an edge the window snaps flush so the flat side fuses with
+  // the screen border (inverted-S teardrop silhouette).
   const win = getCurrentWindow();
 
   // Distance (logical px) from a screen edge within which the panel snaps.
@@ -92,18 +142,19 @@
     return { pos, size, mon, scale };
   }
 
-  async function updateBerthClass() {
+  async function updateFlushSide() {
     try {
-      const { pos, size, mon } = await readGeometry();
+      const { pos, size, mon, scale } = await readGeometry();
       if (!mon) {
-        berthClass = "pos-right";
+        flushSide = null;
         return;
       }
-      const centerX = pos.x + size.width / 2;
-      const monCenter = mon.position.x + mon.size.width / 2;
-      berthClass = centerX < monCenter ? "pos-left" : "pos-right";
+      const thr = 8 * scale;
+      const gapL = pos.x - mon.position.x;
+      const gapR = mon.position.x + mon.size.width - (pos.x + size.width);
+      flushSide = gapR <= thr ? "right" : gapL <= thr ? "left" : null;
     } catch {
-      berthClass = "pos-right";
+      flushSide = null;
     }
   }
 
@@ -150,16 +201,17 @@
     };
   });
 
-  // Track window moves (fires during native drag) to switch the berth side.
+  // Track window moves (fires during native drag + expand/collapse shifts)
+  // to recompute which edge is fused.
   $effect(() => {
-    const unlisten = win.onMoved(() => updateBerthClass());
+    const unlisten = win.onMoved(() => updateFlushSide());
     return () => {
       unlisten.then((u) => u()).catch(() => {});
     };
   });
 
-  // Initial berth detection.
-  updateBerthClass();
+  // Initial flush detection.
+  updateFlushSide();
 
   function onRingEnter(vendor: string) {
     hoveredVendor = vendor;
@@ -200,11 +252,16 @@
   class="pulse-panel vertical"
   class:dark={data.theme === "dark"}
   class:light={data.theme !== "dark"}
-  class:expanded={isExpanded}
-  class:pos-right={berthClass === "pos-right"}
-  class:pos-left={berthClass === "pos-left"}
-  style="--ring-size: {data.ring_diameter}px"
+  class:flush-right={flushSide === "right"}
+  class:flush-left={flushSide === "left"}
+  class:grow-left={expandCardLeft}
+  class:card-left={expandCardLeft}
+  style="--ring-size: {data.ring_diameter}px; width:{panelW}px; height:{panelH}px"
 >
+  <!-- Shaped surface: bg + blur + inverted-S teardrop clip. Kept on its own
+       layer so the tooltip card can overflow the (clipped) panel body. -->
+  <div class="panel-surface" style={surfaceStyle} aria-hidden="true"></div>
+
   <!-- Close / dismiss button -->
   <button
     class="close-btn"
@@ -256,9 +313,9 @@
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        style="--hover-index: {hoveredIndex}; --ring-gap: 10px;"
+        style="--hover-index: {hoveredIndex}; --ring-gap: 17px;"
       >
-        <DetailCard quota={hoveredQuota} cardSide={berthClass === "pos-right" ? "right" : "left"} />
+        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
       </div>
     {/if}
   </div>
@@ -306,45 +363,41 @@
     --pulse-bar-track: rgba(0, 0, 0, 0.07);
   }
 
-  /* ── Panel surface (berth fusion) ──────────────────────────────────── */
+  /* ── Panel shell ──────────────────────────────────────────────────────
+     Visual surface (bg + blur + shape) lives on .panel-surface; the shell
+     itself stays unclipped so the detail tooltip can overflow it. */
 
   .pulse-panel {
     position: relative;
     display: flex;
-    width: fit-content;
-    background: var(--pulse-bg);
     color: var(--pulse-text);
     user-select: none;
     -webkit-user-select: none;
     overflow: visible;
     cursor: grab; /* draggable via native titlebar-style drag */
-    transition: border-radius 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
-    /* Berth shape: fully rounded on the outer edge, flat on the screen-fused
-       edge. Pulse fuses to the screen edge, so the edge touching the border
-       is flat — no gap, no rounded corner showing wallpaper. */
+  }
+
+  .panel-surface {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: var(--pulse-bg);
     border-radius: 20px;
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
+    pointer-events: none;
   }
 
-  /* Position-dependent berth: right edge is flat (fused), left is rounded.
-     margin-left:auto right-anchors the panel inside the (wider, expanded)
-     window so the rings don't jump when the window grows leftward. */
-  .pulse-panel.pos-right {
-    border-top-left-radius: 20px;
-    border-bottom-left-radius: 20px;
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-    margin-left: auto;
-    margin-right: -1px; /* fuse to screen edge */
+  .pulse-panel.flush-right .panel-surface,
+  .pulse-panel.flush-left .panel-surface {
+    border-radius: 0; /* clip-path draws the teardrop instead */
   }
 
-  .pulse-panel.pos-left {
-    border-top-right-radius: 20px;
-    border-bottom-right-radius: 20px;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    margin-left: -1px;
+  /* Content rides above the surface layer. */
+  .panel-title,
+  .rail-with-tooltip {
+    position: relative;
+    z-index: 1;
   }
 
   /* ── Layout ────────────────────────────────────────────────────────── */
@@ -356,12 +409,33 @@
     gap: 8px;
   }
 
+  /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
+     biased toward the edge (smaller padding on the fused side). The window
+     keeps a few px of slack, so right-fusing also right-anchors the panel. */
+  .pulse-panel.flush-right {
+    padding: 14px 10px 14px 18px;
+    margin-left: auto;
+    margin-right: -1px;
+  }
+
+  .pulse-panel.flush-left {
+    padding: 14px 18px 14px 10px;
+    margin-left: -1px;
+  }
+
+  /* Right-fused expand: macOS anchors resizes top-left, so Rust shifts the
+     window leftward — right-anchor the panel so the rings don't jump. */
+  .pulse-panel.grow-left {
+    margin-left: auto;
+    margin-right: -1px;
+  }
+
   /* ── Close button ──────────────────────────────────────────────────── */
 
   .close-btn {
     position: absolute;
-    top: 6px;
-    right: 6px;
+    top: 10px;
+    right: 10px;
     width: 22px;
     height: 22px;
     display: flex;
@@ -384,6 +458,13 @@
     pointer-events: auto;
   }
 
+  /* Right-fused: the teardrop tip is top-right, park the button left. */
+  .pulse-panel.flush-right .close-btn {
+    left: 14px;
+    right: auto;
+    top: 14px;
+  }
+
   .close-btn:hover {
     background: rgba(255, 79, 66, 0.3);
     color: var(--pulse-warning);
@@ -403,7 +484,7 @@
   .ring-dock {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 4px;
   }
 
   /* ── Panel title ────────────────────────────────────────────────────── */
@@ -421,6 +502,13 @@
       -apple-system, sans-serif;
   }
 
+  /* Left-fused: keep the title clear of the top-left teardrop tip. */
+  .pulse-panel.flush-left .panel-title {
+    align-self: flex-end;
+    margin-left: 0;
+    margin-right: 2px;
+  }
+
   /* ── Detail tooltip card ────────────────────────────────────────────── */
 
   .detail-tooltip {
@@ -432,7 +520,8 @@
 
   /* Card centers on the hovered ring (offsets are rail-relative — the rail's
      top-left is the first ring's top-left). max() floors the position so a
-     tall card hovering the top ring stays inside the window. */
+     max-height card (half ≤ 128px, see Rust CARD_HALF_H) hovering the top
+     ring stays inside the window. */
   .vertical .detail-tooltip {
     left: calc(var(--ring-size) + 12px);
     top: max(
@@ -440,14 +529,14 @@
         var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
         var(--ring-size) / 2
       ),
-      96px
+      90px
     );
     transform: translateY(-50%);
   }
 
-  /* Right-berth: panel sits at the right screen edge, so the card must open
-     to the LEFT of the rings (into the screen interior). */
-  .vertical.pos-right .detail-tooltip {
+  /* Window grew leftward (fused right / overflow clamped): the card opens
+     to the LEFT of the rings, into the screen interior. */
+  .vertical.card-left .detail-tooltip {
     left: auto;
     right: calc(var(--ring-size) + 12px);
   }
@@ -463,7 +552,7 @@
     }
   }
 
-  /* ── Empty state ───────────────────────────────────────────────────── */
+  /* ── Empty state ────────────────────────────────────────────────────── */
 
   .empty-ring {
     display: flex;

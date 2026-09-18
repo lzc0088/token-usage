@@ -1,4 +1,7 @@
 <script lang="ts">
+  import VendorIcon from "./VendorIcon.svelte";
+  import { vendorDisplayName } from "../../lib/vendorIcons";
+
   interface Props {
     vendor: string;
     pct: number;
@@ -25,49 +28,7 @@
     showsRemaining = false,
   }: Props = $props();
 
-  // Vendor display names.
-  const vendorNames: Record<string, string> = {
-    glm: "GLM",
-    kimi: "Kimi",
-    minimax: "Minimax",
-    volcengine: "火山引擎",
-    bailian: "百炼",
-    stepfun: "阶跃",
-    openrouter: "OpenRouter",
-    ollama: "Ollama",
-    deepseek: "DeepSeek",
-    workbuddy: "WorkBuddy",
-    qoder: "Qoder",
-  };
-
-  let displayName = $derived(vendorNames[vendor] ?? vendor);
-
-  // ── Vendor icon paths (24x24 viewBox, minimal geometric marks) ────────
-  // Simple distinctive shapes recognizable at 14–18px rendered size.
-  const vendorIcons: Record<string, { d: string; stroke?: boolean }> = {
-    claude:      { d: "M7 17V7h6v10H7zm2-5.5h2v3H9z" },
-    codex:       { d: "M7.5 7.5l4.5 4.5m0 4.5l-4.5 4.5m9-9l-4.5 4.5m0-4.5l4.5 4.5", stroke: true },
-    cursor:      { d: "M8 7l5 5-5 5m10 0l-5-5 5-5", stroke: true },
-    deepseek:    { d: "M7 17V7h5.5A3.5 3.5 0 0116 10.5v6.5A3.5 3.5 0 0112.5 17H7z" },
-    glm:         { d: "M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z", stroke: true },
-    grok:        { d: "M12 7v10M7 12h10" },
-    kimi:        { d: "M8.5 17V7l6.5 5-6.5 5z" },
-    minimax:     { d: "M12 7.5l4.5 9h-9z" },
-    volcengine:  { d: "M12 7.5l4 4.5-4 4.5-4-4.5z" },
-    bailian:     { d: "M7.5 7.5h9v9h-9z" },
-    stepfun:     { d: "M7.5 16.5q4.5-9 9 0", stroke: true },
-    iflytek:     { d: "M7.5 10.5Q12 7.5 16.5 10.5M7.5 13.5Q12 10.5 16.5 13.5M7.5 16.5Q12 13.5 16.5 16.5", stroke: true },
-    copilot:     { d: "M12 7l1.5 4.5L18 12l-3.5 2.5L15 18l-3-2.5L9 18l.5-3.5L6 12l4.5-1L12 7z" },
-    mimo:        { d: "M12 7.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z" },
-    opencode:    { d: "M9 8.5l-3.5 3.5 3.5 3.5m7-3.5l3.5 3.5-3.5 3.5", stroke: true },
-    zai_team:    { d: "M7.5 16.5h9M7.5 7.5h9" },
-    qoder:       { d: "M8.5 8.5l7 7m0-7l-7 7", stroke: true },
-    ollama:      { d: "M12 7.5a4.5 4.5 0 114.5 4.5 4.5 4.5 0 01-4.5-4.5z", stroke: true },
-    workbuddy:   { d: "M8 17l7-9.5", stroke: true },
-    openrouter:  { d: "M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z" },
-  };
-
-  let iconData = $derived(vendorIcons[vendor] ?? { d: "", stroke: false });
+  let displayName = $derived(vendorDisplayName(vendor));
 
   // ── Ring geometry ──────────────────────────────────────────────────────
 
@@ -75,6 +36,8 @@
   let radius = $derived((diameter - strokeWidth) / 2);
   let circumference = $derived(2 * Math.PI * radius);
   let centerRadius = $derived(Math.max(4, (diameter - strokeWidth * 2 - 8) / 2));
+  // Center glyph size — fills most of the hole inside the ring track.
+  let iconSize = $derived(Math.round(centerRadius * 1.6));
 
   // ── Computed display values ────────────────────────────────────────────
 
@@ -264,37 +227,15 @@
       fill="var(--pulse-ring-bg)"
     />
 
-    <!-- ── Center icon: vendor SVG mark ─────────────────────────────────── -->
-    {#if iconData.d}
-      <path
-        d={iconData.d}
-        fill={iconData.stroke ? "none" : "var(--pulse-text-dim)"}
-        stroke={iconData.stroke ? "var(--pulse-text-dim)" : "none"}
-        stroke-width="1.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        transform="translate({diameter / 2 - 12}, {diameter / 2 - 12}) scale(0.7)"
-        pointer-events="none"
-      />
-    {/if}
-
-    <!-- ── Percentage text (inside ring center) ──────────────────────── -->
-    <text
-      x={diameter / 2}
-      y={diameter / 2 + centerRadius * 0.55}
-      text-anchor="middle"
-      dominant-baseline="central"
-      fill="var(--pulse-text)"
-      font-size={Math.max(7, centerRadius * 0.5)}
-      font-family="'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace"
-      font-weight="600"
-      letter-spacing="-0.02em"
-      pointer-events="none"
-      style="opacity: 0.7"
-    >
-      {Math.round(displayPct)}%
-    </text>
   </svg>
+
+  <!-- ── Center glyph: vendor mark only (pct lives below the ring) ─────── -->
+  <div class="ring-center" aria-hidden="true">
+    <VendorIcon vendor={vendor} size={iconSize} color="var(--pulse-text)" />
+  </div>
+
+  <!-- ── Percentage label under the ring ──────────────────────────────── -->
+  <span class="pct-label">{Math.round(displayPct)}%</span>
 </button>
 
 <style>
@@ -322,6 +263,36 @@
 
   .ring-svg {
     display: block;
+  }
+
+  /* Center glyph overlay — square over the ring only (above the pct label). */
+  .ring-center {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  /* Percentage under the ring — a fixed 13px block (11px line + 2px margin)
+     so the panel height math (Rust LABEL_H = 13) stays in sync. */
+  .pct-label {
+    margin-top: 2px;
+    height: 11px;
+    line-height: 11px;
+    font-size: 9px;
+    font-weight: 500;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    color: var(--pulse-text-dim);
+    letter-spacing: -0.03em;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .usage-arc {

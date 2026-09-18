@@ -21,18 +21,29 @@ const RING_SMALL: f64 = 36.0;
 const RING_MEDIUM: f64 = 48.0;
 const RING_LARGE: f64 = 60.0;
 
-/// Gap between rings (logical px).
-const RING_GAP: f64 = 12.0;
+/// Vertical layout metrics (logical px) — mirror the CSS in PulseApp.svelte:
+/// each ring item is `diameter + LABEL_H` tall (ring + pct label), items are
+/// separated by RING_GAP, and the panel adds vertical padding + title block.
+const LABEL_H: f64 = 13.0;
+const RING_GAP: f64 = 4.0;
+const PAD_V: f64 = 14.0;
+const TITLE_BLOCK: f64 = 24.0;
 
-/// Panel padding (logical px).
+/// Horizontal window padding (logical px) — flush panels use 18px on the
+/// screen-interior side + 10px on the fused edge; the window keeps slack.
 const PANEL_PAD: f64 = 16.0;
 
-/// Detail card width (logical px) — must fit the card's CSS max-width (240)
-/// plus the pointer overhang inside the expanded window.
+/// Gap between the ring rail and the detail card (logical px).
+const CARD_SPACING: f64 = 12.0;
+
+/// Detail card width (logical px) — CSS max-width 236 + pointer overhang.
 const CARD_WIDTH: f64 = 240.0;
 
-/// Detail card row height (logical px).
-const CARD_ROW_H: f64 = 52.0;
+/// Max half-height of the detail card (header + 3 rows + balance).
+const CARD_HALF_H: f64 = 128.0;
+
+/// Where the ring rail starts inside the window (pad + title block + slack).
+const RAIL_TOP: f64 = 40.0;
 
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
@@ -158,12 +169,14 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
     quotas
 }
 
-/// Collapsed (ring-only) window size, logical px.
+/// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
+/// vertical padding + title block + N ring items (ring + pct label) + gaps.
 fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
-    let diameter = ring_diameter(&cfg.pulse_size);
+    let d = ring_diameter(&cfg.pulse_size);
+    let n = ring_count.max(1) as f64;
     (
-        diameter + PANEL_PAD * 2.0,
-        ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
+        d + PANEL_PAD * 2.0,
+        PAD_V * 2.0 + TITLE_BLOCK + n * (d + LABEL_H) + (n - 1.0) * RING_GAP,
     )
 }
 
@@ -183,9 +196,11 @@ fn is_flush_right(win: &tauri::WebviewWindow) -> bool {
 }
 
 /// Resize the pulse window to show the detail card beside the rings.
-/// Vertical layout only: the width grows for the card. When docked flush to
-/// the right screen edge the window grows LEFTWARD (top-left is the resize
-/// anchor on macOS, so without the shift the card would extend off-screen).
+/// Vertical layout only: the width grows for the card. macOS anchors resizes
+/// at the top-left corner, so the window must grow LEFTWARD when the panel is
+/// fused to the right screen edge — or when rightward growth would run
+/// off-screen — keeping the card inside the visible area. The taller expanded
+/// size is also lifted when it would cross the monitor's bottom edge.
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -195,25 +210,45 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         .and_then(|s| s.load_config().ok())
         .unwrap_or_default();
 
-    let diameter = ring_diameter(&cfg.pulse_size);
+    let d = ring_diameter(&cfg.pulse_size);
     let ring_count = load_quota_count(app);
     let (_, h_c) = collapsed_size(&cfg, ring_count);
-    let w_e = diameter + RING_GAP + CARD_WIDTH + PANEL_PAD * 2.0;
-    // Card needs room for header + up to 3 window rows + balance.
-    let h_e = (CARD_ROW_H * 3.0 + PANEL_PAD * 2.0 + RING_GAP)
-        .max(h_c + 16.0)
+    let pitch = d + LABEL_H + RING_GAP;
+    let w_e = d + PANEL_PAD * 2.0 + CARD_SPACING + CARD_WIDTH;
+    // The card hangs up to CARD_HALF_H below the hovered ring's center, so
+    // size the window for the LAST ring (worst case) plus a top clamp floor.
+    let h_e = (h_c + 24.0)
+        .max(RAIL_TOP + (ring_count as f64 - 1.0) * pitch + d / 2.0 + CARD_HALF_H + 8.0)
         .max(220.0);
 
-    if is_flush_right(&win) {
-        if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
-            let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-            let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-            let _ = win.set_position(LogicalPosition::new(mon_right - w_e, pos.y as f64 / scale));
+    let mut grow_left = false;
+    if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
+        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+        let px = pos.x as f64 / scale;
+        let py = pos.y as f64 / scale;
+        let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+        let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
+        let target_x = if mon_right - (px + w_e) < 8.0 {
+            grow_left = true;
+            mon_right - w_e
+        } else {
+            px
+        };
+        let target_y = if py + h_e > mon_bottom - 8.0 {
+            (mon_bottom - h_e).max(mon.position().y as f64 / scale)
+        } else {
+            py
+        };
+        if grow_left || target_y != py {
+            let _ = win.set_position(LogicalPosition::new(target_x, target_y));
         }
     }
 
     let _ = win.set_size(LogicalSize::new(w_e, h_e));
-    let _ = win.emit("pulse:expand", &vendor);
+    let _ = win.emit(
+        "pulse:expand",
+        serde_json::json!({ "vendor": vendor, "cardLeft": grow_left }),
+    );
 }
 
 /// Collapse the pulse window back to ring-only size. When flush right, pin the
@@ -416,6 +451,26 @@ mod tests {
         assert_eq!(ring_diameter("medium"), RING_MEDIUM);
         assert_eq!(ring_diameter("large"), RING_LARGE);
         assert_eq!(ring_diameter("unknown"), RING_MEDIUM);
+    }
+
+    #[test]
+    fn collapsed_size_matches_css_layout() {
+        let cfg = config::Config::default();
+        let d = ring_diameter(&cfg.pulse_size);
+        for n in [1usize, 3, 5] {
+            let (w, h) = collapsed_size(&cfg, n);
+            assert_eq!(w, d + PANEL_PAD * 2.0);
+            let expect_h =
+                PAD_V * 2.0 + TITLE_BLOCK + n as f64 * (d + LABEL_H) + (n as f64 - 1.0) * RING_GAP;
+            assert!(
+                (h - expect_h).abs() < f64::EPSILON,
+                "n={n}: {h} != {expect_h}"
+            );
+        }
+        // Zero rings degrade to the single-ring minimum, never negative.
+        let (_, h0) = collapsed_size(&cfg, 0);
+        let (_, h1) = collapsed_size(&cfg, 1);
+        assert_eq!(h0, h1);
     }
 
     #[test]

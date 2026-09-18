@@ -1,4 +1,7 @@
 <script lang="ts">
+  import VendorIcon from "./VendorIcon.svelte";
+  import { vendorDisplayName } from "../../lib/vendorIcons";
+
   interface PulseWindow {
     label: string;
     used_pct: number;
@@ -27,22 +30,7 @@
 
   let { quota, cardSide = "left" }: Props = $props();
 
-  // Vendor display names.
-  const vendorNames: Record<string, string> = {
-    glm: "GLM",
-    kimi: "Kimi",
-    minimax: "Minimax",
-    volcengine: "火山引擎",
-    bailian: "百炼",
-    stepfun: "阶跃",
-    openrouter: "OpenRouter",
-    ollama: "Ollama",
-    deepseek: "DeepSeek",
-    workbuddy: "WorkBuddy",
-    qoder: "Qoder",
-  };
-
-  let displayName = $derived(vendorNames[quota.vendor] ?? quota.vendor);
+  let displayName = $derived(vendorDisplayName(quota.vendor));
 
   function barColor(pct: number): string {
     if (pct >= 80) return "var(--pulse-warning)";
@@ -109,6 +97,9 @@
   <!-- Card body -->
   <div class="card-content">
     <div class="card-header">
+      <span class="vendor-icon">
+        <VendorIcon vendor={quota.vendor} size={15} color="var(--pulse-text)" />
+      </span>
       <span class="vendor-name">{displayName}</span>
       {#if quota.plan}
         <span class="plan-badge">{quota.plan}</span>
@@ -215,6 +206,12 @@
     margin-bottom: 0;
   }
 
+  .vendor-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
   .vendor-name {
     font-size: 13px;
     font-weight: 600;
@@ -237,6 +234,20 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* Cap at ~3 rows so tall vendors scroll instead of overflowing the
+       window (Rust sizes the expanded window for CARD_HALF_H = 128). */
+    max-height: 154px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .window-list::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .window-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
   }
 
   .window-row {
