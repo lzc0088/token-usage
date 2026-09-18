@@ -312,8 +312,8 @@ export interface Config {
   floating_position?: "left" | "right";
   /** Pulse floating quota panel (macOS). */
   pulse_enabled?: boolean;
-  /** Pulse layout: "vertical" | "horizontal". */
-  pulse_layout?: "vertical" | "horizontal";
+  /** Pulse dock edge: "left" | "right" (stack is always vertical). */
+  pulse_side?: "left" | "right";
   /** Pulse ring size: "small" | "medium" | "large". */
   pulse_size?: "small" | "medium" | "large";
 }

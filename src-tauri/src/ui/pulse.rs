@@ -27,8 +27,9 @@ const RING_GAP: f64 = 12.0;
 /// Panel padding (logical px).
 const PANEL_PAD: f64 = 16.0;
 
-/// Detail card width (logical px).
-const CARD_WIDTH: f64 = 220.0;
+/// Detail card width (logical px) — must fit the card's CSS max-width (240)
+/// plus the pointer overhang inside the expanded window.
+const CARD_WIDTH: f64 = 240.0;
 
 /// Detail card row height (logical px).
 const CARD_ROW_H: f64 = 52.0;
@@ -81,7 +82,6 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     let quotas = load_quotas(conn);
     let payload = PulseData {
         quotas,
-        layout: cfg.pulse_layout.clone(),
         size: cfg.pulse_size.clone(),
         ring_diameter: ring_diameter(&cfg.pulse_size),
         theme: resolved_theme(app, &cfg),
@@ -158,7 +158,34 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
     quotas
 }
 
-/// Resize the pulse window to show/hide the detail card area.
+/// Collapsed (ring-only) window size, logical px.
+fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
+    let diameter = ring_diameter(&cfg.pulse_size);
+    (
+        diameter + PANEL_PAD * 2.0,
+        ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
+    )
+}
+
+/// Is the window currently flush against its monitor's right edge?
+fn is_flush_right(win: &tauri::WebviewWindow) -> bool {
+    let (Ok(pos), Ok(size), Ok(Some(mon))) = (
+        win.outer_position(),
+        win.outer_size(),
+        win.current_monitor(),
+    ) else {
+        return false;
+    };
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+    let right_edge = pos.x as f64 / scale + size.width as f64 / scale;
+    mon_right - right_edge <= 8.0
+}
+
+/// Resize the pulse window to show the detail card beside the rings.
+/// Vertical layout only: the width grows for the card. When docked flush to
+/// the right screen edge the window grows LEFTWARD (top-left is the resize
+/// anchor on macOS, so without the shift the card would extend off-screen).
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -169,24 +196,28 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         .unwrap_or_default();
 
     let diameter = ring_diameter(&cfg.pulse_size);
-    let (w, h) = if cfg.pulse_layout == "horizontal" {
-        // Horizontal: rings in a row; expand height for card below.
-        let ring_count = load_quota_count(app);
-        let ring_w = ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0;
-        (
-            ring_w.max(CARD_WIDTH + PANEL_PAD * 2.0),
-            diameter + CARD_ROW_H * 3.0 + PANEL_PAD * 2.0 + RING_GAP,
-        )
-    } else {
-        // Vertical: rings in a column; expand width for card beside.
-        (diameter + RING_GAP + CARD_WIDTH + PANEL_PAD * 2.0, 300.0)
-    };
+    let ring_count = load_quota_count(app);
+    let (_, h_c) = collapsed_size(&cfg, ring_count);
+    let w_e = diameter + RING_GAP + CARD_WIDTH + PANEL_PAD * 2.0;
+    // Card needs room for header + up to 3 window rows + balance.
+    let h_e = (CARD_ROW_H * 3.0 + PANEL_PAD * 2.0 + RING_GAP)
+        .max(h_c + 16.0)
+        .max(220.0);
 
-    let _ = win.set_size(LogicalSize::new(w, h));
+    if is_flush_right(&win) {
+        if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
+            let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+            let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+            let _ = win.set_position(LogicalPosition::new(mon_right - w_e, pos.y as f64 / scale));
+        }
+    }
+
+    let _ = win.set_size(LogicalSize::new(w_e, h_e));
     let _ = win.emit("pulse:expand", &vendor);
 }
 
-/// Collapse the pulse window back to ring-only size.
+/// Collapse the pulse window back to ring-only size. When flush right, pin the
+/// RIGHT edge instead of the left so the panel stays fused to the screen edge.
 pub fn collapse_pulse(app: &AppHandle) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -196,21 +227,18 @@ pub fn collapse_pulse(app: &AppHandle) {
         .and_then(|s| s.load_config().ok())
         .unwrap_or_default();
 
-    let diameter = ring_diameter(&cfg.pulse_size);
     let ring_count = load_quota_count(app);
-    let (w, h) = if cfg.pulse_layout == "horizontal" {
-        (
-            ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
-            diameter + PANEL_PAD * 2.0,
-        )
-    } else {
-        (
-            diameter + PANEL_PAD * 2.0,
-            ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
-        )
-    };
+    let (w_c, h_c) = collapsed_size(&cfg, ring_count);
 
-    let _ = win.set_size(LogicalSize::new(w.max(60.0), h.max(60.0)));
+    if is_flush_right(&win) {
+        if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
+            let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+            let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+            let _ = win.set_position(LogicalPosition::new(mon_right - w_c, pos.y as f64 / scale));
+        }
+    }
+
+    let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
     let _ = win.emit("pulse:collapse", ());
 }
 
@@ -226,27 +254,15 @@ fn load_quota_count(app: &AppHandle) -> usize {
     load_quotas(&conn).len().max(1)
 }
 
-/// Position the pulse panel. Uses saved position if available, otherwise defaults
-/// to the right edge of the primary monitor.
+/// Position the pulse panel. Restores the saved (dragged) position when one
+/// exists; otherwise docks to the configured screen edge, 30% from top.
 fn position_pulse(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
     };
     let cfg = config::load(conn).unwrap_or_default();
-    let diameter = ring_diameter(&cfg.pulse_size);
     let ring_count = load_quotas(conn).len().max(1);
-
-    let (w, h) = if cfg.pulse_layout == "horizontal" {
-        (
-            ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
-            diameter + PANEL_PAD * 2.0,
-        )
-    } else {
-        (
-            diameter + PANEL_PAD * 2.0,
-            ring_count as f64 * (diameter + RING_GAP) - RING_GAP + PANEL_PAD * 2.0,
-        )
-    };
+    let (w, h) = collapsed_size(&cfg, ring_count);
 
     let _ = win.set_size(LogicalSize::new(w.max(60.0), h.max(60.0)));
 
@@ -256,7 +272,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
         return;
     }
 
-    // Default: right edge, 30% from top.
+    // Fresh dock: configured edge ("left" | "right"), 30% from top.
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
     };
@@ -265,7 +281,11 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     let mh = mon.size().height as f64 / scale;
     let mx = mon.position().x as f64 / scale;
     let my = mon.position().y as f64 / scale;
-    let px = mx + mw - w;
+    let px = if cfg.pulse_side == "left" {
+        mx
+    } else {
+        mx + mw - w
+    };
     let py = my + mh * 0.30;
     let _ = win.set_position(LogicalPosition::new(px, py));
 }
@@ -273,6 +293,11 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
 /// Save the pulse panel position (logical px) to the KV store.
 pub fn save_pos(conn: &Connection, x: i32, y: i32) {
     let _ = crate::config::set_raw(conn, POS_KEY, &format!("{x},{y}"));
+}
+
+/// Forget the saved position — the next sync docks fresh at the configured edge.
+pub fn clear_pos(conn: &Connection) {
+    let _ = crate::config::set_raw(conn, POS_KEY, "");
 }
 pub fn persist_pulse_pos(app: &AppHandle) {
     let Some(h) = app.get_webview_window("pulse") else {
@@ -343,7 +368,6 @@ fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {
 #[derive(serde::Serialize, Clone)]
 pub struct PulseData {
     pub quotas: Vec<PulseQuota>,
-    pub layout: String,
     pub size: String,
     pub ring_diameter: f64,
     pub theme: String,

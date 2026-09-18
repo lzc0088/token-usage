@@ -388,16 +388,16 @@
     </div>
     {#if config.pulse_enabled}
     <div class="box-row">
-      <div class="lab">排版</div>
+      <div class="lab">停靠侧</div>
       <Select
         class="sel"
         style="min-width:150px"
-        value={config.pulse_layout || "vertical"}
+        value={config.pulse_side || "right"}
         options={[
-          { value: "vertical", label: "竖排" },
-          { value: "horizontal", label: "横排" },
+          { value: "right", label: "右侧" },
+          { value: "left", label: "左侧" },
         ]}
-        onchange={(v) => onUpdate({ pulse_layout: v as "vertical" | "horizontal" })}
+        onchange={(v) => onUpdate({ pulse_side: v as "left" | "right" })}
       />
     </div>
     <div class="box-row">

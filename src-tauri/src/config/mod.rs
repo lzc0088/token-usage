@@ -143,9 +143,10 @@ pub struct Config {
     /// Pulse-style floating quota panel (macOS: NSPanel-level floating rings).
     #[serde(default = "default_false")]
     pub pulse_enabled: bool,
-    /// Pulse layout: "vertical" (stack on screen edge) | "horizontal" (row on top).
-    #[serde(default = "default_pulse_layout")]
-    pub pulse_layout: String,
+    /// Pulse dock edge: "left" | "right". The stack is always vertical; this
+    /// only picks which screen edge it fuses to when (re)docked.
+    #[serde(default = "default_pulse_side")]
+    pub pulse_side: String,
     /// Pulse ring size: "small" (36px) | "medium" (48px) | "large" (60px).
     #[serde(default = "default_pulse_size")]
     pub pulse_size: String,
@@ -195,7 +196,7 @@ impl Default for Config {
             floating_position: default_floating_position(),
             quota_notify_enabled: default_true(),
             pulse_enabled: default_false(),
-            pulse_layout: default_pulse_layout(),
+            pulse_side: default_pulse_side(),
             pulse_size: default_pulse_size(),
         }
     }
@@ -267,8 +268,8 @@ fn default_floating_display() -> String {
 fn default_floating_position() -> String {
     "right".into()
 }
-fn default_pulse_layout() -> String {
-    "vertical".into()
+fn default_pulse_side() -> String {
+    "right".into()
 }
 fn default_pulse_size() -> String {
     "medium".into()

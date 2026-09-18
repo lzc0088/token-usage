@@ -33,7 +33,6 @@
 
   interface PulseData {
     quotas: PulseQuota[];
-    layout: string;
     size: string;
     ring_diameter: number;
     theme: string;
@@ -41,7 +40,6 @@
 
   let data = $state<PulseData>({
     quotas: [],
-    layout: "vertical",
     size: "medium",
     ring_diameter: 48,
     theme: "dark",
@@ -199,11 +197,9 @@
 </script>
 
 <div
-  class="pulse-panel"
+  class="pulse-panel vertical"
   class:dark={data.theme === "dark"}
   class:light={data.theme !== "dark"}
-  class:horizontal={data.layout === "horizontal"}
-  class:vertical={data.layout !== "horizontal"}
   class:expanded={isExpanded}
   class:pos-right={berthClass === "pos-right"}
   class:pos-left={berthClass === "pos-left"}
@@ -260,9 +256,7 @@
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        class:vertical={data.layout !== "horizontal"}
-        class:horizontal={data.layout === "horizontal"}
-        style="--hover-index: {hoveredIndex}; --total-rings: {data.quotas.length}; --ring-gap: 10px;"
+        style="--hover-index: {hoveredIndex}; --ring-gap: 10px;"
       >
         <DetailCard quota={hoveredQuota} cardSide={berthClass === "pos-right" ? "right" : "left"} />
       </div>
@@ -271,6 +265,19 @@
 </div>
 
 <style>
+  /* The pulse window is borderless + transparent. Strip the popover chrome
+     app.css puts on html/body/#app — the opaque bg, border and 15px radius
+     would paint a rounded opaque rect over the whole (expanded) window and
+     clip the fused flat edge. */
+  :global(html:has(.pulse-panel)),
+  :global(body:has(.pulse-panel)),
+  :global(#app:has(.pulse-panel)) {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
   :root {
     --pulse-good: #00e68a;
     --pulse-caution: #ffc226;
@@ -304,6 +311,7 @@
   .pulse-panel {
     position: relative;
     display: flex;
+    width: fit-content;
     background: var(--pulse-bg);
     color: var(--pulse-text);
     user-select: none;
@@ -319,12 +327,15 @@
     -webkit-backdrop-filter: blur(24px) saturate(180%);
   }
 
-  /* Position-dependent berth: right edge is flat (fused), left is rounded. */
+  /* Position-dependent berth: right edge is flat (fused), left is rounded.
+     margin-left:auto right-anchors the panel inside the (wider, expanded)
+     window so the rings don't jump when the window grows leftward. */
   .pulse-panel.pos-right {
     border-top-left-radius: 20px;
     border-bottom-left-radius: 20px;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
+    margin-left: auto;
     margin-right: -1px; /* fuse to screen edge */
   }
 
@@ -342,13 +353,6 @@
     flex-direction: column;
     align-items: center;
     padding: 14px 16px;
-    gap: 8px;
-  }
-
-  .horizontal {
-    flex-direction: row;
-    align-items: center;
-    padding: 16px 14px;
     gap: 8px;
   }
 
@@ -398,15 +402,8 @@
 
   .ring-dock {
     display: flex;
-    gap: 10px;
-  }
-
-  .vertical .ring-dock {
     flex-direction: column;
-  }
-
-  .horizontal .ring-dock {
-    flex-direction: row;
+    gap: 10px;
   }
 
   /* ── Panel title ────────────────────────────────────────────────────── */
@@ -418,18 +415,10 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     margin-bottom: 4px;
-    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
-      -apple-system, sans-serif;
-  }
-
-  .vertical .panel-title {
     align-self: flex-start;
     margin-left: 2px;
-  }
-
-  .horizontal .panel-title {
-    align-self: flex-start;
-    margin-bottom: 2px;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
   }
 
   /* ── Detail tooltip card ────────────────────────────────────────────── */
@@ -441,12 +430,17 @@
     animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
+  /* Card centers on the hovered ring (offsets are rail-relative — the rail's
+     top-left is the first ring's top-left). max() floors the position so a
+     tall card hovering the top ring stays inside the window. */
   .vertical .detail-tooltip {
-    left: calc(var(--ring-size) + 16px + 12px);
-    top: calc(
-      36px +
-      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
-      var(--ring-size) / 2
+    left: calc(var(--ring-size) + 12px);
+    top: max(
+      calc(
+        var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
+        var(--ring-size) / 2
+      ),
+      96px
     );
     transform: translateY(-50%);
   }
@@ -455,16 +449,7 @@
      to the LEFT of the rings (into the screen interior). */
   .vertical.pos-right .detail-tooltip {
     left: auto;
-    right: calc(var(--ring-size) + 16px + 12px);
-  }
-
-  .horizontal .detail-tooltip {
-    top: calc(var(--ring-size) + 14px + 8px + 4px + 2px + 8px);
-    left: calc(
-      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
-      var(--ring-size) / 2
-    );
-    transform: translateX(-50%);
+    right: calc(var(--ring-size) + 12px);
   }
 
   @keyframes tooltipIn {
@@ -475,21 +460,6 @@
     to {
       opacity: 1;
       transform: translateY(-50%) scale(1);
-    }
-  }
-
-  .horizontal .detail-tooltip {
-    animation-name: tooltipInH;
-  }
-
-  @keyframes tooltipInH {
-    from {
-      opacity: 0;
-      transform: translateX(-4px) scale(0.96);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) scale(1);
     }
   }
 

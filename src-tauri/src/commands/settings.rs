@@ -21,6 +21,11 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
     crate::config::save(&conn, &config).map_err(|e| e.to_string())?;
     // Update the cached config so the scheduler picks up changes without a DB read.
     state.update_config_cache(config.clone());
+    // Switching the pulse dock edge re-docks the panel: forget the dragged
+    // position so sync_pulse places it fresh at the new edge.
+    if prev.pulse_side != config.pulse_side {
+        crate::ui::pulse::clear_pos(&conn);
+    }
     // Apply window-behaviour settings live (dock, drag, hotkey, tray, floating)
     // — but ONLY when one of the fields those appliers actually reads changed.
     // Blindly re-applying churns AppKit state (activation policy, window
@@ -53,7 +58,7 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.floating_display != next.floating_display
         || prev.floating_position != next.floating_position
         || prev.pulse_enabled != next.pulse_enabled
-        || prev.pulse_layout != next.pulse_layout
+        || prev.pulse_side != next.pulse_side
         || prev.pulse_size != next.pulse_size
 }
 
