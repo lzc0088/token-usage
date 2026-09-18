@@ -25,9 +25,16 @@ const RING_LARGE: f64 = 60.0;
 /// each ring item is `diameter + LABEL_H` tall (ring + pct label), items are
 /// separated by RING_GAP, and the panel adds vertical padding + title block.
 const LABEL_H: f64 = 13.0;
-const RING_GAP: f64 = 4.0;
-const PAD_V: f64 = 14.0;
+const RING_GAP: f64 = 8.0;
 const TITLE_BLOCK: f64 = 24.0;
+const PAD_V_MIN: f64 = 14.0;
+
+/// Inverted-S swoop amplitude (flush silhouette): fraction of the content
+/// height, clamped. The panel is tallest at the fused screen edge and the
+/// top/bottom boundaries descend toward the inner side over this range.
+const SWOOP_FRAC: f64 = 0.28;
+const SWOOP_MIN: f64 = 40.0;
+const SWOOP_MAX: f64 = 120.0;
 
 /// Horizontal window padding (logical px) — flush panels use 18px on the
 /// screen-interior side + 10px on the fused edge; the window keeps slack.
@@ -39,11 +46,10 @@ const CARD_SPACING: f64 = 12.0;
 /// Detail card width (logical px) — CSS max-width 236 + pointer overhang.
 const CARD_WIDTH: f64 = 240.0;
 
-/// Max half-height of the detail card (header + 3 rows + balance).
-const CARD_HALF_H: f64 = 128.0;
-
-/// Where the ring rail starts inside the window (pad + title block + slack).
-const RAIL_TOP: f64 = 40.0;
+/// Max full height of the detail card (header + 3 rows + balance). The card
+/// hangs UPWARD from the hovered ring, so the window is lifted by however
+/// much of this is missing above the ring.
+const CARD_H: f64 = 244.0;
 
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
@@ -169,38 +175,45 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
     quotas
 }
 
-/// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
-/// vertical padding + title block + N ring items (ring + pct label) + gaps.
-fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
-    let d = ring_diameter(&cfg.pulse_size);
-    let n = ring_count.max(1) as f64;
-    (
-        d + PANEL_PAD * 2.0,
-        PAD_V * 2.0 + TITLE_BLOCK + n * (d + LABEL_H) + (n - 1.0) * RING_GAP,
-    )
+/// Dock height for n rings (ring + pct label per item, item gaps between).
+fn dock_height(d: f64, n: usize) -> f64 {
+    let n = n.max(1) as f64;
+    n * (d + LABEL_H) + (n - 1.0) * RING_GAP
 }
 
-/// Is the window currently flush against its monitor's right edge?
-fn is_flush_right(win: &tauri::WebviewWindow) -> bool {
-    let (Ok(pos), Ok(size), Ok(Some(mon))) = (
-        win.outer_position(),
-        win.outer_size(),
-        win.current_monitor(),
-    ) else {
-        return false;
-    };
-    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-    let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-    let right_edge = pos.x as f64 / scale + size.width as f64 / scale;
-    mon_right - right_edge <= 8.0
+/// Inverted-S swoop amplitude for the flush silhouette (logical px).
+fn swoop_c(d: f64, n: usize) -> f64 {
+    ((TITLE_BLOCK + dock_height(d, n)) * SWOOP_FRAC).clamp(SWOOP_MIN, SWOOP_MAX)
+}
+
+/// Vertical padding — clears the swoop curve at the content's x-extent.
+fn pad_v(d: f64, n: usize) -> f64 {
+    (swoop_c(d, n) * 0.45).ceil().max(PAD_V_MIN)
+}
+
+/// Where the ring rail starts inside the window (pad + title block).
+fn rail_top(d: f64, n: usize) -> f64 {
+    pad_v(d, n) + TITLE_BLOCK
+}
+
+/// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
+/// vertical padding (swoop clearance) + title block + dock height.
+fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
+    let d = ring_diameter(&cfg.pulse_size);
+    let n = ring_count.max(1);
+    (
+        d + PANEL_PAD * 2.0,
+        pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height(d, n),
+    )
 }
 
 /// Resize the pulse window to show the detail card beside the rings.
 /// Vertical layout only: the width grows for the card. macOS anchors resizes
 /// at the top-left corner, so the window must grow LEFTWARD when the panel is
 /// fused to the right screen edge — or when rightward growth would run
-/// off-screen — keeping the card inside the visible area. The taller expanded
-/// size is also lifted when it would cross the monitor's bottom edge.
+/// off-screen — keeping the card inside the visible area. The card hangs
+/// UPWARD from the hovered ring (reference layout), so the window top is
+/// LIFTED by whatever room the card lacks above that ring.
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -215,31 +228,40 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let (_, h_c) = collapsed_size(&cfg, ring_count);
     let pitch = d + LABEL_H + RING_GAP;
     let w_e = d + PANEL_PAD * 2.0 + CARD_SPACING + CARD_WIDTH;
-    // The card hangs up to CARD_HALF_H below the hovered ring's center, so
-    // size the window for the LAST ring (worst case) plus a top clamp floor.
-    let h_e = (h_c + 24.0)
-        .max(RAIL_TOP + (ring_count as f64 - 1.0) * pitch + d / 2.0 + CARD_HALF_H + 8.0)
-        .max(220.0);
+
+    // Hovered ring's center offset inside the rail (worst case: first ring).
+    let idx = vendor
+        .as_deref()
+        .map(|v| load_quota_index(app, v))
+        .unwrap_or(0);
+    let ring_center = idx as f64 * pitch + d / 2.0;
+    let lift_want = (CARD_H + 24.0 - (rail_top(d, ring_count) + ring_center)).max(0.0);
+    let h_e = h_c + lift_want;
 
     let mut grow_left = false;
-    if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
+    let mut lift = lift_want;
+    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
+        win.outer_position(),
+        win.outer_size(),
+        win.current_monitor(),
+    ) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
+        let h_cur = size.height as f64 / scale;
+        // Decide from the COLLAPSED y — undo any lift a previous expand left.
+        let base_py = py + (h_cur - h_c).max(0.0);
+        let mon_top = mon.position().y as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-        let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
+        lift = lift_want.min((base_py - mon_top - 8.0).max(0.0));
         let target_x = if mon_right - (px + w_e) < 8.0 {
             grow_left = true;
             mon_right - w_e
         } else {
             px
         };
-        let target_y = if py + h_e > mon_bottom - 8.0 {
-            (mon_bottom - h_e).max(mon.position().y as f64 / scale)
-        } else {
-            py
-        };
-        if grow_left || target_y != py {
+        let target_y = base_py - lift;
+        if grow_left || lift > 0.5 || (target_y - py).abs() > 0.5 {
             let _ = win.set_position(LogicalPosition::new(target_x, target_y));
         }
     }
@@ -247,12 +269,14 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let _ = win.set_size(LogicalSize::new(w_e, h_e));
     let _ = win.emit(
         "pulse:expand",
-        serde_json::json!({ "vendor": vendor, "cardLeft": grow_left }),
+        serde_json::json!({ "vendor": vendor, "cardLeft": grow_left, "lift": lift }),
     );
 }
 
-/// Collapse the pulse window back to ring-only size. When flush right, pin the
-/// RIGHT edge instead of the left so the panel stays fused to the screen edge.
+/// Collapse the pulse window back to ring-only size. Reverses the expand
+/// geometry: drop the lift (move the top back down by the current excess
+/// height) and, when flush right, pin the RIGHT edge so the panel stays
+/// fused to the screen edge.
 pub fn collapse_pulse(app: &AppHandle) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -265,11 +289,21 @@ pub fn collapse_pulse(app: &AppHandle) {
     let ring_count = load_quota_count(app);
     let (w_c, h_c) = collapsed_size(&cfg, ring_count);
 
-    if is_flush_right(&win) {
-        if let (Ok(pos), Ok(Some(mon))) = (win.outer_position(), win.current_monitor()) {
-            let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-            let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-            let _ = win.set_position(LogicalPosition::new(mon_right - w_c, pos.y as f64 / scale));
+    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
+        win.outer_position(),
+        win.outer_size(),
+        win.current_monitor(),
+    ) {
+        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+        let px = pos.x as f64 / scale;
+        let py = pos.y as f64 / scale;
+        let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+        let flush_right = mon_right - (px + size.width as f64 / scale) <= 8.0;
+        let lift = (size.height as f64 / scale - h_c).max(0.0);
+        let target_x = if flush_right { mon_right - w_c } else { px };
+        let target_y = py + lift;
+        if flush_right || lift > 0.5 {
+            let _ = win.set_position(LogicalPosition::new(target_x, target_y));
         }
     }
 
@@ -287,6 +321,21 @@ fn load_quota_count(app: &AppHandle) -> usize {
         Err(_) => return 1,
     };
     load_quotas(&conn).len().max(1)
+}
+
+/// Index of a vendor in the quota list (same order the frontend renders).
+fn load_quota_index(app: &AppHandle, vendor: &str) -> usize {
+    let Some(state) = app.try_state::<AppState>() else {
+        return 0;
+    };
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    load_quotas(&conn)
+        .iter()
+        .position(|q| q.vendor == vendor)
+        .unwrap_or(0)
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
@@ -354,6 +403,18 @@ pub fn persist_pulse_pos(app: &AppHandle) {
         Ok(c) => c,
         Err(_) => return,
     };
+    // Skip while expanded — the window is lifted (taller than the collapsed
+    // size), so persisting now would save the shifted y and drift the panel
+    // upward across restarts.
+    let cfg = config::load(&conn).unwrap_or_default();
+    let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len());
+    let h_now = h
+        .outer_size()
+        .map(|s| s.height as f64 / scale)
+        .unwrap_or(0.0);
+    if (h_now - h_c).abs() > 2.0 {
+        return;
+    }
     save_pos(&conn, wx, wy);
 }
 
@@ -460,17 +521,35 @@ mod tests {
         for n in [1usize, 3, 5] {
             let (w, h) = collapsed_size(&cfg, n);
             assert_eq!(w, d + PANEL_PAD * 2.0);
-            let expect_h =
-                PAD_V * 2.0 + TITLE_BLOCK + n as f64 * (d + LABEL_H) + (n as f64 - 1.0) * RING_GAP;
+            let expect_h = pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height(d, n);
             assert!(
                 (h - expect_h).abs() < f64::EPSILON,
                 "n={n}: {h} != {expect_h}"
             );
         }
+        // Concrete anchor (medium rings, n=3): dock = 3*61 + 2*8 = 199,
+        // swoop = clamp(223 * 0.28) ≈ 62.4 → pad = ceil(28.1) = 29,
+        // height = 29*2 + 24 + 199 = 281.
+        if d == RING_MEDIUM {
+            let (_, h3) = collapsed_size(&cfg, 3);
+            assert!((h3 - 281.0).abs() < 0.01, "medium n=3: {h3}");
+        }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
         let (_, h1) = collapsed_size(&cfg, 1);
         assert_eq!(h0, h1);
+    }
+
+    #[test]
+    fn swoop_grows_with_dock_and_stays_clamped() {
+        let c1 = swoop_c(RING_MEDIUM, 1);
+        let c3 = swoop_c(RING_MEDIUM, 3);
+        let c9 = swoop_c(RING_MEDIUM, 9);
+        assert!(c1 >= SWOOP_MIN, "single ring keeps the minimum swoop");
+        assert!(c3 > c1, "more rings → deeper swoop");
+        assert!(c9 <= SWOOP_MAX, "swoop clamped at the maximum");
+        // Padding always clears a fixed fraction of the swoop.
+        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.45);
     }
 
     #[test]

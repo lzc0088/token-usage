@@ -1,6 +1,5 @@
 <script lang="ts">
-  import VendorIcon from "./VendorIcon.svelte";
-  import { vendorDisplayName } from "../../lib/vendorIcons";
+  import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
 
   interface PulseWindow {
     label: string;
@@ -31,6 +30,8 @@
   let { quota, cardSide = "left" }: Props = $props();
 
   let displayName = $derived(vendorDisplayName(quota.vendor));
+  // Real brand SVG from the app's shared icon set (currentColor fill).
+  let iconMarkup = $derived(vendorIconMarkup(quota.vendor));
 
   function barColor(pct: number): string {
     if (pct >= 80) return "var(--pulse-warning)";
@@ -97,9 +98,7 @@
   <!-- Card body -->
   <div class="card-content">
     <div class="card-header">
-      <span class="vendor-icon">
-        <VendorIcon vendor={quota.vendor} size={15} color="var(--pulse-text)" />
-      </span>
+      <span class="vendor-icon" aria-hidden="true">{@html iconMarkup}</span>
       <span class="vendor-name">{displayName}</span>
       {#if quota.plan}
         <span class="plan-badge">{quota.plan}</span>
@@ -170,15 +169,17 @@
     }
   }
 
-  /* ── Pointer ──────────────────────────────────────────────────────── */
+  /* ── Pointer ────────────────────────────────────────────────────────
+     Anchored at the card's lower corner: the card hangs UPWARD from the
+     hovered ring (reference layout), so the beak sits ~20px above the card
+     bottom — exactly the hovered ring's center. */
 
   .card-pointer {
     position: absolute;
-    top: 50%;
+    bottom: 2px;
     left: -17px;
     width: 18px;
     height: 36px;
-    transform: translateY(-50%);
     flex-shrink: 0;
     pointer-events: none;
   }
@@ -186,7 +187,7 @@
   .card-pointer.flip {
     left: auto;
     right: -17px;
-    transform: translateY(-50%) scaleX(-1);
+    transform: scaleX(-1);
   }
 
   /* ── Card content ──────────────────────────────────────────────────── */
@@ -207,9 +208,16 @@
   }
 
   .vendor-icon {
-    display: flex;
-    align-items: center;
+    width: 15px;
+    height: 15px;
+    color: var(--pulse-text);
     flex-shrink: 0;
+  }
+
+  .vendor-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
 
   .vendor-name {

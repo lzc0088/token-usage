@@ -43,6 +43,8 @@
     vendor: string | null;
     /** true → window grew leftward, so the card opens LEFT of the rings. */
     cardLeft?: boolean;
+    /** How far the window top was lifted so the upward-hanging card fits. */
+    lift?: number;
   }
 
   let data = $state<PulseData>({
@@ -57,6 +59,9 @@
   // Which side the detail card opens on — decided by Rust (it knows which
   // way the window grew) so the card never lands outside the window.
   let expandCardLeft = $state(false);
+  // Window-top lift applied by Rust while expanded; the panel is pushed down
+  // by the same amount so it stays visually fixed on screen.
+  let expandLift = $state(0);
 
   // Listen for data updates from Rust.
   listen<PulseData>("pulse:update", (e) => {
@@ -67,31 +72,41 @@
     isExpanded = true;
     hoveredVendor = e.payload?.vendor ?? null;
     expandCardLeft = !!e.payload?.cardLeft;
+    expandLift = Math.max(0, e.payload?.lift ?? 0);
   });
 
   listen("pulse:collapse", () => {
     isExpanded = false;
     hoveredVendor = null;
     expandCardLeft = false;
+    expandLift = 0;
   });
 
   // ── Layout constants (mirror Rust pulse.rs) ────────────────────────────
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
-  const PAD_V = 14;
-  const TITLE_BLOCK = 24;
   const LABEL_H = 13;
-  const ITEM_GAP = 4;
+  const ITEM_GAP = 8;
+  const TITLE_BLOCK = 24;
+  const PAD_V_MIN = 14;
+  // Inverted-S swoop amplitude: fraction of the content height, clamped.
+  const SWOOP_FRAC = 0.28;
+  const SWOOP_MIN = 40;
+  const SWOOP_MAX = 120;
   const PAD_FLUSH_INNER = 18;
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
-  // Teardrop cap height for the flush (fused-edge) silhouette.
-  const CAP = 24;
 
   let ringCount = $derived(Math.max(data.quotas.length, 1));
   let dockH = $derived(
     ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
   );
-  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK + dockH);
+  let contentH = $derived(TITLE_BLOCK + dockH);
+  let swoopC = $derived(
+    Math.min(Math.max(contentH * SWOOP_FRAC, SWOOP_MIN), SWOOP_MAX)
+  );
+  // Vertical padding clears the swoop curve at the content's x-extent.
+  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.45)));
+  let panelH = $derived(padV * 2 + contentH);
 
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
@@ -103,21 +118,21 @@
   );
   let panelW = $derived(data.ring_diameter + padH);
 
-  // Flush silhouette: inverted-S (倒S) teardrop caps. The top/bottom edges
-  // sweep from the inner side toward the fused edge, arriving smoothly
-  // (vertical tangent) at a tip flush with the screen border — matching the
-  // Pulse dock reference. Floating panels fall back to a rounded pill.
+  // Flush silhouette: a large inverted-S (倒S) swoop per the reference — the
+  // panel is tallest AT the fused screen edge; the top/bottom boundaries
+  // descend in one long concave sweep toward the inner side (amplitude =
+  // ~25% of panel height), arriving flat (horizontal tangent) at the edge
+  // and vertical at the straight inner edge. Floating → rounded pill.
   let surfaceStyle = $derived.by(() => {
     const w = panelW;
-    const h = Math.max(panelH, CAP * 3);
-    const c = Math.min(CAP, h / 3);
-    const cTop = (c * 0.35).toFixed(1);
-    const cBot = (c * 0.6).toFixed(1);
+    const h = Math.max(panelH, SWOOP_MIN);
+    const c = Math.min(swoopC, h / 2.5);
+    const f = (v: number) => v.toFixed(1);
     if (flushSide === "right") {
-      return `clip-path: path("M 0 ${c.toFixed(1)} C 0 ${cTop} ${w} ${cBot} ${w} 0 L ${w} ${h} C ${w} ${(h - c * 0.6).toFixed(1)} 0 ${(h - c * 0.35).toFixed(1)} 0 ${(h - c).toFixed(1)} Z")`;
+      return `clip-path: path("M 0 ${f(c)} C 0 ${f(c * 0.3)} ${f(w * 0.55)} 0 ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.45)} ${f(h)} 0 ${f(h - c * 0.3)} 0 ${f(h - c)} Z")`;
     }
     if (flushSide === "left") {
-      return `clip-path: path("M ${w} ${c.toFixed(1)} C ${w} ${cTop} 0 ${cBot} 0 0 L 0 ${h} C 0 ${(h - c * 0.6).toFixed(1)} ${w} ${(h - c * 0.35).toFixed(1)} ${w} ${(h - c).toFixed(1)} Z")`;
+      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w)} ${f(c * 0.3)} ${f(w * 0.45)} 0 0 0 L 0 ${f(h)} C ${f(w * 0.55)} ${f(h)} ${f(w)} ${f(h - c * 0.3)} ${f(w)} ${f(h - c)} Z")`;
     }
     return "";
   });
@@ -181,11 +196,13 @@
       const target = e.target as HTMLElement | null;
       // Drag only from panel chrome (title, padding), never from interactive bits.
       if (!target?.closest(".pulse-panel")) return;
-      if (target.closest(".ring-container, .close-btn, .detail-tooltip")) return;
+      if (target.closest(".ring-container, .detail-tooltip")) return;
       win.startDragging().catch(() => {});
     };
     const onMouseUp = () => {
-      // Persist immediately after a drag; the 1s Rust poller is the safety net.
+      // Persist after a drag (the 1s Rust poller is the safety net). Skip
+      // while expanded — the window is lifted, y would be wrong.
+      if (isExpanded) return;
       snapToEdge().then(() => {
         win
           .outerPosition()
@@ -229,10 +246,6 @@
     invoke("collapse_pulse").catch(() => {});
   }
 
-  async function dismissPulse() {
-    await invoke("dismiss_pulse").catch(() => {});
-  }
-
   let hoveredQuota = $derived(
     hoveredVendor
       ? data.quotas.find((q) => q.vendor === hoveredVendor) ?? null
@@ -256,28 +269,11 @@
   class:flush-left={flushSide === "left"}
   class:grow-left={expandCardLeft}
   class:card-left={expandCardLeft}
-  style="--ring-size: {data.ring_diameter}px; width:{panelW}px; height:{panelH}px"
+  style="--ring-size: {data.ring_diameter}px; width:{panelW}px; height:{panelH}px; margin-top: {expandLift}px"
 >
-  <!-- Shaped surface: bg + blur + inverted-S teardrop clip. Kept on its own
-       layer so the tooltip card can overflow the (clipped) panel body. -->
+  <!-- Shaped surface: bg + blur + large inverted-S swoop clip. Kept on its
+       own layer so the tooltip card can overflow the (clipped) panel body. -->
   <div class="panel-surface" style={surfaceStyle} aria-hidden="true"></div>
-
-  <!-- Close / dismiss button -->
-  <button
-    class="close-btn"
-    onclick={dismissPulse}
-    aria-label="关闭 Pulse"
-    title="关闭 Pulse"
-  >
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      <path
-        d="M1 1L9 9M9 1L1 9"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-      />
-    </svg>
-  </button>
 
   <!-- Panel title (mode indicator) -->
   <div class="panel-title">{panelTitle}</div>
@@ -309,11 +305,12 @@
       {/if}
     </div>
 
-    <!-- Detail tooltip card (anchored to hovered ring) -->
+    <!-- Detail tooltip card — hangs UPWARD from the hovered ring, its
+         bottom-corner pointer beak aligned with the ring's center. -->
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        style="--hover-index: {hoveredIndex}; --ring-gap: 17px;"
+        style="--hover-index: {hoveredIndex}; --ring-gap: {LABEL_H + ITEM_GAP}px; --item-gap: {ITEM_GAP}px; --dock-count: {data.quotas.length};"
       >
         <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
       </div>
@@ -390,7 +387,7 @@
 
   .pulse-panel.flush-right .panel-surface,
   .pulse-panel.flush-left .panel-surface {
-    border-radius: 0; /* clip-path draws the teardrop instead */
+    border-radius: 0; /* clip-path draws the swoop instead */
   }
 
   /* Content rides above the surface layer. */
@@ -430,51 +427,6 @@
     margin-right: -1px;
   }
 
-  /* ── Close button ──────────────────────────────────────────────────── */
-
-  .close-btn {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(128, 128, 128, 0.2);
-    border: none;
-    border-radius: 50%;
-    color: var(--pulse-text-dim);
-    cursor: pointer;
-    padding: 0;
-    transition: all 0.15s ease;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 10;
-  }
-
-  .pulse-panel:hover .close-btn {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  /* Right-fused: the teardrop tip is top-right, park the button left. */
-  .pulse-panel.flush-right .close-btn {
-    left: 14px;
-    right: auto;
-    top: 14px;
-  }
-
-  .close-btn:hover {
-    background: rgba(255, 79, 66, 0.3);
-    color: var(--pulse-warning);
-    transform: scale(1.1);
-  }
-
-  .close-btn:active {
-    transform: scale(0.92);
-  }
-
   /* ── Ring dock ─────────────────────────────────────────────────────── */
 
   .rail-with-tooltip {
@@ -484,7 +436,7 @@
   .ring-dock {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
   }
 
   /* ── Panel title ────────────────────────────────────────────────────── */
@@ -502,8 +454,9 @@
       -apple-system, sans-serif;
   }
 
-  /* Left-fused: keep the title clear of the top-left teardrop tip. */
-  .pulse-panel.flush-left .panel-title {
+  /* Right-fused: hug the edge side so the title clears the swoop, which
+     carves deepest over the inner (left) side. */
+  .pulse-panel.flush-right .panel-title {
     align-self: flex-end;
     margin-left: 0;
     margin-right: 2px;
@@ -518,20 +471,17 @@
     animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* Card centers on the hovered ring (offsets are rail-relative — the rail's
-     top-left is the first ring's top-left). max() floors the position so a
-     max-height card (half ≤ 128px, see Rust CARD_HALF_H) hovering the top
-     ring stays inside the window. */
+  /* The card hangs UPWARD from the hovered ring: its bottom edge sits 20px
+     below the ring's center and the pointer beak (at bottom-corner minus
+     20px) lands exactly on the ring — matching the reference. Offsets are
+     rail-relative (the rail's top-left = first ring's top-left); Rust lifts
+     the window top (payload.lift) so the card always fits above. */
   .vertical .detail-tooltip {
     left: calc(var(--ring-size) + 12px);
-    top: max(
-      calc(
-        var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
-        var(--ring-size) / 2
-      ),
-      90px
+    bottom: calc(
+      (var(--dock-count) - var(--hover-index)) * (var(--ring-size) + var(--ring-gap)) -
+      var(--item-gap) - var(--ring-size) / 2 - 20px
     );
-    transform: translateY(-50%);
   }
 
   /* Window grew leftward (fused right / overflow clamped): the card opens
@@ -544,11 +494,11 @@
   @keyframes tooltipIn {
     from {
       opacity: 0;
-      transform: translateY(-4px) scale(0.96);
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
-      transform: translateY(-50%) scale(1);
+      transform: none;
     }
   }
 

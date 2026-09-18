@@ -1,6 +1,5 @@
 <script lang="ts">
-  import VendorIcon from "./VendorIcon.svelte";
-  import { vendorDisplayName } from "../../lib/vendorIcons";
+  import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
 
   interface Props {
     vendor: string;
@@ -37,7 +36,10 @@
   let circumference = $derived(2 * Math.PI * radius);
   let centerRadius = $derived(Math.max(4, (diameter - strokeWidth * 2 - 8) / 2));
   // Center glyph size — fills most of the hole inside the ring track.
-  let iconSize = $derived(Math.round(centerRadius * 1.6));
+  let iconSize = $derived(Math.round(centerRadius * 1.7));
+  // Real brand SVG markup from the app's shared icon set (currentColor fill).
+  let iconMarkup = $derived(vendorIconMarkup(vendor));
+  let iconOffset = $derived((diameter - iconSize) / 2);
 
   // ── Computed display values ────────────────────────────────────────────
 
@@ -97,7 +99,7 @@
 
 <button
   class="ring-container"
-  style="width:{diameter}px;height:{diameter}px"
+  style="width:{diameter}px"
   onmouseenter={onHover}
   onmouseleave={onLeave}
   aria-label="{displayName} {label}: {Math.round(usedPct)}%"
@@ -229,10 +231,12 @@
 
   </svg>
 
-  <!-- ── Center glyph: vendor mark only (pct lives below the ring) ─────── -->
-  <div class="ring-center" aria-hidden="true">
-    <VendorIcon vendor={vendor} size={iconSize} color="var(--pulse-text)" />
-  </div>
+  <!-- ── Center glyph: real brand mark only (pct lives below the ring) ── -->
+  <span
+    class="ring-icon"
+    style="width:{iconSize}px;height:{iconSize}px;left:{iconOffset}px;top:{iconOffset}px"
+    aria-hidden="true">{@html iconMarkup}</span
+  >
 
   <!-- ── Percentage label under the ring ──────────────────────────────── -->
   <span class="pct-label">{Math.round(displayPct)}%</span>
@@ -265,18 +269,19 @@
     display: block;
   }
 
-  /* Center glyph overlay — square over the ring only (above the pct label). */
-  .ring-center {
+  /* Brand glyph overlay — sized/positioned inline in px, colored via
+     currentColor. No opacity/transform: this WKWebView runs in a transparent
+     window where compositing layers can drop content. */
+  .ring-icon {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    aspect-ratio: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    color: var(--pulse-text);
     pointer-events: none;
-    opacity: 0.9;
+  }
+
+  .ring-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
 
   /* Percentage under the ring — a fixed 13px block (11px line + 2px margin)
