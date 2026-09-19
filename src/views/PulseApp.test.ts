@@ -41,6 +41,16 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 import PulseApp from "./PulseApp.svelte";
 
+// jsdom lacks ResizeObserver (used by bind:clientHeight on the tooltip).
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+if (typeof globalThis.ResizeObserver === "undefined") {
+  (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverMock;
+}
+
 const SAMPLE = {
   quotas: [
     {
@@ -97,22 +107,23 @@ describe("PulseApp", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
   });
 
-  it("expands the card on pulse:expand with lift + cardLeft", async () => {
+  it("expands the card without shifting the panel position", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
     mount(PulseApp, { target });
 
     emit("pulse:update", SAMPLE);
     await flush();
-    emit("pulse:expand", { vendor: "codex", cardLeft: true, lift: 120 });
+    emit("pulse:expand", { vendor: "codex", cardLeft: true });
     await flush();
 
     const tooltip = target.querySelector(".detail-tooltip");
     expect(tooltip).toBeTruthy();
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
-    expect(panel?.style.marginTop).toBe("120px");
+    // No lift — the panel never moves on hover (top-left anchored window).
+    expect(panel?.style.marginTop).toBe("");
     expect(panel?.classList.contains("card-left")).toBe(true);
-    // card-right on the parent flips the pointer via CSS scaleX(-1)
+    // card-right on the parent flips the arrow via CSS scaleX(-1)
     expect(target.querySelector(".detail-card")?.classList.contains("card-right")).toBe(true);
   });
 
@@ -123,13 +134,13 @@ describe("PulseApp", () => {
 
     emit("pulse:update", SAMPLE);
     await flush();
-    emit("pulse:expand", { vendor: "codex", cardLeft: true, lift: 120 });
+    emit("pulse:expand", { vendor: "codex", cardLeft: true });
     await flush();
     emit("pulse:collapse", undefined);
     await flush();
 
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
-    expect(panel?.style.marginTop).toBe("0px");
+    expect(panel?.style.marginTop).toBe("");
     expect(target.querySelector(".detail-tooltip")).toBeFalsy();
   });
 

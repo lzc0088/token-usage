@@ -28,11 +28,8 @@ const LABEL_H: f64 = 21.0;
 const RING_GAP: f64 = 14.0;
 const TITLE_BLOCK: f64 = 24.0;
 
-/// Fixed vertical padding (user-specified: padding-top 20px).
+/// Fixed vertical padding (user-specified: padding-top 30px).
 const PAD_V: f64 = 30.0;
-
-/// Where the ring rail starts inside the window (pad + title block).
-const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
 
 /// Panel height cap (logical px) — beyond this the ring dock scrolls.
 const MAX_PANEL_H: f64 = 520.0;
@@ -48,17 +45,14 @@ const CARD_SPACING: f64 = 48.0;
 /// Detail card width (logical px) — CSS max-width 260 + pointer overhang.
 const CARD_WIDTH: f64 = 268.0;
 
-/// Max half-height of the detail card (header + 3 rows + balance). The card
-/// is CENTERED on the hovered ring, so the window is lifted / extended by
-/// whatever this half lacks above/below the ring.
-const CARD_HALF_H: f64 = 132.0;
+/// Vertical slack (logical px) added symmetrically ABOVE and BELOW the
+/// collapsed height while expanded, so a card centered on ANY ring fits
+/// with the window top staying put. The top-left corner NEVER moves during
+/// hover — no lift, no flicker, no drift.
+const CARD_SLACK: f64 = 140.0;
 
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
-
-/// Lift applied by the last expand (logical px) — collapse reverses exactly
-/// this amount (the height delta alone also includes the bottom extension).
-static LAST_LIFT: std::sync::Mutex<f64> = std::sync::Mutex::new(0.0);
 
 /// Resolve ring diameter from config size string.
 fn ring_diameter(size: &str) -> f64 {
@@ -228,13 +222,23 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
     )
 }
 
+/// Expanded (hover) window size, logical px. The card slot extends the
+/// window RIGHTWARD; symmetric vertical slack lets a card centered on ANY
+/// ring fit while the TOP-LEFT corner stays anchored — the panel never
+/// moves, flickers, or drifts during hover.
+fn expanded_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
+    let (w_c, h_c) = collapsed_size(cfg, ring_count);
+    (w_c + CARD_SPACING + CARD_WIDTH, h_c + 2.0 * CARD_SLACK)
+}
+
 /// Resize the pulse window to show the detail card beside the rings.
-/// Vertical layout only: the width grows for the card. macOS anchors resizes
-/// at the top-left corner, so the window must grow LEFTWARD when the panel is
-/// fused to the right screen edge — or when rightward growth would run
-/// off-screen. The card is CENTERED on the hovered ring: the window top is
-/// LIFTED by whatever the card's upper half lacks above the ring, and the
-/// height extended by whatever the lower half lacks below it.
+///
+/// The top edge NEVER moves (no lift): the window only grows right + down,
+/// where macOS's top-left resize anchor keeps the panel pixel-fixed. The
+/// card itself clamps/positions within the window (frontend), and its arrow
+/// slides along the card edge to point at the hovered ring. A flush-right
+/// panel is the one exception on X: the window must shift left so the card
+/// opens into the screen interior — the panel stays right-anchored inside.
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -244,25 +248,12 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         .and_then(|s| s.load_config().ok())
         .unwrap_or_default();
 
-    let d = ring_diameter(&cfg.pulse_size);
     let ring_count = load_quota_count(app);
     let (_, h_c) = collapsed_size(&cfg, ring_count);
-    let pitch = d + LABEL_H + RING_GAP;
-    let w_e = d + PANEL_PAD * 2.0 + CARD_SPACING + CARD_WIDTH;
+    let (w_e, h_e_full) = expanded_size(&cfg, ring_count);
 
-    // Hovered ring's center offset inside the rail (worst case: first ring).
-    let idx = vendor
-        .as_deref()
-        .map(|v| load_quota_index(app, v))
-        .unwrap_or(0);
-    let ring_center = idx as f64 * pitch + d / 2.0;
-    let lift_want = (CARD_HALF_H + 8.0 - (RAIL_TOP + ring_center)).max(0.0);
-    let bottom_want = (CARD_HALF_H + 8.0 - (h_c - RAIL_TOP - ring_center)).max(0.0);
-
-    let mut grow_left = false;
-    let mut lift = lift_want;
-    let mut bottom_ext = bottom_want;
-    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
+    let mut card_left = false;
+    if let (Ok(pos), Ok(_size), Ok(Some(mon))) = (
         win.outer_position(),
         win.outer_size(),
         win.current_monitor(),
@@ -270,61 +261,33 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
-        let h_cur = size.height as f64 / scale;
-        // Decide from the COLLAPSED y — undo any lift a previous expand left.
-        let base_py = py + (h_cur - h_c).max(0.0);
-        let mon_top = mon.position().y as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
-        lift = lift_want.min((base_py - mon_top - 8.0).max(0.0));
-        bottom_ext = bottom_want.min((mon_bottom - 8.0 - base_py - h_c).max(0.0));
+        // Clamp the downward slack to the screen; never touch y.
+        let h_e = h_e_full.min((mon_bottom - 4.0 - py).max(h_c));
         let target_x = if mon_right - (px + w_e) < 8.0 {
-            grow_left = true;
+            card_left = true;
             mon_right - w_e
         } else {
             px
         };
-        let target_y = base_py - lift;
-        if grow_left || lift > 0.5 || (target_y - py).abs() > 0.5 {
-            let _ = win.set_position(LogicalPosition::new(target_x, target_y));
+        if card_left {
+            let _ = win.set_position(LogicalPosition::new(target_x, py));
         }
+        let _ = win.set_size(LogicalSize::new(w_e, h_e.max(h_c)));
+    } else {
+        let _ = win.set_size(LogicalSize::new(w_e, h_e_full));
     }
 
-    let _ = win.set_size(LogicalSize::new(w_e, h_c + lift + bottom_ext));
-    if let Ok(mut l) = LAST_LIFT.lock() {
-        *l = lift;
-    }
     let _ = win.emit(
         "pulse:expand",
-        serde_json::json!({ "vendor": vendor, "cardLeft": grow_left, "lift": lift }),
+        serde_json::json!({ "vendor": vendor, "cardLeft": card_left }),
     );
 }
 
-/// Reverse the expand lift so the panel's on-screen TOP returns to where
-/// it was before the last `expand_pulse`.  Using the stored lift avoids the
-/// old formula `py + (h_now - h_collapsed)` which double-counted the bottom
-/// extension and drifted the window DOWN on every re-hover.
-fn collapsed_top(
-    py: f64,
-    h_now: f64,
-    h_collapsed: f64,
-    recorded_lift: f64,
-) -> f64 {
-    let expanded = h_now - h_collapsed > 2.0; // near-zero when already collapsed
-    if expanded {
-        py + recorded_lift
-    } else {
-        py
-    }
-}
-
-/// Collapse the pulse window back to ring-only size.
-///
-/// MUST restore position BEFORE resizing — the old code guarded position
-/// restore with `if flush_right || lift > 0.5`, which meant floating and
-/// left-flush panels shrank without moving the top back down.  Every
-/// expand/collapse cycle then drifted the window downward because the
-/// expand always applied its lift from the current (already-shifted) top.
+/// Collapse the pulse window back to ring-only size. Mirrors the expand:
+/// y is untouched; only a flush-right panel moves x back so its right edge
+/// stays fused to the screen edge.
 pub fn collapse_pulse(app: &AppHandle) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -345,16 +308,11 @@ pub fn collapse_pulse(app: &AppHandle) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
-        let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let flush_right = mon_right - (px + size.width as f64 / scale) <= 8.0;
-        let lift = *LAST_LIFT.lock().unwrap_or_else(|e| e.into_inner());
-        let target_x = if flush_right { mon_right - w_c } else { px };
-        let target_y = collapsed_top(py, h_now, h_c, lift);
-        // Always restore position when there was a lift — not just for
-        // flush-right panels.  Without this, floating/left-flush panels
-        // drift because the height shrinks but the top doesn't move back.
-        let _ = win.set_position(LogicalPosition::new(target_x, target_y));
+        if flush_right {
+            let _ = win.set_position(LogicalPosition::new(mon_right - w_c, py));
+        }
     }
 
     let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
@@ -373,23 +331,8 @@ fn load_quota_count(app: &AppHandle) -> usize {
     load_quotas(&conn).len().max(1)
 }
 
-/// Index of a vendor in the quota list (same order the frontend renders).
-fn load_quota_index(app: &AppHandle, vendor: &str) -> usize {
-    let Some(state) = app.try_state::<AppState>() else {
-        return 0;
-    };
-    let conn = match state.db.lock() {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
-    load_quotas(&conn)
-        .iter()
-        .position(|q| q.vendor == vendor)
-        .unwrap_or(0)
-}
-
 /// Position the pulse panel. Restores the saved (dragged) position when one
-/// exists; otherwise docks to the configured screen edge, 30% from top.
+/// exists; otherwise docks to the configured screen edge, vertically centered.
 fn position_pulse(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -406,7 +349,8 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
         return;
     }
 
-    // Fresh dock: configured edge ("left" | "right"), 30% from top.
+    // Fresh dock: configured edge ("left" | "right"), vertically centered.
+    // (Dragged positions persist and are restored above.)
     let Ok(Some(mon)) = win.primary_monitor() else {
         return;
     };
@@ -420,7 +364,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     } else {
         mx + mw - w
     };
-    let py = my + mh * 0.30;
+    let py = my + (mh - h) / 2.0;
     let _ = win.set_position(LogicalPosition::new(px, py));
 }
 
@@ -607,18 +551,17 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_top_reverses_only_the_lift() {
-        // Collapsed window: a stale recorded lift must be ignored.
-        assert!((collapsed_top(300.0, 299.0, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
-        // Expanded by lift 72 + bottom extension 75 (h_cur = 299 + 147):
-        // only the LIFT moved the top. Deriving from the height delta
-        // (old math: 228 + 147 = 375) double-counted the bottom extension
-        // and drifted the panel DOWN on every re-hover.
-        assert!((collapsed_top(228.0, 446.0, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
-        // Barely-expanded (within the 2px epsilon) counts as collapsed.
-        assert!((collapsed_top(300.0, 300.5, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
-        // Zero lift (no expand ever ran) → y unchanged.
-        assert!((collapsed_top(400.0, 400.0, 299.0, 0.0) - 400.0).abs() < f64::EPSILON);
+    fn expanded_size_grows_right_and_down_only() {
+        let cfg = config::Config::default();
+        for n in [1usize, 3, 5] {
+            let (w_c, h_c) = collapsed_size(&cfg, n);
+            let (w_e, h_e) = expanded_size(&cfg, n);
+            // Card slot extends the window RIGHTWARD by spacing + card width.
+            assert_eq!(w_e, w_c + CARD_SPACING + CARD_WIDTH, "n={n} width");
+            // Vertical slack is symmetric and INDEPENDENT of which ring is
+            // hovered — the top edge NEVER moves (no lift → no flicker).
+            assert_eq!(h_e, h_c + 2.0 * CARD_SLACK, "n={n} height");
+        }
     }
 
     #[test]

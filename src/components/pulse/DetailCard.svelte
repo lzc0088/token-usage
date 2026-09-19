@@ -37,50 +37,26 @@
   interface Props {
     quota: PulseQuota;
     cardSide: "left" | "right";
-    /** Panel opacity (0.2–1.0), applied to card background. */
-    alpha?: number;
-    dark?: boolean;
   }
 
-  const { quota, cardSide, alpha = 1, dark = false }: Props = $props();
+  const { quota, cardSide }: Props = $props();
   const nowMs = Date.now();
 
-  // Solid card background — no glass/backdrop-filter, just opacity.
-  let cardBg = $derived(
-    dark
-      ? `rgba(12,12,12,${alpha.toFixed(2)})`
-      : `rgba(250,248,244,${alpha.toFixed(2)})`
-  );
+  // Bar color thresholds on the light card background.
+  function barColor(pct: number): string {
+    if (pct >= 80) return "#cc2200";
+    if (pct >= 50) return "#cc8800";
+    return "#00b36b";
+  }
 </script>
 
-<div
-  class="detail-card"
-  class:card-right={cardSide === "right"}
-  style="background:{cardBg}"
->
-  <!-- Circle-arrow pointer: small circle with chevron, 2px gap from panel -->
-  <div class="card-pointer">
-    <svg
-      viewBox="0 0 14 14"
-      width="14"
-      height="14"
-      fill={cardBg}
-      stroke="none"
-    >
-      <circle cx="7" cy="7" r="7" />
-      <path
-        d="M6 4.5l3 2.5-3 2.5"
-        fill="none"
-        stroke="var(--pulse-text-dim, #8a857b)"
-        stroke-width="1.2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  </div>
+<div class="detail-card" class:card-right={cardSide === "right"}>
+  <!-- Arrow: big triangle protruding from the card's panel-facing edge,
+       positioned at --arrow-y (the hovered ring's line). -->
+  <div class="card-arrow"></div>
 
   <div class="card-body">
-    <!-- Header: icon + vendor + plan badge -->
+    <!-- Header: icon + vendor + plan badge; expiry hugs the line above. -->
     <div class="card-header">
       <div class="header-line">
         <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
@@ -91,13 +67,12 @@
       </div>
       {#if quota.expires_at}
         <div class="expiry-line">
-          <span class="expiry-label">到期</span>
-          <span class="expiry-time">{formatExpiryTime(quota.expires_at)}</span>
+          <span>到期 {formatExpiryTime(quota.expires_at)}</span>
         </div>
       {/if}
     </div>
 
-    <!-- Window sections — 三行左对齐: 标题 · 进度条+百分比 · 数量 -->
+    <!-- Window sections — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
     {#if quota.windows.length > 0}
       <div class="window-bars">
         {#each quota.windows as win}
@@ -107,19 +82,17 @@
               <div class="ws-track">
                 <div
                   class="ws-fill"
-                  style="width:{Math.min(100, win.used_pct)}%"
+                  style="width:{Math.min(100, win.used_pct)}%;background:{barColor(win.used_pct)}"
                 ></div>
               </div>
               <span class="ws-pct">{win.used_pct.toFixed(2)}%</span>
             </div>
             <div class="ws-value">
               {#if win.total_value != null && win.used_value != null}
-                <span class="ws-remain">
-                  剩余 {fmtCredits(win.total_value - win.used_value)}
-                </span>
+                <span>剩余 {fmtCredits(win.total_value - win.used_value)}</span>
               {/if}
               {#if win.resets_at}
-                <span class="ws-reset">{formatReset(win.resets_at, nowMs)}</span>
+                <span>{formatReset(win.resets_at, nowMs)}</span>
               {/if}
             </div>
           </div>
@@ -127,36 +100,26 @@
       </div>
     {/if}
 
-    <!-- Balance -->
+    <!-- Balance + consumption rows -->
     {#if quota.balance}
       {@const { unit, value } = splitBalance(
         quota.balance.currency,
         quota.balance.amount
       )}
-      <div class="balance-row">
-        <span class="balance-label">余额</span>
-        <span class="balance-amount">
-          <span class="balance-unit">{unit}</span>
-          <span class="balance-value">{value}</span>
-        </span>
+      <div class="stat-row">
+        <span class="stat-label">账户余额</span>
+        <span class="stat-amount">{unit}{value}</span>
       </div>
-
       {#if quota.balance.today_consumption != null}
-        <div class="cons-row">
-          <span class="cons-label">今日消费</span>
-          <span class="cons-amount">
-            <span class="cons-unit">{unit}</span>
-            <span class="cons-value">{quota.balance.today_consumption.toFixed(2)}</span>
-          </span>
+        <div class="stat-row">
+          <span class="stat-label">今日消费</span>
+          <span class="stat-amount">{unit}{quota.balance.today_consumption.toFixed(2)}</span>
         </div>
       {/if}
       {#if quota.balance.month_consumption != null}
-        <div class="cons-row">
-          <span class="cons-label">月度消费</span>
-          <span class="cons-amount">
-            <span class="cons-unit">{unit}</span>
-            <span class="cons-value">{quota.balance.month_consumption.toFixed(2)}</span>
-          </span>
+        <div class="stat-row">
+          <span class="stat-label">月度消费</span>
+          <span class="stat-amount">{unit}{quota.balance.month_consumption.toFixed(2)}</span>
         </div>
       {/if}
     {/if}
@@ -164,44 +127,56 @@
 </div>
 
 <style>
+  /* Light, solid tooltip card — no glass/backdrop-filter, no theme variance.
+     All text near-black (#1a1610) at a uniform 9px per user preference. */
   .detail-card {
     position: relative;
     min-width: 220px;
     max-width: 270px;
-    /* background set inline via JS — solid, no glass/backdrop-filter */
+    background: #f7f5f1;
+    border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: 10px;
     padding: 10px 12px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-    font-size: 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    font-size: 9px;
     line-height: 1.45;
-    color: var(--pulse-text);
+    color: #1a1610;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
   }
 
-  /* ── Circle-arrow pointer ───────────────────────────────────── */
-  .card-pointer {
+  /* ── Arrow: big triangle on the card edge, pointing at the ring ── */
+  .card-arrow {
     position: absolute;
-    top: 50%;
+    top: var(--arrow-y, 50%);
+    left: -9px;
     transform: translateY(-50%);
-    left: -6px;
-    opacity: 0.96;
+    width: 0;
+    height: 0;
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-right: 9px solid #f7f5f1;
+    filter: drop-shadow(-1px 0 0 rgba(0, 0, 0, 0.12));
   }
-  .detail-card.card-right .card-pointer {
+  .detail-card.card-right .card-arrow {
     left: auto;
-    right: -6px;
-    transform: translateY(-50%) scaleX(-1);
+    right: -9px;
+    border-right: none;
+    border-left: 9px solid #f7f5f1;
+    filter: drop-shadow(1px 0 0 rgba(0, 0, 0, 0.12));
   }
 
   .card-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
   }
 
   /* ── Header ──────────────────────────────────────────────────── */
   .card-header {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0; /* expiry hugs the plan line — tight per user preference */
   }
 
   .header-line {
@@ -211,9 +186,10 @@
   }
 
   .vendor-icon {
-    width: 12px;
-    height: 12px;
+    width: 11px;
+    height: 11px;
     flex-shrink: 0;
+    color: #1a1610;
   }
   .vendor-icon :global(svg) {
     width: 100%;
@@ -221,59 +197,41 @@
   }
 
   .vendor-name {
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 600;
     flex: 1;
   }
 
   .plan-badge {
     font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--pulse-text-dim, #8a857b);
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.07);
     font-weight: 500;
   }
 
   .expiry-line {
-    display: flex;
-    align-items: baseline;
-    justify-content: flex-end;
-    gap: 4px;
-    margin-top: 1px;
-  }
-
-  .expiry-label {
     font-size: 9px;
-    color: var(--pulse-text-dim, #8a857b);
-    flex-shrink: 0;
-  }
-
-  .expiry-time {
-    font-size: 9px;
-    font-weight: 600;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-    color: var(--pulse-text);
-    opacity: 0.8;
+    margin-top: 0;
+    opacity: 0.75;
   }
 
   /* ── Window section: 三行左对齐 ─────────────────────────────── */
   .window-bars {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
   }
 
   .window-section {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
 
   .ws-title {
     font-size: 9px;
     font-weight: 500;
-    color: var(--pulse-text-dim, #8a857b);
   }
 
   .ws-bar-row {
@@ -286,14 +244,13 @@
     flex: 1;
     height: 5px;
     border-radius: 3px;
-    background: var(--pulse-bar-track, rgba(255, 255, 255, 0.1));
+    background: rgba(0, 0, 0, 0.08);
     overflow: hidden;
   }
 
   .ws-fill {
     height: 100%;
     border-radius: 3px;
-    background: var(--pulse-good, #00e68a);
     transition: width 0.35s ease;
   }
 
@@ -302,57 +259,35 @@
     font-weight: 600;
     width: 44px;
     text-align: right;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
     flex-shrink: 0;
   }
 
+  /* Reset/remaining line — centered. */
   .ws-value {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-  }
-
-  .ws-remain {
     font-size: 9px;
-    font-weight: 600;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-weight: 500;
   }
 
-  .ws-reset {
-    font-size: 8px;
-    color: var(--pulse-text-dim, #8a857b);
-    opacity: 0.75;
-  }
-
-  /* ── Balance + consumption ──────────────────────────────────── */
-  .balance-row,
-  .cons-row {
+  /* ── Balance + consumption rows (uniform) ───────────────────── */
+  .stat-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 6px;
+    font-size: 9px;
   }
 
-  .balance-label,
-  .cons-label {
-    font-size: 9px;
-    color: var(--pulse-text-dim, #8a857b);
-    flex-shrink: 0;
+  .stat-label {
+    font-weight: 500;
   }
 
-  .balance-amount,
-  .cons-amount {
-    font-size: 9px;
+  .stat-amount {
     font-weight: 600;
-    display: flex;
-    align-items: baseline;
-    gap: 1px;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  }
-
-  .balance-unit,
-  .cons-unit {
-    font-size: 8px;
-    opacity: 0.7;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
   }
 </style>

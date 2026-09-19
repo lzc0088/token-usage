@@ -53,8 +53,6 @@
     vendor: string | null;
     /** true → window grew leftward, so the card opens LEFT of the rings. */
     cardLeft?: boolean;
-    /** How far the window top was lifted so the upward-hanging card fits. */
-    lift?: number;
   }
 
   let data = $state<PulseData>({
@@ -69,9 +67,6 @@
   // Which side the detail card opens on — decided by Rust (it knows which
   // way the window grew) so the card never lands outside the window.
   let expandCardLeft = $state(false);
-  // Window-top lift applied by Rust while expanded; the panel is pushed down
-  // by the same amount so it stays visually fixed on screen.
-  let expandLift = $state(0);
 
   // Listen for data updates from Rust.
   listen<PulseData>("pulse:update", (e) => {
@@ -82,14 +77,12 @@
     isExpanded = true;
     hoveredVendor = e.payload?.vendor ?? null;
     expandCardLeft = !!e.payload?.cardLeft;
-    expandLift = Math.max(0, e.payload?.lift ?? 0);
   });
 
   listen("pulse:collapse", () => {
     isExpanded = false;
     hoveredVendor = null;
     expandCardLeft = false;
-    expandLift = 0;
   });
 
   // Pull data on mount. A webview reload / HMR resets component state, and
@@ -255,6 +248,43 @@
     hoveredVendor ? data.quotas.findIndex((q) => q.vendor === hoveredVendor) : -1
   );
 
+  // ── Card vertical placement (window never moves — the card fits inside
+  //    the pre-expanded window; clamping keeps it fully visible and the
+  //    arrow slides along the card edge to point at the hovered ring). ────
+  const EST_CARD_H = 170; // pre-measure fallback for the first frame
+
+  let cardH = $state(0); // measured via bind:clientHeight on the tooltip
+  let winH = $state(typeof window !== "undefined" ? window.innerHeight : 600);
+
+  $effect(() => {
+    const onResize = () => {
+      winH = window.innerHeight;
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
+
+  // Hovered ring's absolute center Y inside the window (rail top + index·pitch).
+  let ringY = $derived(
+    hoveredIndex < 0
+      ? 0
+      : PAD_V + TITLE_BLOCK + hoveredIndex * (data.ring_diameter + LABEL_H + ITEM_GAP) + data.ring_diameter / 2
+  );
+
+  // Card top: centered on the ring, clamped to stay inside the window.
+  let cardTop = $derived.by(() => {
+    if (hoveredIndex < 0) return 0;
+    const h = cardH || EST_CARD_H;
+    const top = ringY - h / 2;
+    return Math.max(0, Math.min(top, winH - h - 4));
+  });
+
+  // Arrow position on the card edge: where the ring actually is.
+  let arrowY = $derived.by(() => {
+    const h = cardH || EST_CARD_H;
+    return Math.max(12, Math.min(ringY - cardTop, h - 12));
+  });
+
   // Panel-level title explaining the percentage mode.
   let panelTitle = $derived("使用量");
 </script>
@@ -267,7 +297,7 @@
   class:flush-left={flushSide === "left"}
   class:grow-left={expandCardLeft}
   class:card-left={expandCardLeft}
-  style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px; margin-top: {expandLift}px"
+  style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px"
 >
   <!-- Visual surface: bg + blur + radius. Its own layer so the tooltip
        card can overflow the panel body. -->
@@ -303,14 +333,16 @@
       {/if}
     </div>
 
-    <!-- Detail tooltip card — centered on the hovered ring, its middle
-         pointer beak aimed at the ring, 14px clear of the panel. -->
+    <!-- Detail tooltip card — vertically centered on the hovered ring and
+         clamped inside the (pre-expanded) window; the arrow slides along
+         the card edge to point straight at the ring. -->
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        style="--hover-index: {hoveredIndex}; --ring-gap: {LABEL_H + ITEM_GAP}px;"
+        bind:clientHeight={cardH}
+        style="top: {cardTop}px; --arrow-y: {arrowY}px"
       >
-        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} alpha={data.opacity ?? 1} dark={data.theme === "dark"} />
+        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
       </div>
     {/if}
   </div>
@@ -479,18 +511,12 @@
     animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* Card is CENTERED on the hovered ring (pointer beak at its vertical
-     middle), kept 30px clear of the panel's INNER edge (= pad_inner 18 +
-     30 = 48px from the ring rail). Rust guarantees the room: the window top
-     is lifted and the height extended (payload.lift) so no CSS clamping is
-     needed — the card never offsets away from the ring. */
+  /* Card sits 30px clear of the panel's INNER edge (= pad_inner 18 + 30 =
+     48px from the ring rail). Vertical position comes from inline `top`
+     (ring-centered, clamped inside the window) — the window itself never
+     moves, so there is nothing to compensate for. */
   .vertical .detail-tooltip {
     left: calc(var(--ring-size) + 48px);
-    top: calc(
-      var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
-      var(--ring-size) / 2
-    );
-    transform: translateY(-50%);
   }
 
   /* Window grew leftward (fused right / overflow clamped): the card opens
@@ -503,11 +529,11 @@
   @keyframes tooltipIn {
     from {
       opacity: 0;
-      transform: translateY(-46%) scale(0.96);
+      transform: translateY(-4px) scale(0.97);
     }
     to {
       opacity: 1;
-      transform: translateY(-50%) scale(1);
+      transform: translateY(0) scale(1);
     }
   }
 
