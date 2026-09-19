@@ -45,11 +45,11 @@
   const { quota, cardSide, alpha = 1, dark = false }: Props = $props();
   const nowMs = Date.now();
 
-  // Reactive card background following the panel's opacity.
+  // Solid card background — no glass/backdrop-filter, just opacity.
   let cardBg = $derived(
     dark
-      ? `rgba(12,12,12,${(0.96 * alpha).toFixed(2)})`
-      : `rgba(250,248,244,${(0.96 * alpha).toFixed(2)})`
+      ? `rgba(12,12,12,${alpha.toFixed(2)})`
+      : `rgba(250,248,244,${alpha.toFixed(2)})`
   );
 </script>
 
@@ -58,7 +58,26 @@
   class:card-right={cardSide === "right"}
   style="background:{cardBg}"
 >
-  <div class="card-pointer" style="border-right-color:{cardBg};border-left-color:{cardBg}"></div>
+  <!-- Circle-arrow pointer: small circle with chevron, 2px gap from panel -->
+  <div class="card-pointer">
+    <svg
+      viewBox="0 0 14 14"
+      width="14"
+      height="14"
+      fill={cardBg}
+      stroke="none"
+    >
+      <circle cx="7" cy="7" r="7" />
+      <path
+        d="M6 4.5l3 2.5-3 2.5"
+        fill="none"
+        stroke="var(--pulse-text-dim, #8a857b)"
+        stroke-width="1.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </div>
 
   <div class="card-body">
     <!-- Header: icon + vendor + plan badge -->
@@ -149,37 +168,27 @@
     position: relative;
     min-width: 220px;
     max-width: 270px;
+    /* background set inline via JS — solid, no glass/backdrop-filter */
     border-radius: 10px;
     padding: 10px 12px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
     font-size: 10px;
     line-height: 1.45;
     color: var(--pulse-text);
-    /* background set inline via JS (follows panel opacity) */
   }
 
-  /* ── Arrow pointer (CSS triangle) ──────────────────────────── */
+  /* ── Circle-arrow pointer ───────────────────────────────────── */
   .card-pointer {
     position: absolute;
     top: 50%;
-    left: -6px;
     transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    border-top: 6px solid transparent;
-    border-bottom: 6px solid transparent;
-    border-right: 6px solid; /* color set inline */
+    left: -6px;
+    opacity: 0.96;
   }
-  /* card-right: arrow on the right, pointing right */
   .detail-card.card-right .card-pointer {
     left: auto;
     right: -6px;
-    border-right: none;
-    border-left: 6px solid;
-  }
-  /* left: arrow pointing left, color set inline */
-  .detail-card:not(.card-right) .card-pointer {
-    border-right: 6px solid;
+    transform: translateY(-50%) scaleX(-1);
   }
 
   .card-body {
@@ -261,14 +270,12 @@
     gap: 3px;
   }
 
-  /* 第一行: 标题 */
   .ws-title {
     font-size: 9px;
     font-weight: 500;
     color: var(--pulse-text-dim, #8a857b);
   }
 
-  /* 第二行: 进度条 + 百分比 */
   .ws-bar-row {
     display: flex;
     align-items: center;
@@ -299,7 +306,6 @@
     flex-shrink: 0;
   }
 
-  /* 第三行: 剩余数量 + 重置时间 */
   .ws-value {
     display: flex;
     align-items: center;

@@ -318,10 +318,13 @@ fn collapsed_top(
     }
 }
 
-/// Collapse the pulse window back to ring-only size. Reverses the expand
-/// geometry: drop the lift (move the top back down by exactly the stored
-/// lift — no height-delta rounding) and, when flush right, pin the RIGHT
-/// edge so the panel stays fused to the screen edge.
+/// Collapse the pulse window back to ring-only size.
+///
+/// MUST restore position BEFORE resizing — the old code guarded position
+/// restore with `if flush_right || lift > 0.5`, which meant floating and
+/// left-flush panels shrank without moving the top back down.  Every
+/// expand/collapse cycle then drifted the window downward because the
+/// expand always applied its lift from the current (already-shifted) top.
 pub fn collapse_pulse(app: &AppHandle) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -348,9 +351,10 @@ pub fn collapse_pulse(app: &AppHandle) {
         let lift = *LAST_LIFT.lock().unwrap_or_else(|e| e.into_inner());
         let target_x = if flush_right { mon_right - w_c } else { px };
         let target_y = collapsed_top(py, h_now, h_c, lift);
-        if flush_right || lift > 0.5 {
-            let _ = win.set_position(LogicalPosition::new(target_x, target_y));
-        }
+        // Always restore position when there was a lift — not just for
+        // flush-right panels.  Without this, floating/left-flush panels
+        // drift because the height shrinks but the top doesn't move back.
+        let _ = win.set_position(LogicalPosition::new(target_x, target_y));
     }
 
     let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
@@ -613,6 +617,8 @@ mod tests {
         assert!((collapsed_top(228.0, 446.0, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
         // Barely-expanded (within the 2px epsilon) counts as collapsed.
         assert!((collapsed_top(300.0, 300.5, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
+        // Zero lift (no expand ever ran) → y unchanged.
+        assert!((collapsed_top(400.0, 400.0, 299.0, 0.0) - 400.0).abs() < f64::EPSILON);
     }
 
     #[test]
