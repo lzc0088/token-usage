@@ -27,6 +27,8 @@
   interface PulseQuota {
     vendor: string;
     plan?: string;
+    /** Credits/balance-only vendor: amount under the ring, no progress arc. */
+    planless?: boolean;
     status: string;
     windows: PulseWindow[];
     critical_pct: number;
@@ -97,6 +99,16 @@
     .catch(() => {
       // backend unavailable (e.g. browser dev) — event pushes still work
     });
+
+  // Settings changed (theme, vendors, order, …) → re-pull immediately so the
+  // panel + card follow the new theme/config without waiting for a push.
+  listen("config:changed", () => {
+    invoke<PulseData>("get_pulse_data")
+      .then((d) => {
+        if (d) data = d;
+      })
+      .catch(() => {});
+  });
 
   // ── Layout constants (mirror Rust pulse.rs) ────────────────────────────
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
@@ -302,7 +314,7 @@
   // Plan-less vendors (credits/balance only): the label under the ring
   // shows the remaining amount instead of a percentage.
   function ringSubLabel(q: PulseQuota): string | undefined {
-    if (q.plan) return undefined;
+    if (!q.planless) return undefined;
     if (q.balance) {
       const { unit, value } = splitBalance(q.balance.currency, q.balance.amount);
       return `${unit}${value}`;
@@ -347,7 +359,7 @@
           secondPct={quota.second_pct}
           showsRemaining={false}
           subLabel={ringSubLabel(quota)}
-          plain={!quota.plan}
+          plain={quota.planless ?? false}
         />
       {/each}
       {#if data.quotas.length === 0}
@@ -367,10 +379,11 @@
       <div
         class="detail-tooltip"
         class:out={isCollapsing}
+        class:measuring={cardH === 0}
         bind:clientHeight={cardH}
         style="top: {cardTop}px; --arrow-y: {arrowY}px"
       >
-        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
+        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} dark={data.theme === "dark"} />
       </div>
     {/if}
   </div>
@@ -545,6 +558,13 @@
   /* Leaving the panel: fade out BEFORE Rust shrinks the window, so the
      collapse never reads as a flash. */
   .detail-tooltip.out {
+    opacity: 0;
+  }
+
+  /* Pre-measure frame: the estimated height can differ from the real card,
+     so stay invisible until bind:clientHeight lands (one frame) — this
+     kills the position-jump flash on first hover. */
+  .detail-tooltip.measuring {
     opacity: 0;
   }
 

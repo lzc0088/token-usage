@@ -26,6 +26,8 @@
   interface PulseQuota {
     vendor: string;
     plan?: string;
+    /** Credits/balance-only vendor: amount rows only, no bars/reset. */
+    planless?: boolean;
     status: string;
     windows: PulseWindow[];
     critical_pct: number;
@@ -37,9 +39,11 @@
   interface Props {
     quota: PulseQuota;
     cardSide: "left" | "right";
+    /** Follow the app theme (dark card + light text when true). */
+    dark?: boolean;
   }
 
-  const { quota, cardSide }: Props = $props();
+  const { quota, cardSide, dark = false }: Props = $props();
   const nowMs = Date.now();
 
   // First window reporting absolute credits (plan-less vendors).
@@ -49,15 +53,19 @@
     ) ?? null
   );
 
-  // Bar color thresholds on the light card background.
+  // Bar color thresholds, theme-aware.
   function barColor(pct: number): string {
-    if (pct >= 80) return "#cc2200";
-    if (pct >= 50) return "#cc8800";
-    return "#00b36b";
+    if (pct >= 80) return dark ? "#ff4f42" : "#cc2200";
+    if (pct >= 50) return dark ? "#ffc226" : "#cc8800";
+    return dark ? "#00e68a" : "#00b36b";
   }
 </script>
 
-<div class="detail-card" class:card-right={cardSide === "right"}>
+<div
+  class="detail-card"
+  class:card-right={cardSide === "right"}
+  class:dark={dark}
+>
   <!-- Arrow: big triangle protruding from the card's panel-facing edge,
        positioned at --arrow-y (the hovered ring's line). -->
   <div class="card-arrow"></div>
@@ -79,7 +87,7 @@
       {/if}
     </div>
 
-    {#if quota.plan && quota.windows.length > 0}
+    {#if !quota.planless && quota.windows.length > 0}
       <!-- Plan vendors — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
       <div class="window-bars">
         {#each quota.windows as win}
@@ -105,7 +113,7 @@
           </div>
         {/each}
       </div>
-    {:else if !quota.plan}
+    {:else if quota.planless}
       <!-- Credits/balance-only vendors (no plan): just the remaining credits —
            no progress bars, no reset times. -->
       {#if creditsWin}
@@ -143,22 +151,35 @@
 </div>
 
 <style>
-  /* Light, solid tooltip card — no glass/backdrop-filter, no shadows (a
-     dark shadow reads as a translucent black background), no theme variance.
-     All text near-black (#1a1610) at a uniform 9px per user preference. */
+  /* Solid tooltip card — no glass/backdrop-filter, no shadows (a dark
+     shadow reads as a translucent black background). Theme-aware via CSS
+     vars; all text uniform size per user preference. */
   .detail-card {
+    --card-bg: #f7f5f1;
+    --card-text: #1a1610;
+    --card-border: rgba(0, 0, 0, 0.12);
+    --card-track: rgba(0, 0, 0, 0.08);
+    --card-badge: rgba(0, 0, 0, 0.07);
     position: relative;
     min-width: 220px;
     max-width: 270px;
-    background: #f7f5f1;
-    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 10px;
     padding: 10px 12px;
     font-size: 9px;
     line-height: 1.45;
-    color: #1a1610;
+    color: var(--card-text);
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
       -apple-system, sans-serif;
+  }
+
+  .detail-card.dark {
+    --card-bg: #16140f;
+    --card-text: #f2ede3;
+    --card-border: rgba(255, 255, 255, 0.1);
+    --card-track: rgba(255, 255, 255, 0.1);
+    --card-badge: rgba(255, 255, 255, 0.1);
   }
 
   /* ── Arrow: big triangle on the card edge, pointing at the ring ── */
@@ -171,13 +192,13 @@
     height: 0;
     border-top: 9px solid transparent;
     border-bottom: 9px solid transparent;
-    border-right: 9px solid #f7f5f1;
+    border-right: 9px solid var(--card-bg);
   }
   .detail-card.card-right .card-arrow {
     left: auto;
     right: -9px;
     border-right: none;
-    border-left: 9px solid #f7f5f1;
+    border-left: 9px solid var(--card-bg);
   }
 
   .card-body {
@@ -220,7 +241,7 @@
     font-size: 9px;
     padding: 0 4px;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.07);
+    background: var(--card-badge);
     font-weight: 500;
   }
 
@@ -260,7 +281,7 @@
     flex: 1;
     height: 5px;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.08);
+    background: var(--card-track);
     overflow: hidden;
   }
 

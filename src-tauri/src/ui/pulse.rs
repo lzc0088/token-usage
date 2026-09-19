@@ -115,14 +115,17 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     }
 }
 
-/// Load vendor quotas from the quota_cache table, filtered by the config's
-/// `quota_active_vendors` — the SAME rule the main window's quota page
-/// applies, so the pulse dock shows exactly the enabled accounts.
+/// Load vendor quotas from the quota_cache table, filtered AND ordered by
+/// the same rules the main window's quota page (`get_quotas`) applies:
+/// `quota_active_vendors` for visibility, `quota_vendor_order` (falling back
+/// to the active list order) for sorting — the pulse dock mirrors the
+/// limits page exactly.
 fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
+    let cfg = config::load(conn).unwrap_or_default();
     // null = not configured → show all; otherwise only listed vendors.
-    let active: Option<std::collections::HashSet<String>> = config::load(conn)
-        .ok()
-        .and_then(|c| c.quota_active_vendors)
+    let active: Option<std::collections::HashSet<String>> = cfg
+        .quota_active_vendors
+        .clone()
         .map(|v| v.into_iter().collect());
 
     let mut quotas: Vec<PulseQuota> = Vec::new();
@@ -154,9 +157,17 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                     });
                     let second = sorted_windows.get(1);
 
+                    // Plan-less vendor: no subscription expiry, value shows as
+                    // balance/credits (e.g. DeepSeek balance, WorkBuddy credits).
+                    // Subscriptions WITH a balance (e.g. StepFun) keep the ring.
+                    let planless = q.expires_at.is_none()
+                        && (q.balance.is_some()
+                            || q.windows.iter().any(|w| w.total_value.is_some()));
+
                     quotas.push(PulseQuota {
                         vendor: q.vendor.clone(),
                         plan: q.plan_label.clone(),
+                        planless,
                         status: format!("{:?}", q.status).to_lowercase(),
                         windows: q
                             .windows
@@ -190,12 +201,17 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
             }
         }
     }
-    // Sort: most critical first.
-    quotas.sort_by(|a, b| {
-        b.critical_pct
-            .partial_cmp(&a.critical_pct)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Mirror get_quotas: sort by the user's custom vendor order, falling
+    // back to active-vendors order; unknown vendors go last.
+    let order_key = cfg.quota_vendor_order.or(cfg.quota_active_vendors);
+    if let Some(order_ref) = order_key {
+        let order: std::collections::HashMap<&str, usize> = order_ref
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.as_str(), i))
+            .collect();
+        quotas.sort_by_key(|q| order.get(q.vendor.as_str()).copied().unwrap_or(usize::MAX));
+    }
     quotas
 }
 
@@ -486,6 +502,9 @@ pub struct PulseData {
 pub struct PulseQuota {
     pub vendor: String,
     pub plan: Option<String>,
+    /// Credits/balance-only vendor (no plan expiry): the ring shows the
+    /// remaining amount instead of a progress arc + percentage.
+    pub planless: bool,
     pub status: String,
     pub windows: Vec<PulseWindow>,
     pub critical_pct: f64,
@@ -608,5 +627,52 @@ mod tests {
         crate::storage::schema::migrate(&conn).unwrap();
         let _ = crate::config::set_raw(&conn, POS_KEY, "garbage");
         assert!(load_pos(&conn).is_none());
+    }
+
+    #[test]
+    fn load_quotas_mirrors_quota_page_order_and_planless() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::schema::migrate(&conn).unwrap();
+        let cfg = config::Config {
+            quota_active_vendors: Some(vec![
+                "glm".into(),
+                "workbuddy".into(),
+                "deepseek".into(),
+            ]),
+            quota_vendor_order: Some(vec![
+                "workbuddy".into(),
+                "deepseek".into(),
+                "glm".into(),
+            ]),
+            ..Default::default()
+        };
+        crate::config::save(&conn, &cfg).unwrap();
+        let insert = |v: &str, data: &str| {
+            let _ = conn.execute(
+                "INSERT INTO quota_cache (vendor, data, fetched_at) VALUES (?, ?, 1)",
+                rusqlite::params![v, data],
+            );
+        };
+        insert(
+            "glm",
+            r#"{"vendor":"glm","status":"ok","expires_at":"2027-05-17T00:00:00+08:00","windows":[{"label":"5h","used_pct":42.0}]}"#,
+        );
+        insert(
+            "workbuddy",
+            r#"{"vendor":"workbuddy","status":"ok","windows":[{"label":"Credits","used_pct":1.0,"total_value":3460.0,"used_value":35.0}]}"#,
+        );
+        insert(
+            "deepseek",
+            r#"{"vendor":"deepseek","status":"ok","windows":[],"balance":{"amount":19.64,"currency":"CNY"}}"#,
+        );
+        // Not in the active list → filtered out entirely.
+        insert("volcengine", r#"{"vendor":"volcengine","status":"ok","windows":[]}"#);
+
+        let qs = load_quotas(&conn);
+        let vendors: Vec<&str> = qs.iter().map(|q| q.vendor.as_str()).collect();
+        assert_eq!(vendors, vec!["workbuddy", "deepseek", "glm"]);
+        assert!(qs[0].planless, "workbuddy credits-only → planless");
+        assert!(qs[1].planless, "deepseek balance-only → planless");
+        assert!(!qs[2].planless, "glm subscription keeps the ring");
     }
 }
