@@ -20,8 +20,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
 }));
 
+const { hideMock } = vi.hoisted(() => ({ hideMock: vi.fn(async () => {}) }));
+
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ label: "pulse-card" }),
+  getCurrentWindow: () => ({ label: "pulse-card", hide: hideMock }),
   currentMonitor: async () => null,
 }));
 
@@ -73,6 +75,7 @@ async function flush() {
 beforeEach(() => {
   listeners.clear();
   invokeMock.mockClear();
+  hideMock.mockClear();
 });
 
 describe("PulseCardApp", () => {
@@ -119,6 +122,66 @@ describe("PulseCardApp", () => {
     await flush();
 
     expect(target.querySelector(".detail-card")).toBeFalsy();
+  });
+
+  it("fades out and hides its own window on pulse:card-hide", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseCardApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    emit("pulse:card", { vendor: "claude", cardOnLeft: true });
+    await flush();
+    expect(target.querySelector(".card-slot.out")).toBeFalsy();
+
+    emit("pulse:card-hide", undefined);
+    await flush();
+    // Fading: the .out class applies while the content is still mounted.
+    expect(target.querySelector(".card-slot.out")).toBeTruthy();
+
+    await new Promise((r) => setTimeout(r, 170));
+    expect(target.querySelector(".detail-card")).toBeFalsy();
+    expect(hideMock).toHaveBeenCalled();
+  });
+
+  it("a fresh pulse:card cancels a pending hide", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseCardApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    emit("pulse:card", { vendor: "claude", cardOnLeft: true });
+    await flush();
+    emit("pulse:card-hide", undefined);
+    await flush();
+
+    // Re-hover lands before the fade finishes → card stays.
+    emit("pulse:card", { vendor: "codex", cardOnLeft: true });
+    await flush();
+    expect(target.querySelector(".card-slot.out")).toBeFalsy();
+
+    await new Promise((r) => setTimeout(r, 170));
+    expect(target.querySelector(".detail-card")).toBeTruthy();
+    expect(hideMock).not.toHaveBeenCalled();
+  });
+
+  it("reports hover activity so resting the pointer on the card keeps it alive", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseCardApp, { target });
+    invokeMock.mockClear();
+
+    target
+      .querySelector(".pulse-card-root")
+      ?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(invokeMock).toHaveBeenCalledWith("pulse_activity");
+
+    target
+      .querySelector(".pulse-card-root")
+      ?.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(invokeMock).toHaveBeenCalledWith("pulse_idle");
   });
 
   it("keeps the card mounted on pulse:update while open", async () => {

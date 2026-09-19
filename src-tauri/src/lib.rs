@@ -721,6 +721,8 @@ pub fn run() {
             commands::window_cmd::expand_pulse,
             commands::window_cmd::get_pulse_data,
             commands::window_cmd::collapse_pulse,
+            commands::window_cmd::pulse_activity,
+            commands::window_cmd::pulse_idle,
             commands::window_cmd::dismiss_pulse,
             commands::window_cmd::set_pulse_position,
             commands::exchange::get_exchange_rate,

@@ -28,7 +28,7 @@ const RING_LARGE: f64 = 60.0;
 /// separated by RING_GAP, and the panel adds vertical padding + title block.
 const LABEL_H: f64 = 21.0;
 const RING_GAP: f64 = 14.0;
-const TITLE_BLOCK: f64 = 24.0;
+const TITLE_BLOCK: f64 = 27.0;
 
 /// Fixed vertical padding (user-specified: padding-top 30px).
 const PAD_V: f64 = 30.0;
@@ -384,12 +384,58 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let _ = card.show();
 }
 
-/// Hide the detail card window. The ring window is never touched (it no
-/// longer changes size between hover states).
+/// Hover-activity generation: every pointer enter (panel OR card window)
+/// bumps it, cancelling every pending hide scheduled against an older
+/// generation. Atomic because idle/activity arrive from two webviews.
+static CARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Graceful-hide timings: linger before hiding after the last leave, then
+/// the fade window before the hard hide (frontend fades + hides itself;
+/// the Rust-side hide is only the safety net for a dead webview).
+const IDLE_MS: u64 = 180;
+const FADE_MS: u64 = 220;
+
+/// Pointer entered the panel/card window — cancels any pending card hide.
+pub fn pulse_activity() {
+    use std::sync::atomic::Ordering;
+    CARD_GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Pointer left a pulse window — hide the card after IDLE_MS unless new
+/// activity (either window) bumps the generation. Crossing from the panel
+/// to the card passes through the small gap between the two windows; the
+/// idle window covers it.
+pub fn pulse_idle(app: &AppHandle) {
+    schedule_card_hide(app, IDLE_MS);
+}
+
+/// Immediate graceful hide (explicit collapse): fade first, hide after.
 pub fn collapse_pulse(app: &AppHandle) {
-    if let Some(card) = app.get_webview_window("pulse-card") {
+    schedule_card_hide(app, 0);
+}
+
+/// Schedule the graceful hide: after `delay`, emit `pulse:card-hide` (the
+/// card window fades its content out and hides itself), then hard-hide the
+/// window FADE_MS later — unless the generation moved on (re-hover).
+fn schedule_card_hide(app: &AppHandle, delay: u64) {
+    use std::sync::atomic::Ordering;
+    let gen = CARD_GEN.fetch_add(1, Ordering::Relaxed);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+        if CARD_GEN.load(Ordering::Relaxed) != gen + 1 {
+            return; // re-hovered in the meantime — keep the card
+        }
+        let Some(card) = app.get_webview_window("pulse-card") else {
+            return;
+        };
+        let _ = card.emit("pulse:card-hide", ());
+        std::thread::sleep(std::time::Duration::from_millis(FADE_MS));
+        if CARD_GEN.load(Ordering::Relaxed) != gen + 1 {
+            return;
+        }
         let _ = card.hide();
-    }
+    });
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
@@ -603,10 +649,10 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
-        // height = 30*2 + 24 + 235 = 319.
+        // height = 30*2 + 27 (title block) + 235 = 322.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 319.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 322.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);

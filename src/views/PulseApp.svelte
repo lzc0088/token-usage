@@ -50,7 +50,7 @@
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
   const LABEL_H = 21;
   const ITEM_GAP = 14;
-  const TITLE_BLOCK = 24;
+  const TITLE_BLOCK = 27;
   // Fixed vertical padding (user-specified: padding-top 20px).
   const PAD_V = 30;
   // Panel height cap — the ring dock scrolls beyond this.
@@ -169,46 +169,27 @@
   // Initial flush detection.
   updateFlushSide();
 
-  // ── Hover → card window + fast-sweep protection ────────────────────────
+  // ── Hover → card window ────────────────────────────────────────────────
   // Ring hover asks Rust to position + show the CARD window (this window
-  // never resizes). Leaving hides it after a linger so sweeping across the
-  // title strip between rings doesn't flicker it off/on; a ring that was
-  // touched for only a few milliseconds is a fast sweep — hide at once so
-  // the card never flashes.
-  const LINGER_MS = 120;
-  const SWEEP_MS = 80;
-  let collapseTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastRingEnterAt = 0;
-
-  function cancelPendingCollapse() {
-    if (collapseTimer !== undefined) {
-      clearTimeout(collapseTimer);
-      collapseTimer = undefined;
-    }
+  // never resizes). Hide timing lives on the Rust side as a generation-
+  // guarded idle timer fed by BOTH windows (panel + card) — moving the
+  // pointer onto the card to read it keeps it alive; leaving both hides
+  // it gracefully after a linger.
+  function onPanelEnter() {
+    invoke("pulse_activity").catch(() => {});
   }
 
-  function onWrapperEnter() {
-    // No pre-warm needed — nothing about this window changes on hover.
-    cancelPendingCollapse();
+  function onPanelLeave() {
+    invoke("pulse_idle").catch(() => {});
   }
 
   function onRingEnter(vendor: string) {
-    cancelPendingCollapse();
-    lastRingEnterAt = Date.now();
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
 
   function onRingLeave() {
-    // Intentionally no-op: the wrapper's mouseleave drives the collapse,
-    // so moving between adjacent rings never flickers the card.
-  }
-
-  function onWrapperLeave() {
-    const delay = Date.now() - lastRingEnterAt < SWEEP_MS ? 0 : LINGER_MS;
-    collapseTimer = setTimeout(() => {
-      collapseTimer = undefined;
-      invoke("collapse_pulse").catch(() => {});
-    }, delay);
+    // Intentionally no-op: the panel's mouseleave drives the idle; moving
+    // between adjacent rings never flickers the card.
   }
 
   // Panel-level title explaining the percentage mode.
@@ -246,6 +227,9 @@
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px"
+  role="presentation"
+  onmouseenter={onPanelEnter}
+  onmouseleave={onPanelLeave}
 >
   <!-- Visual surface: bg + blur + radius. -->
   <div class="panel-surface" aria-hidden="true"></div>
@@ -254,12 +238,7 @@
   <div class="panel-title">{panelTitle}</div>
 
   <!-- Ring rail -->
-  <div
-    class="rail-with-tooltip"
-    onmouseenter={onWrapperEnter}
-    onmouseleave={onWrapperLeave}
-    role="group"
-  >
+  <div class="rail-with-tooltip" role="group">
     <div class="ring-dock" style="max-height: {dockMax}px">
       {#each data.quotas as quota (quota.vendor)}
         <QuotaRing
@@ -420,6 +399,10 @@
   /* ── Panel title ────────────────────────────────────────────────────── */
 
   .panel-title {
+    /* Pinned so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 30 + 27) arrow
+       math matches the rendered layout exactly. */
+    height: 15px;
+    line-height: 15px;
     font-size: 10px;
     font-weight: 500;
     color: var(--pulse-text);

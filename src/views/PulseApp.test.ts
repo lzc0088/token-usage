@@ -73,10 +73,10 @@ function emit(name: string, payload: unknown) {
   listeners.get(name)?.({ payload });
 }
 
-/** Simulate the pointer entering/leaving the ring rail. */
-function fireRail(target: HTMLElement, type: "mouseenter" | "mouseleave") {
+/** Simulate the pointer entering/leaving the panel root. */
+function firePanel(target: HTMLElement, type: "mouseenter" | "mouseleave") {
   target
-    .querySelector(".rail-with-tooltip")
+    .querySelector(".pulse-panel")
     ?.dispatchEvent(new MouseEvent(type));
 }
 
@@ -113,56 +113,35 @@ describe("PulseApp", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
   });
 
-  it("hovers a ring → invokes expand_pulse with the vendor", async () => {
+  it("hovers a ring → invokes pulse_activity + expand_pulse with the vendor", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
     mount(PulseApp, { target });
 
     emit("pulse:update", SAMPLE);
     await flush();
-    fireRail(target, "mouseenter");
+    firePanel(target, "mouseenter");
     enterRing(target, 1);
 
+    expect(invokeMock).toHaveBeenCalledWith("pulse_activity");
     expect(invokeMock).toHaveBeenCalledWith("expand_pulse", { vendor: "codex" });
     // This window never mounts a card itself — the card lives in its own
     // window shown by Rust.
     expect(target.querySelector(".detail-tooltip")).toBeFalsy();
   });
 
-  it("leaves the panel after a real hover → collapses after the linger", async () => {
+  it("leaves the panel → invokes pulse_idle (Rust drives the graceful hide)", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
     mount(PulseApp, { target });
 
     emit("pulse:update", SAMPLE);
     await flush();
-    fireRail(target, "mouseenter");
+    firePanel(target, "mouseenter");
     enterRing(target, 0);
-    await new Promise((r) => setTimeout(r, 100)); // hover a moment
-    fireRail(target, "mouseleave");
+    firePanel(target, "mouseleave");
 
-    // Inside the linger window: no collapse yet (re-entry cancels).
-    await new Promise((r) => setTimeout(r, 60));
-    expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
-
-    await new Promise((r) => setTimeout(r, 80));
-    expect(invokeMock).toHaveBeenCalledWith("collapse_pulse");
-  });
-
-  it("fast sweep over a ring → collapses immediately (no card flash)", async () => {
-    const target = document.createElement("div");
-    document.body.appendChild(target);
-    mount(PulseApp, { target });
-
-    emit("pulse:update", SAMPLE);
-    await flush();
-    fireRail(target, "mouseenter");
-    enterRing(target, 0);
-    fireRail(target, "mouseleave");
-
-    // delay 0 — collapse fires on the next macrotask, not after the linger.
-    await flush();
-    expect(invokeMock).toHaveBeenCalledWith("collapse_pulse");
+    expect(invokeMock).toHaveBeenCalledWith("pulse_idle");
   });
 
   it("flush surface rounds the interior side and stays flat on the fused edge", async () => {
@@ -176,8 +155,8 @@ describe("PulseApp", () => {
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
     expect(panel?.classList.contains("flush-right")).toBe(true);
     expect(target.querySelector(".panel-surface")).toBeTruthy();
-    // Height mirrors the Rust formula: 2×PAD_V(30) + TITLE(24) + dock.
-    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 236px.
-    expect(panel?.style.height).toBe("236px");
+    // Height mirrors the Rust formula: 2×PAD_V(30) + TITLE(27) + dock.
+    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 239px.
+    expect(panel?.style.height).toBe("239px");
   });
 });

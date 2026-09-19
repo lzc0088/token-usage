@@ -1,6 +1,7 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import DetailCard from "../components/pulse/DetailCard.svelte";
   import type { PulseCardPayload, PulseData } from "../lib/pulse-types";
 
@@ -12,6 +13,12 @@
 
   // Fixed window size — mirrors CARD_WIN_W/H in ui/pulse.rs.
   const CARD_WIN_H = 480;
+  // Fallback card height until bind:clientHeight lands — WKWebView's
+  // ResizeObserver is unreliable (known), and without a fallback the card
+  // would sit at the window's midline with the arrow stuck at its top.
+  const EST_CARD_H = 250;
+  // Frontend fade timings — must stay under Rust's FADE_MS safety window.
+  const FADE_OUT_MS = 150;
 
   let data = $state<PulseData>({
     quotas: [],
@@ -20,8 +27,16 @@
     theme: "dark",
   });
   let card = $state<PulseCardPayload | null>(null);
+  let hiding = $state(false);
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
   listen<PulseCardPayload>("pulse:card", (e) => {
+    // A fresh card event cancels any pending hide (re-hover in flight).
+    if (hideTimer !== undefined) {
+      clearTimeout(hideTimer);
+      hideTimer = undefined;
+    }
+    hiding = false;
     card = e.payload;
     // Theme/opacity ride the payload (fresher than a full data pull).
     if (e.payload?.theme) {
@@ -30,6 +45,21 @@
     if (e.payload?.opacity != null) {
       data = { ...data, opacity: e.payload.opacity };
     }
+  });
+
+  // Rust asks for a graceful hide (pointer left both pulse windows): fade
+  // out, then unmount and hide this window ourselves — Rust's scheduled
+  // hard-hide is only the safety net for a dead webview.
+  listen("pulse:card-hide", () => {
+    if (!card) return;
+    hiding = true;
+    if (hideTimer !== undefined) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = undefined;
+      hiding = false;
+      card = null;
+      getCurrentWindow().hide().catch(() => {});
+    }, FADE_OUT_MS);
   });
 
   // Live usage / theme updates while the card happens to be open.
@@ -52,17 +82,39 @@
   );
 
   // Card measurement — center it so its arrow sits on the window's
-  // vertical midline (which Rust aligned with the hovered ring).
+  // vertical midline (which Rust aligned with the hovered ring). The
+  // estimate keeps the placement sane even when ResizeObserver never
+  // fires (known WKWebView flakiness); the real height refines it.
   let cardH = $state(0);
-  let cardTop = $derived(Math.max(0, (CARD_WIN_H - cardH) / 2));
+  let cardTop = $derived(Math.max(0, (CARD_WIN_H - (cardH || EST_CARD_H)) / 2));
   // Arrow line inside the card: the window's midline, translated into the
   // card's own coordinates.
   let arrowY = $derived(Math.max(12, CARD_WIN_H / 2 - cardTop));
+
+  // This window is part of the hover area — the pointer resting on the
+  // card (reading it) must keep it alive.
+  function onCardEnter() {
+    invoke("pulse_activity").catch(() => {});
+  }
+  function onCardLeave() {
+    invoke("pulse_idle").catch(() => {});
+  }
 </script>
 
-<div class="pulse-card-root" class:dark={data.theme === "dark"}>
+<div
+  class="pulse-card-root"
+  class:dark={data.theme === "dark"}
+  role="presentation"
+  onmouseenter={onCardEnter}
+  onmouseleave={onCardLeave}
+>
   {#if quota}
-    <div class="card-slot" style="top: {cardTop}px" bind:clientHeight={cardH}>
+    <div
+      class="card-slot"
+      class:out={hiding}
+      style="top: {cardTop}px"
+      bind:clientHeight={cardH}
+    >
       <DetailCard
         quota={quota}
         cardSide={card?.cardOnLeft ? "right" : "left"}
@@ -95,12 +147,40 @@
   }
 
   /* The card centers horizontally; the inline `top` centers it vertically
-     once the measured height arrives (the window never resizes). */
+     (the window never resizes). Show/hide animate the CONTENT — the
+     window itself toggles invisibly. */
   .card-slot {
     position: absolute;
     left: 0;
     right: 0;
     display: flex;
     justify-content: center;
+    animation: cardIn 0.16s ease-out;
+  }
+
+  .card-slot.out {
+    animation: cardOut 0.15s ease-in forwards;
+  }
+
+  @keyframes cardIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes cardOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(2px);
+    }
   }
 </style>

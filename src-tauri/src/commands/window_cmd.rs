@@ -421,6 +421,20 @@ pub fn collapse_pulse(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Pointer entered a pulse window (panel or card) — cancels pending hides.
+#[tauri::command]
+pub fn pulse_activity() -> Result<(), String> {
+    crate::ui::pulse::pulse_activity();
+    Ok(())
+}
+
+/// Pointer left a pulse window — graceful card hide after the idle linger.
+#[tauri::command]
+pub fn pulse_idle(app: AppHandle) -> Result<(), String> {
+    crate::ui::pulse::pulse_idle(&app);
+    Ok(())
+}
+
 /// Dismiss (disable) the pulse panel: hide it and set `pulse_enabled = false`
 /// in config so it stays hidden until the user re-enables it in settings.
 #[tauri::command]
