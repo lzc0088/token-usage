@@ -112,13 +112,15 @@
   <!-- Card body -->
   <div class="card-content">
     <div class="card-header">
-      <span class="vendor-icon" aria-hidden="true">{@html iconMarkup}</span>
-      <span class="vendor-name">{displayName}</span>
-      {#if quota.plan}
-        <span class="plan-badge">{quota.plan}</span>
-      {/if}
+      <div class="header-line">
+        <span class="vendor-icon" aria-hidden="true">{@html iconMarkup}</span>
+        <span class="vendor-name">{displayName}</span>
+        {#if quota.plan}
+          <span class="plan-badge">{quota.plan}</span>
+        {/if}
+      </div>
       {#if quota.expires_at && formatShortExpiry(quota.expires_at)}
-        <span class="plan-badge expiry">到期 {formatShortExpiry(quota.expires_at)}</span>
+        <div class="expiry-line">到期 {formatShortExpiry(quota.expires_at)}</div>
       {/if}
     </div>
 
@@ -187,8 +189,8 @@
     display: flex;
     background: var(--pulse-card-bg);
     border-radius: 14px;
-    min-width: 200px;
-    max-width: 236px;
+    min-width: 220px;
+    max-width: 260px;
     animation: cardIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: var(--pulse-text);
     backdrop-filter: blur(16px) saturate(180%);
@@ -241,9 +243,22 @@
 
   .card-header {
     display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 0;
+  }
+
+  /* Plan name and expiry live on separate lines so neither ever wraps. */
+  .header-line {
+    display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 0;
+  }
+
+  .expiry-line {
+    font-size: 9px;
+    color: var(--pulse-text-dim);
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
   }
 
   .vendor-icon {
@@ -275,10 +290,6 @@
     color: var(--pulse-text-dim);
     font-weight: 500;
     letter-spacing: 0.01em;
-  }
-
-  .plan-badge.expiry {
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
   }
 
   .window-list {

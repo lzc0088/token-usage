@@ -24,19 +24,15 @@ const RING_LARGE: f64 = 60.0;
 /// Vertical layout metrics (logical px) — mirror the CSS in PulseApp.svelte:
 /// each ring item is `diameter + LABEL_H` tall (ring + pct label), items are
 /// separated by RING_GAP, and the panel adds vertical padding + title block.
-const LABEL_H: f64 = 13.0;
-const RING_GAP: f64 = 8.0;
+const LABEL_H: f64 = 21.0;
+const RING_GAP: f64 = 14.0;
 const TITLE_BLOCK: f64 = 24.0;
-const PAD_V_MIN: f64 = 14.0;
 
-/// Swoop amplitude (flush silhouette): fraction of the content height,
-/// clamped. Harmonious proportions: the inner corner is carved ~1/4 of the
-/// panel height and the boundary sweeps up smoothly (soft fillet → steady
-/// lift → flat arrival at the fused edge), deep enough to read as a leaf
-/// cap without crowding the content.
-const SWOOP_FRAC: f64 = 0.30;
-const SWOOP_MIN: f64 = 36.0;
-const SWOOP_MAX: f64 = 110.0;
+/// Fixed vertical padding (user-specified: padding-top 20px).
+const PAD_V: f64 = 20.0;
+
+/// Where the ring rail starts inside the window (pad + title block).
+const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
 
 /// Panel height cap (logical px) — beyond this the ring dock scrolls.
 const MAX_PANEL_H: f64 = 520.0;
@@ -46,11 +42,11 @@ const MAX_PANEL_H: f64 = 520.0;
 const PANEL_PAD: f64 = 16.0;
 
 /// Gap between the ring rail and the detail card (logical px) — matches the
-/// CSS tooltip offset (10px clear of the panel's inner edge + 18px pad).
-const CARD_SPACING: f64 = 28.0;
+/// CSS tooltip offset (30px clear of the panel's inner edge + 18px pad).
+const CARD_SPACING: f64 = 48.0;
 
-/// Detail card width (logical px) — CSS max-width 236 + pointer overhang.
-const CARD_WIDTH: f64 = 240.0;
+/// Detail card width (logical px) — CSS max-width 260 + pointer overhang.
+const CARD_WIDTH: f64 = 268.0;
 
 /// Max half-height of the detail card (header + 3 rows + balance). The card
 /// is CENTERED on the hovered ring, so the window is lifted / extended by
@@ -215,37 +211,20 @@ fn dock_height(d: f64, n: usize) -> f64 {
     n * (d + LABEL_H) + (n - 1.0) * RING_GAP
 }
 
-/// Inverted-S swoop amplitude for the flush silhouette (logical px).
-fn swoop_c(d: f64, n: usize) -> f64 {
-    ((TITLE_BLOCK + dock_height(d, n)) * SWOOP_FRAC).clamp(SWOOP_MIN, SWOOP_MAX)
-}
-
-/// Vertical padding — clears the swoop curve at the content's x-extent
-/// (the boundary still sits ~68% of the amplitude at the title's left edge).
-fn pad_v(d: f64, n: usize) -> f64 {
-    (swoop_c(d, n) * 0.68).ceil().max(PAD_V_MIN)
-}
-
-/// Where the ring rail starts inside the window (pad + title block).
-fn rail_top(d: f64, n: usize) -> f64 {
-    pad_v(d, n) + TITLE_BLOCK
-}
-
 /// Dock height for n rings, capped so the panel never exceeds MAX_PANEL_H —
 /// the CSS dock scrolls when the natural height overflows.
 fn dock_height_capped(d: f64, n: usize) -> f64 {
-    let avail = (MAX_PANEL_H - pad_v(d, n) * 2.0 - TITLE_BLOCK).max(60.0);
+    let avail = (MAX_PANEL_H - PAD_V * 2.0 - TITLE_BLOCK).max(60.0);
     dock_height(d, n).min(avail)
 }
 
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
-/// vertical padding (swoop clearance) + title block + capped dock height.
+/// vertical padding + title block + capped dock height.
 fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
     let d = ring_diameter(&cfg.pulse_size);
-    let n = ring_count.max(1);
     (
         d + PANEL_PAD * 2.0,
-        pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height_capped(d, n),
+        PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, ring_count),
     )
 }
 
@@ -277,8 +256,8 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         .map(|v| load_quota_index(app, v))
         .unwrap_or(0);
     let ring_center = idx as f64 * pitch + d / 2.0;
-    let lift_want = (CARD_HALF_H + 8.0 - (rail_top(d, ring_count) + ring_center)).max(0.0);
-    let bottom_want = (CARD_HALF_H + 8.0 - (h_c - rail_top(d, ring_count) - ring_center)).max(0.0);
+    let lift_want = (CARD_HALF_H + 8.0 - (RAIL_TOP + ring_center)).max(0.0);
+    let bottom_want = (CARD_HALF_H + 8.0 - (h_c - RAIL_TOP - ring_center)).max(0.0);
 
     let mut grow_left = false;
     let mut lift = lift_want;
@@ -586,18 +565,17 @@ mod tests {
         for n in [1usize, 3, 5] {
             let (w, h) = collapsed_size(&cfg, n);
             assert_eq!(w, d + PANEL_PAD * 2.0);
-            let expect_h = pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height(d, n);
+            let expect_h = PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, n);
             assert!(
                 (h - expect_h).abs() < f64::EPSILON,
                 "n={n}: {h} != {expect_h}"
             );
         }
-        // Concrete anchor (medium rings, n=3): dock = 3*61 + 2*8 = 199,
-        // swoop = clamp(223 * 0.30) ≈ 66.9 → pad = ceil(45.5) = 46,
-        // height = 46*2 + 24 + 199 = 315.
+        // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
+        // height = 20*2 + 24 + 235 = 299.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 315.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 299.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
@@ -615,18 +593,6 @@ mod tests {
         );
         let (_, h3) = collapsed_size(&cfg, 3);
         assert!(h3 < MAX_PANEL_H, "3 rings stay under the cap");
-    }
-
-    #[test]
-    fn swoop_grows_with_dock_and_stays_clamped() {
-        let c1 = swoop_c(RING_MEDIUM, 1);
-        let c3 = swoop_c(RING_MEDIUM, 3);
-        let c9 = swoop_c(RING_MEDIUM, 9);
-        assert!(c1 >= SWOOP_MIN, "single ring keeps the minimum swoop");
-        assert!(c3 > c1, "more rings → deeper swoop");
-        assert!(c9 <= SWOOP_MAX, "swoop clamped at the maximum");
-        // Padding always clears a fixed fraction of the swoop.
-        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.68);
     }
 
     #[test]

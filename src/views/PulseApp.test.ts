@@ -134,7 +134,7 @@ describe("PulseApp", () => {
     expect(target.querySelector(".detail-tooltip")).toBeFalsy();
   });
 
-  it("flush swoop carves the inner corner low and rises flat to the edge", async () => {
+  it("flush surface rounds the interior side and stays flat on the fused edge", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
     mount(PulseApp, { target });
@@ -142,32 +142,11 @@ describe("PulseApp", () => {
     emit("pulse:update", SAMPLE);
     await flush();
 
-    const style =
-      target.querySelector<HTMLElement>(".panel-surface")?.getAttribute("style") ?? "";
-    expect(style).toContain("clip-path");
-    // path("M 0 c C c1x c1y c2x c2y W 0 L W H C ...") — parse the TOP cap.
-    const m = style.match(
-      /M 0 ([\d.]+) C ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) 0/
-    );
-    expect(m).toBeTruthy();
-    const [c, c1x, c1y, c2x, c2y, w] = m!.slice(1).map(Number);
-
-    // Leaf cap: inner corner carved deep, soft fillet (c1y just under c),
-    // early lift (c2y small, c2x past mid-width), flat arrival at the edge.
-    expect(c).toBeGreaterThan(36);
-    expect(c1y).toBeLessThan(c);
-    expect(c1x).toBeLessThan(w * 0.2);
-    expect(c2y).toBeLessThan(c * 0.2);
-    expect(c2x).toBeGreaterThan(w * 0.5);
-
-    // Sample the cubic: the top cap must rise monotonically toward the edge.
-    const bez = (t: number) =>
-      (1 - t) ** 3 * c + 3 * (1 - t) ** 2 * t * c1y + 3 * (1 - t) * t * t * c2y;
-    let prev = c;
-    for (let i = 1; i <= 10; i++) {
-      const y = bez(i / 10);
-      expect(y).toBeLessThanOrEqual(prev + 0.001);
-      prev = y;
-    }
+    const panel = target.querySelector<HTMLElement>(".pulse-panel");
+    expect(panel?.classList.contains("flush-right")).toBe(true);
+    expect(target.querySelector(".panel-surface")).toBeTruthy();
+    // Height mirrors the Rust formula: 2×PAD_V(20) + TITLE(24) + dock.
+    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 216px.
+    expect(panel?.style.height).toBe("216px");
   });
 });

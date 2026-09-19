@@ -268,16 +268,17 @@
     display: block;
   }
 
-  /* Percentage under the ring — a fixed 13px block (11px line + 2px margin)
-     so the panel height math (Rust LABEL_H = 13) stays in sync. */
+  /* Percentage under the ring — fixed 21px block (11px line + 10px margin)
+     so the panel height math (Rust LABEL_H = 21) stays in sync. Solid text
+     color (near-black on light theme) per user preference. */
   .pct-label {
-    margin-top: 2px;
+    margin-top: 10px;
     height: 11px;
     line-height: 11px;
-    font-size: 9px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    color: var(--pulse-text-dim);
+    color: var(--pulse-text);
     letter-spacing: -0.03em;
     pointer-events: none;
     -webkit-user-select: none;

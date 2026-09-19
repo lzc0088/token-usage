@@ -105,14 +105,11 @@
 
   // ── Layout constants (mirror Rust pulse.rs) ────────────────────────────
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
-  const LABEL_H = 13;
-  const ITEM_GAP = 8;
+  const LABEL_H = 21;
+  const ITEM_GAP = 14;
   const TITLE_BLOCK = 24;
-  const PAD_V_MIN = 14;
-  // Swoop amplitude: fraction of the content height, clamped.
-  const SWOOP_FRAC = 0.30;
-  const SWOOP_MIN = 36;
-  const SWOOP_MAX = 110;
+  // Fixed vertical padding (user-specified: padding-top 20px).
+  const PAD_V = 20;
   // Panel height cap — the ring dock scrolls beyond this.
   const MAX_PANEL_H = 520;
   const PAD_FLUSH_INNER = 18;
@@ -123,16 +120,10 @@
   let dockNatural = $derived(
     ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
   );
-  let contentH = $derived(TITLE_BLOCK + dockNatural);
-  let swoopC = $derived(
-    Math.min(Math.max(contentH * SWOOP_FRAC, SWOOP_MIN), SWOOP_MAX)
-  );
-  // Vertical padding clears the swoop curve at the content's x-extent.
-  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.68)));
   // Dock height capped by MAX_PANEL_H (scrolls when overflow).
-  let dockMax = $derived(Math.max(60, MAX_PANEL_H - padV * 2 - TITLE_BLOCK));
+  let dockMax = $derived(Math.max(60, MAX_PANEL_H - PAD_V * 2 - TITLE_BLOCK));
   let dockH = $derived(Math.min(dockNatural, dockMax));
-  let panelH = $derived(padV * 2 + TITLE_BLOCK + dockH);
+  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK + dockH);
 
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
@@ -143,24 +134,6 @@
       : PAD_FLOAT * 2
   );
   let panelW = $derived(data.ring_diameter + padH);
-
-  // Flush silhouette: a harmonious leaf cap — the inner corner is carved
-  // ~1/4 of the panel height, and one smooth sweep lifts steadily from the
-  // soft corner fillet to a flat arrival at the fused screen edge (which
-  // stays full height). Both caps mirror; floating → rounded pill.
-  let surfaceStyle = $derived.by(() => {
-    const w = panelW;
-    const h = Math.max(panelH, SWOOP_MIN);
-    const c = Math.min(swoopC, h / 2.5);
-    const f = (v: number) => v.toFixed(1);
-    if (flushSide === "right") {
-      return `clip-path: path("M 0 ${f(c)} C ${f(w * 0.12)} ${f(c * 0.9)} ${f(w * 0.58)} ${f(c * 0.14)} ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.58)} ${f(h)} ${f(w * 0.12)} ${f(h - c * 0.9)} 0 ${f(h - c)} Z")`;
-    }
-    if (flushSide === "left") {
-      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w * 0.88)} ${f(c * 0.9)} ${f(w * 0.42)} ${f(c * 0.14)} 0 0 L 0 ${f(h)} C ${f(w * 0.42)} ${f(h)} ${f(w * 0.88)} ${f(h - c * 0.9)} ${f(w)} ${f(h - c)} Z")`;
-    }
-    return "";
-  });
 
   // ── Drag + berth fusion ─────────────────────────────────────────────
   // The panel is dragged with the native titlebar-style drag (startDragging),
@@ -296,9 +269,9 @@
   class:card-left={expandCardLeft}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px; margin-top: {expandLift}px"
 >
-  <!-- Shaped surface: bg + blur + swoop clip. Kept on its own layer so the
-       tooltip card can overflow the (clipped) panel body. -->
-  <div class="panel-surface" style={surfaceStyle} aria-hidden="true"></div>
+  <!-- Visual surface: bg + blur + radius. Its own layer so the tooltip
+       card can overflow the panel body. -->
+  <div class="panel-surface" aria-hidden="true"></div>
 
   <!-- Panel title (mode indicator) -->
   <div class="panel-title">{panelTitle}</div>
@@ -408,11 +381,16 @@
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     pointer-events: none;
+    transition: border-radius 0.3s ease;
   }
 
-  .pulse-panel.flush-right .panel-surface,
+  /* Fused berths: rounded on the screen-interior side, flat on the edge. */
+  .pulse-panel.flush-right .panel-surface {
+    border-radius: 20px 0 0 20px;
+  }
+
   .pulse-panel.flush-left .panel-surface {
-    border-radius: 0; /* clip-path draws the swoop instead */
+    border-radius: 0 20px 20px 0;
   }
 
   /* Content rides above the surface layer. */
@@ -427,7 +405,7 @@
   .vertical {
     flex-direction: column;
     align-items: center;
-    padding: 14px 16px;
+    padding: 20px 16px;
     gap: 8px;
   }
 
@@ -435,13 +413,13 @@
      biased toward the edge (smaller padding on the fused side). The window
      keeps a few px of slack, so right-fusing also right-anchors the panel. */
   .pulse-panel.flush-right {
-    padding: 14px 10px 14px 18px;
+    padding: 20px 10px 20px 18px;
     margin-left: auto;
     margin-right: -1px;
   }
 
   .pulse-panel.flush-left {
-    padding: 14px 18px 14px 10px;
+    padding: 20px 18px 20px 10px;
     margin-left: -1px;
   }
 
@@ -461,7 +439,8 @@
   .ring-dock {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 14px;
     /* Scroll when the vendor count would exceed the panel height cap. */
     overflow-y: auto;
     scrollbar-width: thin;
@@ -501,12 +480,12 @@
   }
 
   /* Card is CENTERED on the hovered ring (pointer beak at its vertical
-     middle), kept 10px clear of the panel's INNER edge (= pad_inner 18 +
-     10 = 28px from the ring rail). Rust guarantees the room: the window top
+     middle), kept 30px clear of the panel's INNER edge (= pad_inner 18 +
+     30 = 48px from the ring rail). Rust guarantees the room: the window top
      is lifted and the height extended (payload.lift) so no CSS clamping is
      needed — the card never offsets away from the ring. */
   .vertical .detail-tooltip {
-    left: calc(var(--ring-size) + 28px);
+    left: calc(var(--ring-size) + 48px);
     top: calc(
       var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
       var(--ring-size) / 2
@@ -518,7 +497,7 @@
      to the LEFT of the rings, into the screen interior. */
   .vertical.card-left .detail-tooltip {
     left: auto;
-    right: calc(var(--ring-size) + 28px);
+    right: calc(var(--ring-size) + 48px);
   }
 
   @keyframes tooltipIn {
