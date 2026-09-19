@@ -3,6 +3,7 @@ import {
   windowLabel,
   formatRefreshed,
   formatShortExpiry,
+  formatExpiryTime,
   nearestExpiry,
   formatExpiry,
   expiryUrgency,
@@ -52,6 +53,18 @@ describe("formatShortExpiry", () => {
   });
   it("returns empty for invalid input", () => {
     expect(formatShortExpiry("")).toBe("");
+  });
+});
+
+describe("formatExpiryTime", () => {
+  it("formats ISO date to YYYY-MM-DD HH:mm", () => {
+    expect(formatExpiryTime("2026-12-31T08:05:00Z")).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/
+    );
+  });
+  it("returns empty for invalid input", () => {
+    expect(formatExpiryTime("")).toBe("");
+    expect(formatExpiryTime("not-a-date")).toBe("");
   });
 });
 

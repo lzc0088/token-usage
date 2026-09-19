@@ -112,9 +112,8 @@ describe("PulseApp", () => {
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
     expect(panel?.style.marginTop).toBe("120px");
     expect(panel?.classList.contains("card-left")).toBe(true);
-    expect(target.querySelector(".card-pointer")?.getAttribute("class")).toContain(
-      "flip"
-    );
+    // card-right on the parent flips the pointer via CSS scaleX(-1)
+    expect(target.querySelector(".detail-card")?.classList.contains("card-right")).toBe(true);
   });
 
   it("clears expansion on pulse:collapse", async () => {
@@ -145,8 +144,8 @@ describe("PulseApp", () => {
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
     expect(panel?.classList.contains("flush-right")).toBe(true);
     expect(target.querySelector(".panel-surface")).toBeTruthy();
-    // Height mirrors the Rust formula: 2×PAD_V(20) + TITLE(24) + dock.
-    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 216px.
-    expect(panel?.style.height).toBe("216px");
+    // Height mirrors the Rust formula: 2×PAD_V(30) + TITLE(24) + dock.
+    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 236px.
+    expect(panel?.style.height).toBe("236px");
   });
 });

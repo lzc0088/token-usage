@@ -1,6 +1,11 @@
 <script lang="ts">
-  import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
-  import { fmtCredits, formatShortExpiry } from "../../lib/quota-format";
+  import {
+    windowLabel,
+    fmtCredits,
+    formatExpiryTime,
+    splitBalance,
+  } from "../../lib/quota-format";
+  import { vendorIconMarkup, vendorDisplayName } from "../../lib/vendorIcons";
 
   interface PulseWindow {
     label: string;
@@ -25,160 +30,120 @@
     critical_pct: number;
     critical_label: string;
     balance?: PulseBalance;
-    /** Subscription plan expiry (RFC3339). */
     expires_at?: string;
   }
 
   interface Props {
     quota: PulseQuota;
-    cardSide?: "left" | "right";
+    cardSide: "left" | "right";
   }
 
-  let { quota, cardSide = "left" }: Props = $props();
+  const { quota, cardSide }: Props = $props();
+</script>
 
-  let displayName = $derived(vendorDisplayName(quota.vendor));
-  // Real brand SVG from the app's shared icon set (currentColor fill).
-  let iconMarkup = $derived(vendorIconMarkup(quota.vendor));
+<div class="detail-card" class:card-right={cardSide === "right"}>
+  <!-- Pointer beak: circle-arrow, 2px gap from panel edge (16px + 2px) -->
+  <div class="card-pointer">
+    <svg
+      viewBox="0 0 14 14"
+      width="14"
+      height="14"
+      fill="var(--pulse-card-bg, #0c0c0c)"
+      stroke="none"
+    >
+      <circle cx="7" cy="7" r="7" />
+      <path
+        d="M6 4.5l3 2.5-3 2.5"
+        fill="none"
+        stroke="var(--pulse-text-dim, #8a857b)"
+        stroke-width="1.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </div>
 
-  function barColor(pct: number): string {
-    if (pct >= 80) return "var(--pulse-warning)";
-    if (pct >= 50) return "var(--pulse-caution)";
-    return "var(--pulse-good)";
-  }
-
-  // Format relative reset time.
-  function relativeReset(iso?: string): string | null {
-    if (!iso) return null;
-    try {
-      const reset = new Date(iso);
-      const now = new Date();
-      const diff = reset.getTime() - now.getTime();
-      if (diff <= 0) return "Resets now";
-      const hours = Math.floor(diff / 3_600_000);
-      const mins = Math.floor((diff % 3_600_000) / 60_000);
-      const days = Math.floor(hours / 24);
-      if (days > 0) return `Resets in ${days}d ${hours % 24}h`;
-      if (hours > 0) return `Resets in ${hours}h${mins > 0 ? " " + mins + "m" : ""}`;
-      return `Resets in ${mins}m`;
-    } catch {
-      return null;
-    }
-  }
-
-  // Currency symbol for spend amounts (DeepSeek etc.).
-  function currencySymbol(cur: string): string {
-    if (/usd/i.test(cur)) return "$";
-    if (/cny|rmb/i.test(cur)) return "¥";
-    return cur ? `${cur} ` : "";
-  }
-
-  // Split label into quota type + model name subtitle.
-  function splitLabel(raw: string): { type: string; subtitle: string } {
-    const idx = raw.indexOf("·");
-    if (idx >= 0) {
-      return {
-        type: raw.slice(0, idx).trim(),
-        subtitle: raw.slice(idx + 1).trim(),
-      };
-    }
-    // Fallback: try " - " separator
-    const dash = raw.indexOf(" - ");
-    if (dash >= 0) {
-      return {
-        type: raw.slice(0, dash).trim(),
-        subtitle: raw.slice(dash + 3).trim(),
-      };
-    }
-    return { type: raw, subtitle: "" };
-  }
-
-  </script>
-
-<div class="detail-card">
-  <!-- Pointer shape (curved tail pointing toward the ring) -->
-  <svg
-    class="card-pointer"
-    viewBox="0 0 20 40"
-    preserveAspectRatio="none"
-    aria-hidden="true"
-    class:flip={cardSide === "right"}
-  >
-    <path
-      d="M 20,0 C 14,10 6,15 0,20 C 6,25 14,30 20,40 Z"
-      fill="var(--pulse-card-bg)"
-    />
-  </svg>
-
-  <!-- Card body -->
-  <div class="card-content">
+  <div class="card-body">
+    <!-- Header: icon + vendor + plan badge  ……  到期时间 (right-aligned) -->
     <div class="card-header">
       <div class="header-line">
-        <span class="vendor-icon" aria-hidden="true">{@html iconMarkup}</span>
-        <span class="vendor-name">{displayName}</span>
+        <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
+        <span class="vendor-name">{vendorDisplayName(quota.vendor)}</span>
         {#if quota.plan}
           <span class="plan-badge">{quota.plan}</span>
         {/if}
       </div>
-      {#if quota.expires_at && formatShortExpiry(quota.expires_at)}
-        <div class="expiry-line">到期 {formatShortExpiry(quota.expires_at)}</div>
+      {#if quota.expires_at}
+        <div class="expiry-line">
+          <span class="expiry-label">到期</span>
+          <span class="expiry-time">{formatExpiryTime(quota.expires_at)}</span>
+        </div>
       {/if}
     </div>
 
-    <div class="window-list">
-      {#each quota.windows as win (win.label)}
-        {@const { type: winType, subtitle } = splitLabel(win.label)}
-        <div class="window-row">
-          <div class="window-top">
-            <span class="window-label">{winType}</span>
-            <span class="window-pct" style="color:{barColor(win.used_pct)}">
-              {Math.round(win.used_pct)}%
-            </span>
-          </div>
-          {#if subtitle}
-            <span class="model-name">{subtitle}</span>
-          {/if}
-          <div class="bar-track">
-            <div
-              class="bar-fill"
-              style="width:{Math.min(win.used_pct, 100)}%;background:{barColor(win.used_pct)}"
-            ></div>
-          </div>
-          {#if relativeReset(win.resets_at) || (win.total_value != null && win.used_value != null)}
-            <div class="row-meta">
-              {#if relativeReset(win.resets_at)}
-                <span class="reset-time">{relativeReset(win.resets_at)}</span>
-              {/if}
-              {#if win.total_value != null && win.used_value != null}
-                <span class="remaining">剩余 {fmtCredits(win.total_value - win.used_value)}</span>
-              {/if}
+    <!-- Window bars -->
+    {#if quota.windows.length > 0}
+      <div class="window-bars">
+        {#each quota.windows as win}
+          <div class="window-row">
+            <div class="row-label">
+              <span class="row-title">{windowLabel(win.label)}</span>
+              <span class="row-meta">
+                {#if win.resets_at}
+                  <span class="reset-hint">{win.resets_at}</span>
+                {/if}
+                {#if win.total_value != null && win.used_value != null}
+                  <span class="remaining">
+                    剩余 {fmtCredits(win.total_value - win.used_value)}
+                  </span>
+                {/if}
+              </span>
             </div>
-          {/if}
-        </div>
-      {/each}
-    </div>
-
-    {#if quota.balance?.today_consumption != null || quota.balance?.month_consumption != null}
-      <div class="cons-row">
-        {#if quota.balance?.today_consumption != null}
-          <span class="cons-item">
-            今日 <b>{currencySymbol(quota.balance.currency)}{quota.balance.today_consumption.toFixed(2)}</b>
-          </span>
-        {/if}
-        {#if quota.balance?.month_consumption != null}
-          <span class="cons-item">
-            本月 <b>{currencySymbol(quota.balance.currency)}{quota.balance.month_consumption.toFixed(2)}</b>
-          </span>
-        {/if}
+            <div class="row-track">
+              <div
+                class="row-fill"
+                style="width:{Math.min(100, win.used_pct)}%"
+              ></div>
+            </div>
+            <span class="row-pct">{win.used_pct}%</span>
+          </div>
+        {/each}
       </div>
     {/if}
 
+    <!-- Balance display -->
     {#if quota.balance}
+      {@const { unit, value } = splitBalance(
+        quota.balance.currency,
+        quota.balance.amount
+      )}
       <div class="balance-row">
         <span class="balance-label">余额</span>
         <span class="balance-amount">
-          {quota.balance.currency} {quota.balance.amount.toFixed(2)}
+          <span class="balance-unit">{unit}</span>
+          <span class="balance-value">{value}</span>
         </span>
       </div>
+
+      <!-- Today / month consumption (same style as balance) -->
+      {#if quota.balance.today_consumption != null}
+        <div class="cons-row">
+          <span class="cons-label">今日消费</span>
+          <span class="cons-amount">
+            <span class="cons-unit">{unit}</span>
+            <span class="cons-value">{quota.balance.today_consumption.toFixed(2)}</span>
+          </span>
+        </div>
+      {/if}
+      {#if quota.balance.month_consumption != null}
+        <div class="cons-row">
+          <span class="cons-label">月度消费</span>
+          <span class="cons-amount">
+            <span class="cons-unit">{unit}</span>
+            <span class="cons-value">{quota.balance.month_consumption.toFixed(2)}</span>
+          </span>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -186,100 +151,64 @@
 <style>
   .detail-card {
     position: relative;
-    display: flex;
-    background: var(--pulse-card-bg);
-    border-radius: 14px;
     min-width: 220px;
     max-width: 260px;
-    animation: cardIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background: var(--pulse-card-bg, #0c0c0c);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+    font-size: 10px;
+    line-height: 1.45;
     color: var(--pulse-text);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    flex-shrink: 0;
   }
 
-  @keyframes cardIn {
-    from {
-      opacity: 0;
-      transform: translateY(-5px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  /* ── Pointer ────────────────────────────────────────────────────────
-     Vertically centered on the card: the card is centered on the hovered
-     ring, so the centered beak points straight at the ring. */
-
+  /* ── Pointer beak ──────────────────────────────────────────── */
   .card-pointer {
     position: absolute;
     top: 50%;
-    left: -17px;
-    width: 18px;
-    height: 36px;
     transform: translateY(-50%);
-    flex-shrink: 0;
-    pointer-events: none;
+    left: -6px;
+    opacity: 0.96;
   }
-
-  .card-pointer.flip {
+  .detail-card.card-right .card-pointer {
     left: auto;
-    right: -17px;
+    right: -6px;
     transform: translateY(-50%) scaleX(-1);
   }
 
-  /* ── Card content ──────────────────────────────────────────────────── */
-
-  .card-content {
-    padding: 12px;
+  .card-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    min-width: 200px;
+    gap: 7px;
   }
 
+  /* ── Header ────────────────────────────────────────────────── */
   .card-header {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    margin-bottom: 0;
+    gap: 2px;
   }
 
-  /* Plan name and expiry live on separate lines so neither ever wraps. */
   .header-line {
     display: flex;
     align-items: center;
-    gap: 6px;
-  }
-
-  .expiry-line {
-    font-size: 9px;
-    color: var(--pulse-text-dim);
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    gap: 5px;
   }
 
   .vendor-icon {
-    width: 15px;
-    height: 15px;
-    color: var(--pulse-text);
+    width: 12px;
+    height: 12px;
     flex-shrink: 0;
   }
-
   .vendor-icon :global(svg) {
     width: 100%;
     height: 100%;
-    display: block;
   }
 
   .vendor-name {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 600;
-    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
-      -apple-system, sans-serif;
-    letter-spacing: -0.01em;
+    flex: 1;
   }
 
   .plan-badge {
@@ -287,141 +216,133 @@
     padding: 1px 5px;
     border-radius: 4px;
     background: rgba(255, 255, 255, 0.08);
-    color: var(--pulse-text-dim);
+    color: var(--pulse-text-dim, #8a857b);
     font-weight: 500;
-    letter-spacing: 0.01em;
   }
 
-  .window-list {
+  .expiry-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 1px;
+  }
+
+  .expiry-label {
+    font-size: 9px;
+    color: var(--pulse-text-dim, #8a857b);
+    flex-shrink: 0;
+  }
+
+  .expiry-time {
+    font-size: 9px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    color: var(--pulse-text);
+    opacity: 0.8;
+  }
+
+  /* ── Window bars ───────────────────────────────────────────── */
+  .window-bars {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    /* Cap at ~3 rows so tall vendors scroll instead of overflowing the
-       window (Rust sizes the expanded window for CARD_HALF_H = 128). */
-    max-height: 154px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-
-  .window-list::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  .window-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
+    gap: 5px;
   }
 
   .window-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .row-label {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
+    min-width: 0;
   }
 
-  .window-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-  }
-
-  .window-label {
-    font-size: 11px;
-    color: var(--pulse-text-dim);
-    font-weight: 500;
-    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
-      -apple-system, sans-serif;
-  }
-
-  .model-name {
-    font-size: 10px;
-    color: var(--pulse-text-dim);
-    opacity: 0.7;
-    font-weight: 400;
-    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
-      -apple-system, sans-serif;
-    margin-top: -1px;
-  }
-
-  .window-pct {
-    font-size: 11px;
-    font-weight: 600;
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    letter-spacing: -0.02em;
-  }
-
-  .bar-track {
-    height: 4px;
-    background: var(--pulse-bar-track);
-    border-radius: 2px;
+  .row-title {
+    font-size: 9px;
+    color: var(--pulse-text-dim, #8a857b);
+    white-space: nowrap;
     overflow: hidden;
-  }
-
-  .bar-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    text-overflow: ellipsis;
   }
 
   .row-meta {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-    margin-top: 1px;
+    gap: 5px;
+    align-items: center;
   }
 
-  .reset-time {
-    font-size: 9px;
-    color: var(--pulse-text-dim);
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    opacity: 0.6;
+  .reset-hint {
+    font-size: 8px;
+    color: var(--pulse-text-dim, #8a857b);
+    opacity: 0.7;
   }
 
   .remaining {
     font-size: 9px;
-    color: var(--pulse-text-dim);
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-  }
-
-  .cons-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 6px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .cons-item {
-    font-size: 10px;
-    color: var(--pulse-text-dim);
-  }
-
-  .cons-item b {
-    font-size: 11px;
     font-weight: 600;
     color: var(--pulse-text);
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
   }
 
-  .balance-row {
+  .row-track {
+    width: 52px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--pulse-bar-track, rgba(255, 255, 255, 0.1));
+    overflow: hidden;
+  }
+
+  .row-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--pulse-good, #00e68a);
+    transition: width 0.35s ease;
+  }
+
+  .row-pct {
+    font-size: 9px;
+    font-weight: 600;
+    width: 30px;
+    text-align: right;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  }
+
+  /* ── Balance + consumption rows ────────────────────────────── */
+  /*  All three (余额 / 今日消费 / 月度消费) share the same layout:
+      left label  ……  right mono number — no duplicate selectors. */
+  .balance-row,
+  .cons-row {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: baseline;
-    margin-top: 2px;
-    padding-top: 6px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 6px;
   }
 
-  .balance-label {
-    font-size: 10px;
-    color: var(--pulse-text-dim);
-    font-weight: 400;
+  .balance-label,
+  .cons-label {
+    font-size: 9px;
+    color: var(--pulse-text-dim, #8a857b);
+    flex-shrink: 0;
   }
 
-  .balance-amount {
+  .balance-amount,
+  .cons-amount {
     font-size: 11px;
     font-weight: 600;
-    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-    letter-spacing: -0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  }
+
+  .balance-unit,
+  .cons-unit {
+    font-size: 9px;
+    opacity: 0.7;
   }
 </style>

@@ -29,7 +29,7 @@ const RING_GAP: f64 = 14.0;
 const TITLE_BLOCK: f64 = 24.0;
 
 /// Fixed vertical padding (user-specified: padding-top 20px).
-const PAD_V: f64 = 20.0;
+const PAD_V: f64 = 30.0;
 
 /// Where the ring rail starts inside the window (pad + title block).
 const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
@@ -300,10 +300,28 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     );
 }
 
+/// Reverse the expand lift so the panel's on-screen TOP returns to where
+/// it was before the last `expand_pulse`.  Using the stored lift avoids the
+/// old formula `py + (h_now - h_collapsed)` which double-counted the bottom
+/// extension and drifted the window DOWN on every re-hover.
+fn collapsed_top(
+    py: f64,
+    h_now: f64,
+    h_collapsed: f64,
+    recorded_lift: f64,
+) -> f64 {
+    let expanded = h_now - h_collapsed > 2.0; // near-zero when already collapsed
+    if expanded {
+        py + recorded_lift
+    } else {
+        py
+    }
+}
+
 /// Collapse the pulse window back to ring-only size. Reverses the expand
-/// geometry: drop the lift (move the top back down by the current excess
-/// height) and, when flush right, pin the RIGHT edge so the panel stays
-/// fused to the screen edge.
+/// geometry: drop the lift (move the top back down by exactly the stored
+/// lift — no height-delta rounding) and, when flush right, pin the RIGHT
+/// edge so the panel stays fused to the screen edge.
 pub fn collapse_pulse(app: &AppHandle) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -324,11 +342,12 @@ pub fn collapse_pulse(app: &AppHandle) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
+        let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let flush_right = mon_right - (px + size.width as f64 / scale) <= 8.0;
         let lift = *LAST_LIFT.lock().unwrap_or_else(|e| e.into_inner());
         let target_x = if flush_right { mon_right - w_c } else { px };
-        let target_y = py + lift;
+        let target_y = collapsed_top(py, h_now, h_c, lift);
         if flush_right || lift > 0.5 {
             let _ = win.set_position(LogicalPosition::new(target_x, target_y));
         }
@@ -572,15 +591,28 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
-        // height = 20*2 + 24 + 235 = 299.
+        // height = 30*2 + 24 + 235 = 319.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 299.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 319.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
         let (_, h1) = collapsed_size(&cfg, 1);
         assert_eq!(h0, h1);
+    }
+
+    #[test]
+    fn collapsed_top_reverses_only_the_lift() {
+        // Collapsed window: a stale recorded lift must be ignored.
+        assert!((collapsed_top(300.0, 299.0, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
+        // Expanded by lift 72 + bottom extension 75 (h_cur = 299 + 147):
+        // only the LIFT moved the top. Deriving from the height delta
+        // (old math: 228 + 147 = 375) double-counted the bottom extension
+        // and drifted the panel DOWN on every re-hover.
+        assert!((collapsed_top(228.0, 446.0, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
+        // Barely-expanded (within the 2px epsilon) counts as collapsed.
+        assert!((collapsed_top(300.0, 300.5, 299.0, 72.0) - 300.0).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -60,6 +60,19 @@ export function formatShortExpiry(iso: string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/** ISO timestamp → "YYYY-MM-DD HH:mm" (minute precision) or "". */
+export function formatExpiryTime(iso: string): string {
+  const target = Date.parse(iso);
+  if (!Number.isFinite(target)) return "";
+  const d = new Date(target);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
 /** Quota plan expiry → "YYYY-MM-DD到期 · 剩余Xd Yh Zm" or "". */
 export function nearestExpiry(expiresAt: string | undefined, now: number): number | undefined {
   if (!expiresAt) return undefined;

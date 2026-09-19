@@ -109,7 +109,7 @@
   const ITEM_GAP = 14;
   const TITLE_BLOCK = 24;
   // Fixed vertical padding (user-specified: padding-top 20px).
-  const PAD_V = 20;
+  const PAD_V = 30;
   // Panel height cap — the ring dock scrolls beyond this.
   const MAX_PANEL_H = 520;
   const PAD_FLUSH_INNER = 18;
@@ -377,7 +377,7 @@
     inset: 0;
     z-index: 0;
     background: var(--pulse-bg);
-    border-radius: 20px;
+    border-radius: 50px;
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     pointer-events: none;
@@ -386,11 +386,11 @@
 
   /* Fused berths: rounded on the screen-interior side, flat on the edge. */
   .pulse-panel.flush-right .panel-surface {
-    border-radius: 20px 0 0 20px;
+    border-radius: 50px 0 0 50px;
   }
 
   .pulse-panel.flush-left .panel-surface {
-    border-radius: 0 20px 20px 0;
+    border-radius: 0 50px 50px 0;
   }
 
   /* Content rides above the surface layer. */
@@ -405,7 +405,7 @@
   .vertical {
     flex-direction: column;
     align-items: center;
-    padding: 20px 16px;
+    padding: 30px 16px;
     gap: 8px;
   }
 
@@ -413,13 +413,13 @@
      biased toward the edge (smaller padding on the fused side). The window
      keeps a few px of slack, so right-fusing also right-anchors the panel. */
   .pulse-panel.flush-right {
-    padding: 20px 10px 20px 18px;
+    padding: 30px 10px 30px 18px;
     margin-left: auto;
     margin-right: -1px;
   }
 
   .pulse-panel.flush-left {
-    padding: 20px 18px 20px 10px;
+    padding: 30px 18px 30px 10px;
     margin-left: -1px;
   }
 
