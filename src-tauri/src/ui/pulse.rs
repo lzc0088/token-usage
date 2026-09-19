@@ -291,11 +291,12 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         };
         // Skip no-op geometry: re-hovering another ring fires expand again,
         // and a redundant setFrame makes the WKWebView flash.
-        if card_left && (target_x - px).abs() > 0.5 {
-            let _ = win.set_position(LogicalPosition::new(target_x, py));
-        }
-        if (w_now - w_e).abs() > 0.5 || (h_now - h_e).abs() > 0.5 {
-            let _ = win.set_size(LogicalSize::new(w_e, h_e.max(h_c)));
+        let dx = target_x - px;
+        if dx.abs() > 0.5 || (w_now - w_e).abs() > 0.5 || (h_now - h_e).abs() > 0.5 {
+            // ONE atomic setFrame — separate move/resize calls each paint
+            // their own frame; the in-between state (small window already
+            // slid left) reads as the panel flashing on the left.
+            set_frame_atomic(&win, dx, w_e, h_e.max(h_c));
         }
     } else {
         let _ = win.set_size(LogicalSize::new(w_e, h_e_full));
@@ -322,6 +323,9 @@ pub fn collapse_pulse(app: &AppHandle) {
     let ring_count = load_quota_count(app);
     let (w_c, h_c) = collapsed_size(&cfg, ring_count);
 
+    // x-shift back to the flush edge (0 when not flush-right) + whether the
+    // window already sits at the collapsed geometry.
+    let mut dx = 0.0;
     let mut already_collapsed = false;
     if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
         win.outer_position(),
@@ -330,22 +334,25 @@ pub fn collapse_pulse(app: &AppHandle) {
     ) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
-        let py = pos.y as f64 / scale;
         let w_now = size.width as f64 / scale;
         let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let flush_right = mon_right - (px + w_now) <= 8.0;
-        if flush_right && (mon_right - w_c - px).abs() > 0.5 {
-            let _ = win.set_position(LogicalPosition::new(mon_right - w_c, py));
-        }
+        dx = if flush_right {
+            mon_right - w_c - px
+        } else {
+            0.0
+        };
+        // Skip the no-op resize — a redundant setFrame makes the WKWebView
+        // flash (rapid leave/re-enter cycles can collapse while collapsed).
         already_collapsed =
-            (w_now - w_c).abs() <= 0.5 && (h_now - h_c).abs() <= 0.5;
+            dx.abs() <= 0.5 && (w_now - w_c).abs() <= 0.5 && (h_now - h_c).abs() <= 0.5;
     }
 
-    // Skip the no-op resize — a redundant setFrame makes the WKWebView flash
-    // (rapid leave/re-enter cycles can collapse while already collapsed).
     if !already_collapsed {
-        let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
+        // ONE atomic setFrame (see expand_pulse): slide back to the flush
+        // edge AND shrink in the same frame — two separate calls flash.
+        set_frame_atomic(&win, dx, w_c.max(60.0), h_c.max(60.0));
     }
     let _ = win.emit("pulse:collapse", ());
 }
@@ -474,6 +481,57 @@ fn apply_floating_level(win: &tauri::WebviewWindow, topmost: bool) {
 
 #[cfg(not(target_os = "macos"))]
 fn apply_floating_level(_win: &tauri::WebviewWindow, _topmost: bool) {}
+
+/// Atomically shift x by `dx` (logical px) and resize in ONE setFrame call.
+/// Tauri's set_position/set_size are two separate setFrame round-trips —
+/// for a flush-right panel each intermediate state (small window already
+/// slid left, or wide window not yet slid back) paints its own frame and
+/// reads as a flash. The TOP edge stays fixed: the new bottom-left origin
+/// is derived from the current top minus the new height, so y never moves.
+#[cfg(target_os = "macos")]
+fn set_frame_atomic(win: &tauri::WebviewWindow, dx: f64, new_w: f64, new_h: f64) {
+    use objc::{msg_send, sel, sel_impl};
+    #[repr(C)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+    let Ok(ns_win) = win.ns_window() else {
+        return;
+    };
+    let w: *mut objc::runtime::Object = ns_win as *mut _;
+    unsafe {
+        let cur: NSRect = msg_send![w, frame];
+        let new = NSRect {
+            origin: NSPoint {
+                x: cur.origin.x + dx,
+                y: cur.origin.y + cur.size.height - new_h,
+            },
+            size: NSSize {
+                width: new_w,
+                height: new_h,
+            },
+        };
+        let _: () = msg_send![w, setFrame: new display: false];
+    }
+}
+
+/// Non-macOS fallback: the pulse widget is macOS-only in practice, so a
+/// plain resize suffices (the flush-edge x-shift never applies there).
+#[cfg(not(target_os = "macos"))]
+fn set_frame_atomic(win: &tauri::WebviewWindow, _dx: f64, new_w: f64, new_h: f64) {
+    let _ = win.set_size(LogicalSize::new(new_w, new_h));
+}
 
 /// Resolve the effective theme from config.
 fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {
@@ -634,16 +692,8 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::schema::migrate(&conn).unwrap();
         let cfg = config::Config {
-            quota_active_vendors: Some(vec![
-                "glm".into(),
-                "workbuddy".into(),
-                "deepseek".into(),
-            ]),
-            quota_vendor_order: Some(vec![
-                "workbuddy".into(),
-                "deepseek".into(),
-                "glm".into(),
-            ]),
+            quota_active_vendors: Some(vec!["glm".into(), "workbuddy".into(), "deepseek".into()]),
+            quota_vendor_order: Some(vec!["workbuddy".into(), "deepseek".into(), "glm".into()]),
             ..Default::default()
         };
         crate::config::save(&conn, &cfg).unwrap();
@@ -666,7 +716,10 @@ mod tests {
             r#"{"vendor":"deepseek","status":"ok","windows":[],"balance":{"amount":19.64,"currency":"CNY"}}"#,
         );
         // Not in the active list → filtered out entirely.
-        insert("volcengine", r#"{"vendor":"volcengine","status":"ok","windows":[]}"#);
+        insert(
+            "volcengine",
+            r#"{"vendor":"volcengine","status":"ok","windows":[]}"#,
+        );
 
         let qs = load_quotas(&conn);
         let vendors: Vec<&str> = qs.iter().map(|q| q.vendor.as_str()).collect();
