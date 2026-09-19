@@ -98,6 +98,18 @@ pub fn hide_pulse(app: &AppHandle) {
     }
 }
 
+/// Build the pulse frontend payload (quotas + panel settings).
+pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
+    let cfg = config::load(conn).unwrap_or_default();
+    PulseData {
+        quotas: load_quotas(conn),
+        size: cfg.pulse_size.clone(),
+        ring_diameter: ring_diameter(&cfg.pulse_size),
+        theme: resolved_theme(app, &cfg),
+        opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
+    }
+}
+
 /// Push quota data to the pulse frontend via event.
 pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     let cfg = config::load(conn).unwrap_or_default();
@@ -105,14 +117,7 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
         return;
     }
 
-    let quotas = load_quotas(conn);
-    let payload = PulseData {
-        quotas,
-        size: cfg.pulse_size.clone(),
-        ring_diameter: ring_diameter(&cfg.pulse_size),
-        theme: resolved_theme(app, &cfg),
-        opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
-    };
+    let payload = build_pulse_data(app, conn);
 
     if let Some(w) = app.get_webview_window("pulse") {
         let _ = w.emit("pulse:update", &payload);

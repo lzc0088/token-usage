@@ -90,6 +90,17 @@
     expandLift = 0;
   });
 
+  // Pull data on mount. A webview reload / HMR resets component state, and
+  // the next `pulse:update` push may be minutes away (quota refresh
+  // interval) — without this the panel would sit empty until then.
+  invoke<PulseData>("get_pulse_data")
+    .then((d) => {
+      if (d) data = d;
+    })
+    .catch(() => {
+      // backend unavailable (e.g. browser dev) — event pushes still work
+    });
+
   // ── Layout constants (mirror Rust pulse.rs) ────────────────────────────
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
   const LABEL_H = 13;

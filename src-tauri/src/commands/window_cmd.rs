@@ -395,6 +395,16 @@ pub fn expand_pulse(app: AppHandle, vendor: Option<String>) -> Result<(), String
     Ok(())
 }
 
+/// Initial (or re-) fetch of the pulse panel payload. The frontend calls this
+/// on mount so a webview reload / HMR never leaves the panel empty waiting
+/// for the next `pulse:update` push (quota refreshes can be minutes apart).
+#[tauri::command]
+pub fn get_pulse_data(app: AppHandle) -> Result<crate::ui::pulse::PulseData, String> {
+    let state = app.state::<crate::state::AppState>();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::ui::pulse::build_pulse_data(&app, &conn))
+}
+
 /// Persist the pulse panel position after a frontend drag.
 #[tauri::command]
 pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
