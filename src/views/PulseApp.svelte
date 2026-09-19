@@ -84,8 +84,14 @@
       return;
     }
     isExpanded = true;
-    hoveredVendor = e.payload?.vendor ?? null;
     expandCardLeft = !!e.payload?.cardLeft;
+    // Pre-warm expands carry vendor=null — their only job is growing the
+    // window. Entering the panel directly onto a ring fires BOTH the
+    // pre-warm and the vendor expand; the two events can arrive out of
+    // order, so a null payload must never clobber an already-hovered ring
+    // (that unmounts the card → "hover shows nothing").
+    const vendor = e.payload?.vendor ?? null;
+    if (vendor !== null) hoveredVendor = vendor;
   });
 
   listen("pulse:collapse", () => {

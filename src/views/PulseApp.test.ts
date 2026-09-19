@@ -89,6 +89,13 @@ function enterPanel(target: HTMLElement) {
     ?.dispatchEvent(new MouseEvent("mouseenter"));
 }
 
+/** Simulate the pointer moving onto a specific vendor's ring. */
+function enterRing(target: HTMLElement, index = 0) {
+  target
+    .querySelectorAll(".ring-container")
+    [index]?.dispatchEvent(new MouseEvent("mouseenter"));
+}
+
 /** Let Svelte 5 flush its (microtask-batched) render effects. */
 async function flush() {
   await new Promise((r) => setTimeout(r, 0));
@@ -133,6 +140,51 @@ describe("PulseApp", () => {
     expect(panel?.classList.contains("card-left")).toBe(true);
     // card-right on the parent flips the arrow via CSS scaleX(-1)
     expect(target.querySelector(".detail-card")?.classList.contains("card-right")).toBe(true);
+  });
+
+  it("shows the card on the full hover sequence (pre-warm then ring expand)", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    // Real sequence: wrapper mouseenter (pre-warm, vendor=null) fires the
+    // expand invoke, then the ring's mouseenter fires the vendor expand.
+    enterPanel(target);
+    enterRing(target, 1);
+    expect(invokeMock).toHaveBeenCalledWith("expand_pulse", { vendor: null });
+    expect(invokeMock).toHaveBeenCalledWith("expand_pulse", { vendor: "codex" });
+    // Events land in invoke order: pre-warm (null) first, vendor second.
+    emit("pulse:expand", { vendor: null, cardLeft: false });
+    await flush();
+    emit("pulse:expand", { vendor: "codex", cardLeft: false });
+    await flush();
+
+    expect(target.querySelector(".detail-tooltip")).toBeTruthy();
+    expect(target.querySelector(".detail-card")).toBeTruthy();
+  });
+
+  it("keeps the card when the pre-warm (null) expand lands AFTER the vendor expand", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    enterPanel(target);
+    enterRing(target, 1);
+    // Out-of-order delivery: the vendor event arrives first, then the
+    // pre-warm (null) event. The null payload must never clobber the
+    // hovered vendor — the card has to stay mounted.
+    emit("pulse:expand", { vendor: "codex", cardLeft: false });
+    await flush();
+    expect(target.querySelector(".detail-tooltip")).toBeTruthy();
+    emit("pulse:expand", { vendor: null, cardLeft: false });
+    await flush();
+
+    expect(target.querySelector(".detail-tooltip")).toBeTruthy();
+    expect(target.querySelector(".detail-card")).toBeTruthy();
   });
 
   it("clears expansion on pulse:collapse", async () => {
