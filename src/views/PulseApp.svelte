@@ -276,7 +276,10 @@
   function onRingEnter(vendor: string) {
     pointerInPanel = true;
     cancelPendingCollapse();
-    hoveredVendor = vendor;
+    // hoveredVendor + isExpanded are set by the pulse:expand listener once
+    // Rust confirms the window is ready — setting them here races with the
+    // async event and the pre-warm expand (vendor=null) which would
+    // overwrite hoveredVendor with null.
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
 
