@@ -92,7 +92,6 @@
     isExpanded = false;
     hoveredVendor = null;
     expandCardLeft = false;
-    isCollapsing = false;
     if (collapseTimer !== undefined) {
       clearTimeout(collapseTimer);
       collapseTimer = undefined;
@@ -246,17 +245,15 @@
   updateFlushSide();
 
   // ── Graceful collapse + fast-sweep protection ──────────────────────────
-  // Phase 1 (linger): after leaving, do NOTHING for LINGER_MS — sweeping
-  //   across the panel (or over the title strip between rings) re-enters
-  //   within this window and nothing was ever hidden → zero flicker.
-  // Phase 2 (fade): fade the card out (150ms transition).
-  // Phase 3: unmount + shrink the window only after the fade finished.
+  // Linger: after leaving, do NOTHING for LINGER_MS — sweeping across the
+  //   panel (or over the title strip between rings) re-enters within this
+  //   window and nothing was ever hidden → zero flicker.
+  // After the linger the card unmounts + window shrinks instantly (no
+  //   animation — the card simply appears and disappears).
   // `pointerInPanel` additionally guards the async pulse:expand event: a
   // pass-through hover that already left never mounts the card at all.
   const LINGER_MS = 120;
-  const FADE_MS = 160;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
-  let isCollapsing = $state(false);
   let pointerInPanel = $state(false);
 
   function cancelPendingCollapse() {
@@ -264,7 +261,6 @@
       clearTimeout(collapseTimer);
       collapseTimer = undefined;
     }
-    isCollapsing = false;
   }
 
   function onWrapperEnter() {
@@ -292,12 +288,9 @@
   function onWrapperLeave() {
     pointerInPanel = false;
     collapseTimer = setTimeout(() => {
-      isCollapsing = true; // phase 2: fade out
-      collapseTimer = setTimeout(() => {
-        collapseTimer = undefined;
-        hoveredVendor = null;
-        invoke("collapse_pulse").catch(() => {}); // phase 3: shrink
-      }, FADE_MS);
+      collapseTimer = undefined;
+      hoveredVendor = null;
+      invoke("collapse_pulse").catch(() => {});
     }, LINGER_MS);
   }
 
@@ -438,12 +431,11 @@
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
-        class:out={isCollapsing}
         class:measuring={cardH === 0 && !measureGuaranteed}
         bind:clientHeight={cardH}
         style="top: {cardTop}px; --arrow-y: {arrowY}px"
       >
-        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} dark={data.theme === "dark"} />
+        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} dark={data.theme === "dark"} pulseAlpha={data.opacity ?? 1} />
       </div>
     {/if}
   </div>
@@ -609,16 +601,6 @@
     position: absolute;
     pointer-events: auto;
     z-index: 20;
-    /* Gentle fade only — no translate (clashes with the inline `top`
-       re-clamp when the measured height arrives) and no overshoot bounce. */
-    animation: tooltipIn 0.3s ease-out;
-    transition: opacity 0.15s ease-in;
-  }
-
-  /* Leaving the panel: fade out BEFORE Rust shrinks the window, so the
-     collapse never reads as a flash. */
-  .detail-tooltip.out {
-    opacity: 0;
   }
 
   /* Pre-measure frame: the estimated height can differ from the real card,
@@ -641,15 +623,6 @@
   .vertical.card-left .detail-tooltip {
     left: auto;
     right: calc(var(--ring-size) + 48px);
-  }
-
-  @keyframes tooltipIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
   }
 
   /* ── Empty state ────────────────────────────────────────────────────── */

@@ -41,9 +41,11 @@
     cardSide: "left" | "right";
     /** Follow the app theme (dark card + light text when true). */
     dark?: boolean;
+    /** Panel opacity (0.2–1.0) — applied to the card background. */
+    pulseAlpha?: number;
   }
 
-  const { quota, cardSide, dark = false }: Props = $props();
+  const { quota, cardSide, dark = false, pulseAlpha = 1 }: Props = $props();
   const nowMs = Date.now();
 
   // First window reporting absolute credits (plan-less vendors).
@@ -65,6 +67,7 @@
   class="detail-card"
   class:card-right={cardSide === "right"}
   class:dark={dark}
+  style:--card-alpha={pulseAlpha}
 >
   <!-- Arrow: large triangle protruding from the card's panel-facing
        edge, positioned at --arrow-y (the hovered ring's line). -->
@@ -155,14 +158,14 @@
      shadow reads as a translucent black background). Theme-aware via CSS
      vars; all text uniform size per user preference. */
   .detail-card {
-    --card-bg: #f7f5f1;
+    --card-bg: rgba(247, 245, 241, var(--card-alpha, 1));
     --card-text: #1a1610;
     --card-border: rgba(0, 0, 0, 0.12);
     --card-track: rgba(0, 0, 0, 0.08);
     --card-badge: rgba(0, 0, 0, 0.07);
     position: relative;
-    min-width: 220px;
-    max-width: 270px;
+    min-width: 242px;
+    max-width: 297px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: 20px;
@@ -175,7 +178,7 @@
   }
 
   .detail-card.dark {
-    --card-bg: #16140f;
+    --card-bg: rgba(22, 20, 15, var(--card-alpha, 1));
     --card-text: #f2ede3;
     --card-border: rgba(255, 255, 255, 0.1);
     --card-track: rgba(255, 255, 255, 0.1);
