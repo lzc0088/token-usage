@@ -132,18 +132,18 @@
       )}
       <div class="stat-row">
         <span class="stat-label">账户余额</span>
-        <span class="stat-amount">{unit}{value}</span>
+        <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{value}</span>
       </div>
       {#if quota.balance.today_consumption != null}
         <div class="stat-row">
           <span class="stat-label">今日消费</span>
-          <span class="stat-amount">{unit}{quota.balance.today_consumption.toFixed(2)}</span>
+          <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.today_consumption.toFixed(2)}</span>
         </div>
       {/if}
       {#if quota.balance.month_consumption != null}
         <div class="stat-row">
           <span class="stat-label">月度消费</span>
-          <span class="stat-amount">{unit}{quota.balance.month_consumption.toFixed(2)}</span>
+          <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.month_consumption.toFixed(2)}</span>
         </div>
       {/if}
     {/if}
@@ -326,5 +326,10 @@
   .stat-amount {
     font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  }
+
+  /* Currency unit (¥/$) renders smaller than the digits. */
+  .stat-amount .stat-unit {
+    font-size: 8px;
   }
 </style>

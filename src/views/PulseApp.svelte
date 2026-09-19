@@ -316,6 +316,16 @@
   const EST_CARD_H = 170; // pre-measure fallback for the first frame
 
   let cardH = $state(0); // measured via bind:clientHeight on the tooltip
+  // Safety bound: if the height measurement never lands (ResizeObserver
+  // hiccup), stop hiding the card after 80ms — a permanently-invisible
+  // card reads as "hover shows nothing" while the window still expands.
+  let measureGuaranteed = $state(false);
+  $effect(() => {
+    const t = setTimeout(() => {
+      measureGuaranteed = true;
+    }, 80);
+    return () => clearTimeout(t);
+  });
 
   // Hovered ring's center Y within the rail (index·pitch + half the ring).
   let ringY = $derived(
@@ -350,17 +360,18 @@
   }
 
   // Plan-less vendors (credits/balance only): the label under the ring
-  // shows the remaining amount instead of a percentage.
-  function ringSubLabel(q: PulseQuota): string | undefined {
+  // shows the remaining amount instead of a percentage (unit smaller).
+  function ringSubLabel(q: PulseQuota): { unit: string; value: string } | undefined {
     if (!q.planless) return undefined;
     if (q.balance) {
-      const { unit, value } = splitBalance(q.balance.currency, q.balance.amount);
-      return `${unit}${value}`;
+      return splitBalance(q.balance.currency, q.balance.amount);
     }
     const w = q.windows.find(
       (win) => win.total_value != null && win.used_value != null
     );
-    return w ? fmtCredits(w.total_value! - w.used_value!) : undefined;
+    return w
+      ? { unit: "", value: fmtCredits(w.total_value! - w.used_value!) }
+      : undefined;
   }
 </script>
 
@@ -401,7 +412,8 @@
           isRefreshing={quota.is_refreshing ?? false}
           extraPcts={extraPcts(quota)}
           showsRemaining={false}
-          subLabel={ringSubLabel(quota)}
+          subUnit={ringSubLabel(quota)?.unit}
+          subValue={ringSubLabel(quota)?.value}
           plain={quota.planless ?? false}
         />
       {/each}
@@ -422,7 +434,7 @@
       <div
         class="detail-tooltip"
         class:out={isCollapsing}
-        class:measuring={cardH === 0}
+        class:measuring={cardH === 0 && !measureGuaranteed}
         bind:clientHeight={cardH}
         style="top: {cardTop}px; --arrow-y: {arrowY}px"
       >

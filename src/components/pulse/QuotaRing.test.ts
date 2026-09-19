@@ -67,10 +67,36 @@ describe("QuotaRing", () => {
         diameter: 48,
         onHover: () => {},
         onLeave: () => {},
-        subLabel: "1,234",
+        subUnit: "¥",
+        subValue: "19.64",
       },
     });
-    expect(target.querySelector(".pct-label")?.textContent).toBe("1,234");
+    const label = target.querySelector(".pct-label");
+    expect(label?.textContent).toContain("19.64");
+    // Currency unit renders in its own (smaller) span.
+    expect(label?.querySelector(".sub-unit")?.textContent).toBe("¥");
+  });
+
+  it("renders one visible layer per window, including 0% tracks", () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(QuotaRing, {
+      target,
+      props: {
+        vendor: "glm",
+        pct: 73,
+        label: "5h",
+        diameter: 48,
+        onHover: () => {},
+        onLeave: () => {},
+        extraPcts: [0], // e.g. GLM's MCP window at 0%
+      },
+    });
+    // 2 usage arcs + the inner layer's background track (main track always).
+    const usageArcs = target.querySelectorAll(".usage-arc");
+    expect(usageArcs.length).toBe(2);
+    const tracks = target.querySelectorAll('circle[stroke="var(--pulse-track)"]');
+    expect(tracks.length).toBe(2); // main + inner layer
   });
 
   it("sizes the icon inside the ring hole", () => {

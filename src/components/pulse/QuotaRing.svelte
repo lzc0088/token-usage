@@ -13,8 +13,10 @@
     /** Additional windows (week / MCP / …) rendered as inner concentric arcs. */
     extraPcts?: number[];
     showsRemaining?: boolean;
-    /** Plan-less vendors: credits/balance shown under the ring instead of %. */
-    subLabel?: string;
+    /** Plan-less vendors: currency unit + amount shown under the ring
+     *  instead of a percentage (unit renders smaller, e.g. ¥). */
+    subUnit?: string;
+    subValue?: string;
     /** Plan-less vendors: track ring only — icon + amount, no progress arcs. */
     plain?: boolean;
   }
@@ -30,7 +32,8 @@
     isRefreshing = false,
     extraPcts,
     showsRemaining = false,
-    subLabel,
+    subUnit,
+    subValue,
     plain = false,
   }: Props = $props();
 
@@ -189,6 +192,19 @@
       />
 
       {#each arcSpecs as spec, i (i)}
+        {#if !spec.isMain}
+          <!-- Per-layer track: keeps every layer visible even at 0% usage
+               (e.g. GLM's MCP window) — multi-layer rings read as rings. -->
+          <circle
+            cx={diameter / 2}
+            cy={diameter / 2}
+            r={spec.r}
+            fill="none"
+            stroke="var(--pulse-track)"
+            stroke-width={spec.sw}
+            opacity="0.7"
+          />
+        {/if}
         <circle
           class="usage-arc"
           cx={diameter / 2}
@@ -248,9 +264,14 @@
     aria-hidden="true">{@html iconMarkup}</span
   >
 
-  <!-- ── Label under the ring: credits/balance for plan-less vendors,
-         otherwise the usage percentage. ───────────────────────────────── -->
-  <span class="pct-label">{subLabel ?? `${Math.round(displayPct)}%`}</span>
+  <!-- ── Label under the ring: credits/balance for plan-less vendors
+         (smaller currency unit), otherwise the usage percentage. ───────── -->
+  <span class="pct-label">
+    {#if subValue}
+      {#if subUnit}<span class="sub-unit">{subUnit}</span>{/if}{subValue}
+    {:else}{Math.round(displayPct)}%
+    {/if}
+  </span>
 </button>
 
 <style>
@@ -301,6 +322,11 @@
     pointer-events: none;
     -webkit-user-select: none;
     user-select: none;
+  }
+
+  /* Currency unit (¥/$) renders smaller than the digits. */
+  .pct-label .sub-unit {
+    font-size: 8px;
   }
 
   .usage-arc {
