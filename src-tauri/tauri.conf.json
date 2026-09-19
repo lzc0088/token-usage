@@ -75,6 +75,22 @@
         "skipTaskbar": true,
         "center": false,
         "devtools": false
+      },
+      {
+        "label": "pulse-card",
+        "url": "/",
+        "width": 340,
+        "height": 480,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": false,
+        "focus": false,
+        "devtools": false
       }
     ],
     "security": {

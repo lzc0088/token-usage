@@ -43,9 +43,17 @@
     dark?: boolean;
     /** Panel opacity (0.2–1.0) — applied to the card background. */
     pulseAlpha?: number;
+    /** Arrow's line offset from the card top (px) — points at the ring. */
+    arrowY?: number;
   }
 
-  const { quota, cardSide, dark = false, pulseAlpha = 1 }: Props = $props();
+  const {
+    quota,
+    cardSide,
+    dark = false,
+    pulseAlpha = 1,
+    arrowY,
+  }: Props = $props();
   const nowMs = Date.now();
 
   // First window reporting absolute credits (plan-less vendors).
@@ -68,6 +76,7 @@
   class:card-right={cardSide === "right"}
   class:dark={dark}
   style:--card-alpha={pulseAlpha}
+  style:--arrow-y={arrowY != null ? `${arrowY}px` : "50%"}
 >
   <!-- Surface layer: bg + border + tail in ONE compositing layer. The
        panel-matching alpha is applied via `opacity` here, so the tail's

@@ -3,9 +3,11 @@
 //! always-on-top Tauri webview window with SVG rings.
 //!
 //! Inspired by the Pulse macOS app's NSPanel dock, but implemented as a Tauri
-//! webview for consistency with the existing window stack. The window is
-//! resizable between collapsed (ring-only) and expanded (ring + detail card)
-//! states, driven by hover.
+//! webview for consistency with the existing window stack. The ring window
+//! NEVER resizes: the hover detail card renders in a second fixed-size
+//! window ("pulse-card") that is only ever MOVED — resizing a transparent
+//! window whose content re-anchors presents one stale web-process frame
+//! (the ghost/flash); pure moves are always clean.
 //!
 //! macOS only. Other platforms: no-op (the floating widget covers Windows/Linux).
 
@@ -38,18 +40,20 @@ const MAX_PANEL_H: f64 = 520.0;
 /// screen-interior side + 10px on the fused edge; the window keeps slack.
 const PANEL_PAD: f64 = 16.0;
 
-/// Gap between the ring rail and the detail card (logical px) — matches the
-/// CSS tooltip offset (30px clear of the panel's inner edge + 18px pad).
-const CARD_SPACING: f64 = 48.0;
+/// Detail card window size (logical px) — FIXED at creation. The card
+/// window is only ever MOVED (on hover), never resized: resizing a
+/// transparent window whose content must re-anchor (a flush-right panel
+/// grows LEFTWARD) presents one stale frame from the web process before
+/// the re-layout lands — that reads as the ghost/flash. Pure moves keep
+/// the rendered content viewport-fixed → ghost-free.
+const CARD_WIN_W: f64 = 340.0;
+const CARD_WIN_H: f64 = 480.0;
 
-/// Detail card width (logical px) — CSS max-width 260 + pointer overhang.
-const CARD_WIDTH: f64 = 268.0;
+/// Gap between the panel edge and the card window (logical px).
+const CARD_GAP: f64 = 10.0;
 
-/// Vertical slack (logical px) added symmetrically ABOVE and BELOW the
-/// collapsed height while expanded, so a card centered on ANY ring fits
-/// with the window top staying put. The top-left corner NEVER moves during
-/// hover — no lift, no flicker, no drift.
-const CARD_SLACK: f64 = 140.0;
+/// Vertical offset of the ring rail inside the pulse window (pad + title).
+const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
 
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
@@ -76,16 +80,21 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             apply_floating_level(&h, cfg.pulse_topmost);
             let _ = h.show();
         }
+        if let Some(c) = app.get_webview_window("pulse-card") {
+            apply_floating_level(&c, cfg.pulse_topmost);
+        }
         push_pulse_data(app, conn);
     } else {
         hide_pulse(app);
     }
 }
 
-/// Hide the pulse panel.
+/// Hide the pulse panel (and its card window).
 pub fn hide_pulse(app: &AppHandle) {
-    if let Some(h) = app.get_webview_window("pulse") {
-        let _ = h.hide();
+    for label in ["pulse", "pulse-card"] {
+        if let Some(h) = app.get_webview_window(label) {
+            let _ = h.hide();
+        }
     }
 }
 
@@ -110,7 +119,15 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
 
     let payload = build_pulse_data(app, conn);
 
-    if let Some(w) = app.get_webview_window("pulse") {
+    // Both windows consume the payload (the card window follows theme,
+    // opacity, and live usage updates while it happens to be open).
+    for w in [
+        app.get_webview_window("pulse"),
+        app.get_webview_window("pulse-card"),
+    ]
+    .into_iter()
+    .flatten()
+    {
         let _ = w.emit("pulse:update", &payload);
     }
 }
@@ -238,123 +255,95 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
     )
 }
 
-/// Expanded (hover) window size, logical px. The card slot extends the
-/// window RIGHTWARD; symmetric vertical slack lets a card centered on ANY
-/// ring fit while the TOP-LEFT corner stays anchored — the panel never
-/// moves, flickers, or drifts during hover.
-fn expanded_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
-    let (w_c, h_c) = collapsed_size(cfg, ring_count);
-    (w_c + CARD_SPACING + CARD_WIDTH, h_c + 2.0 * CARD_SLACK)
+/// Ring center Y inside the pulse window (logical px from the window top),
+/// mirroring the frontend ring pitch (ring + LABEL_H + RING_GAP per item).
+fn ring_center_y(d: f64, index: usize) -> f64 {
+    RAIL_TOP + index as f64 * (d + LABEL_H + RING_GAP) + d / 2.0
 }
 
-/// Resize the pulse window to show the detail card beside the rings.
-///
-/// The top edge NEVER moves (no lift): the window only grows right + down,
-/// where macOS's top-left resize anchor keeps the panel pixel-fixed. The
-/// card itself clamps/positions within the window (frontend), and its arrow
-/// slides along the card edge to point at the hovered ring. A flush-right
-/// panel is the one exception on X: the window must shift left so the card
-/// opens into the screen interior — the panel stays right-anchored inside.
+/// Card window origin X for a panel at `px` of width `w`. Flush-right →
+/// the card opens LEFT of the panel (into the screen interior); otherwise
+/// RIGHT. The window's panel-facing edge sits CARD_GAP off the panel.
+fn card_window_x(px: f64, w: f64, flush_right: bool) -> f64 {
+    if flush_right {
+        px - CARD_WIN_W + CARD_GAP
+    } else {
+        px + w - CARD_GAP
+    }
+}
+
+/// Card window origin Y — the window CENTER aligns with the hovered ring's
+/// screen Y (the card centers itself in the window, so the arrow lands on
+/// the same line). Clamped on screen.
+fn card_window_y(ring_center_y_screen: f64, mon_top: f64, mon_bottom: f64) -> f64 {
+    (ring_center_y_screen - CARD_WIN_H / 2.0)
+        .max(mon_top + 4.0)
+        .min(mon_bottom - CARD_WIN_H - 4.0)
+        .max(mon_top + 4.0)
+}
+
+/// Show the detail card for a vendor. The card renders in its OWN fixed-
+/// size window ("pulse-card") that is only ever MOVED — the ring window
+/// never resizes. Resizing the ring window made its re-anchored content
+/// (flush-right panel grows LEFTWARD) present one stale web-process frame
+/// — the ghost users saw. Moving windows keeps content viewport-fixed.
 pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
-    let Some(win) = app.get_webview_window("pulse") else {
+    let (Some(ring), Some(card)) = (
+        app.get_webview_window("pulse"),
+        app.get_webview_window("pulse-card"),
+    ) else {
         return;
     };
+    // Pre-warm (vendor=None) is obsolete — there is no window resize to
+    // warm anymore; only a real ring hover shows the card.
+    let Some(vendor) = vendor else {
+        return;
+    };
+
     let cfg = app
         .try_state::<AppState>()
         .and_then(|s| s.load_config().ok())
         .unwrap_or_default();
 
     let ring_count = load_quota_count(app);
-    let (_, h_c) = collapsed_size(&cfg, ring_count);
-    let (w_e, h_e_full) = expanded_size(&cfg, ring_count);
+    let (w_c, _) = collapsed_size(&cfg, ring_count);
+    let d = ring_diameter(&cfg.pulse_size);
+    let index = load_quota_index(app, &vendor);
 
-    let mut card_left = false;
-    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
-        win.outer_position(),
-        win.outer_size(),
-        win.current_monitor(),
-    ) {
-        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let mut card_on_left = false;
+    if let (Ok(pos), Ok(Some(mon))) = (ring.outer_position(), ring.current_monitor()) {
+        let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
-        let w_now = size.width as f64 / scale;
-        let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+        let mon_top = mon.position().y as f64 / scale;
         let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
-        // Clamp the downward slack to the screen; never touch y.
-        let h_e = h_e_full.min((mon_bottom - 4.0 - py).max(h_c));
-        let target_x = if mon_right - (px + w_e) < 8.0 {
-            card_left = true;
-            mon_right - w_e
-        } else {
-            px
-        };
-        // Skip no-op geometry: re-hovering another ring fires expand again,
-        // and a redundant setFrame makes the WKWebView flash.
-        let dx = target_x - px;
-        if dx.abs() > 0.5 || (w_now - w_e).abs() > 0.5 || (h_now - h_e).abs() > 0.5 {
-            // ONE atomic setFrame — separate move/resize calls each paint
-            // their own frame; the in-between state (small window already
-            // slid left) reads as the panel flashing on the left.
-            set_frame_atomic(&win, dx, w_e, h_e.max(h_c));
-        }
-    } else {
-        let _ = win.set_size(LogicalSize::new(w_e, h_e_full));
+        card_on_left = mon_right - (px + w_c) <= 8.0;
+        let x = card_window_x(px, w_c, card_on_left);
+        let y = card_window_y(py + ring_center_y(d, index), mon_top, mon_bottom);
+        // Pure move (the window keeps its creation size) — never a resize.
+        let _ = card.set_position(LogicalPosition::new(x, y));
     }
 
-    let _ = win.emit(
-        "pulse:expand",
-        serde_json::json!({ "vendor": vendor, "cardLeft": card_left }),
+    apply_floating_level(&card, cfg.pulse_topmost);
+    let _ = card.emit(
+        "pulse:card",
+        serde_json::json!({
+            "vendor": vendor,
+            "cardOnLeft": card_on_left,
+            "theme": resolved_theme(app, &cfg),
+            "opacity": cfg.pulse_opacity.clamp(0.2, 1.0),
+        }),
     );
+    let _ = card.show();
 }
 
-/// Collapse the pulse window back to ring-only size. Mirrors the expand:
-/// y is untouched; only a flush-right panel moves x back so its right edge
-/// stays fused to the screen edge.
+/// Hide the detail card window. The ring window is never touched (it no
+/// longer changes size between hover states).
 pub fn collapse_pulse(app: &AppHandle) {
-    let Some(win) = app.get_webview_window("pulse") else {
-        return;
-    };
-    let cfg = app
-        .try_state::<AppState>()
-        .and_then(|s| s.load_config().ok())
-        .unwrap_or_default();
-
-    let ring_count = load_quota_count(app);
-    let (w_c, h_c) = collapsed_size(&cfg, ring_count);
-
-    // x-shift back to the flush edge (0 when not flush-right) + whether the
-    // window already sits at the collapsed geometry.
-    let mut dx = 0.0;
-    let mut already_collapsed = false;
-    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
-        win.outer_position(),
-        win.outer_size(),
-        win.current_monitor(),
-    ) {
-        let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
-        let px = pos.x as f64 / scale;
-        let w_now = size.width as f64 / scale;
-        let h_now = size.height as f64 / scale;
-        let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-        let flush_right = mon_right - (px + w_now) <= 8.0;
-        dx = if flush_right {
-            mon_right - w_c - px
-        } else {
-            0.0
-        };
-        // Skip the no-op resize — a redundant setFrame makes the WKWebView
-        // flash (rapid leave/re-enter cycles can collapse while collapsed).
-        already_collapsed =
-            dx.abs() <= 0.5 && (w_now - w_c).abs() <= 0.5 && (h_now - h_c).abs() <= 0.5;
+    if let Some(card) = app.get_webview_window("pulse-card") {
+        let _ = card.hide();
     }
-
-    if !already_collapsed {
-        // ONE atomic setFrame (see expand_pulse): slide back to the flush
-        // edge AND shrink in the same frame — two separate calls flash.
-        set_frame_atomic(&win, dx, w_c.max(60.0), h_c.max(60.0));
-    }
-    let _ = win.emit("pulse:collapse", ());
 }
 
 /// Count loaded quotas (for sizing).
@@ -367,6 +356,21 @@ fn load_quota_count(app: &AppHandle) -> usize {
         Err(_) => return 1,
     };
     load_quotas(&conn).len().max(1)
+}
+
+/// Dock index of a vendor (for card-window placement). Unknown → 0.
+fn load_quota_index(app: &AppHandle, vendor: &str) -> usize {
+    let Some(state) = app.try_state::<AppState>() else {
+        return 0;
+    };
+    let conn = match state.db.lock() {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    load_quotas(&conn)
+        .iter()
+        .position(|q| q.vendor == vendor)
+        .unwrap_or(0)
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
@@ -482,57 +486,6 @@ fn apply_floating_level(win: &tauri::WebviewWindow, topmost: bool) {
 #[cfg(not(target_os = "macos"))]
 fn apply_floating_level(_win: &tauri::WebviewWindow, _topmost: bool) {}
 
-/// Atomically shift x by `dx` (logical px) and resize in ONE setFrame call.
-/// Tauri's set_position/set_size are two separate setFrame round-trips —
-/// for a flush-right panel each intermediate state (small window already
-/// slid left, or wide window not yet slid back) paints its own frame and
-/// reads as a flash. The TOP edge stays fixed: the new bottom-left origin
-/// is derived from the current top minus the new height, so y never moves.
-#[cfg(target_os = "macos")]
-fn set_frame_atomic(win: &tauri::WebviewWindow, dx: f64, new_w: f64, new_h: f64) {
-    use objc::{msg_send, sel, sel_impl};
-    #[repr(C)]
-    struct NSPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    struct NSSize {
-        width: f64,
-        height: f64,
-    }
-    #[repr(C)]
-    struct NSRect {
-        origin: NSPoint,
-        size: NSSize,
-    }
-    let Ok(ns_win) = win.ns_window() else {
-        return;
-    };
-    let w: *mut objc::runtime::Object = ns_win as *mut _;
-    unsafe {
-        let cur: NSRect = msg_send![w, frame];
-        let new = NSRect {
-            origin: NSPoint {
-                x: cur.origin.x + dx,
-                y: cur.origin.y + cur.size.height - new_h,
-            },
-            size: NSSize {
-                width: new_w,
-                height: new_h,
-            },
-        };
-        let _: () = msg_send![w, setFrame: new display: false];
-    }
-}
-
-/// Non-macOS fallback: the pulse widget is macOS-only in practice, so a
-/// plain resize suffices (the flush-edge x-shift never applies there).
-#[cfg(not(target_os = "macos"))]
-fn set_frame_atomic(win: &tauri::WebviewWindow, _dx: f64, new_w: f64, new_h: f64) {
-    let _ = win.set_size(LogicalSize::new(new_w, new_h));
-}
-
 /// Resolve the effective theme from config.
 fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {
     match cfg.theme.as_str() {
@@ -643,17 +596,37 @@ mod tests {
     }
 
     #[test]
-    fn expanded_size_grows_right_and_down_only() {
-        let cfg = config::Config::default();
-        for n in [1usize, 3, 5] {
-            let (w_c, h_c) = collapsed_size(&cfg, n);
-            let (w_e, h_e) = expanded_size(&cfg, n);
-            // Card slot extends the window RIGHTWARD by spacing + card width.
-            assert_eq!(w_e, w_c + CARD_SPACING + CARD_WIDTH, "n={n} width");
-            // Vertical slack is symmetric and INDEPENDENT of which ring is
-            // hovered — the top edge NEVER moves (no lift → no flicker).
-            assert_eq!(h_e, h_c + 2.0 * CARD_SLACK, "n={n} height");
-        }
+    fn card_window_x_flanks_the_panel() {
+        // Flush-right: the card opens LEFT, its window's right edge sits
+        // CARD_GAP inside the panel's left edge.
+        let x = card_window_x(1432.0, 80.0, true);
+        assert!((x + CARD_WIN_W - (1432.0 + CARD_GAP)).abs() < f64::EPSILON);
+        // Otherwise the card opens RIGHT, window's left edge CARD_GAP past
+        // the panel's right edge.
+        let x = card_window_x(100.0, 80.0, false);
+        assert!((x - (100.0 + 80.0 - CARD_GAP)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn card_window_y_centers_on_ring_and_clamps() {
+        // Window center lands on the ring line.
+        let y = card_window_y(500.0, 0.0, 982.0);
+        assert!((y + CARD_WIN_H / 2.0 - 500.0).abs() < f64::EPSILON);
+        // Ring near the screen top → clamp to mon_top + 4.
+        assert!((card_window_y(50.0, 0.0, 982.0) - 4.0).abs() < f64::EPSILON);
+        // Ring near the screen bottom → clamp to mon_bottom - H - 4.
+        assert!(
+            (card_window_y(960.0, 0.0, 982.0) - (982.0 - CARD_WIN_H - 4.0)).abs() < f64::EPSILON
+        );
+    }
+
+    #[test]
+    fn ring_center_y_mirrors_frontend_ring_pitch() {
+        // medium (48): pitch = 48 + 21 + 14 = 83; first ring center at
+        // RAIL_TOP + 24.
+        let d = 48.0;
+        assert!((ring_center_y(d, 0) - (RAIL_TOP + 24.0)).abs() < f64::EPSILON);
+        assert!((ring_center_y(d, 2) - (RAIL_TOP + 2.0 * 83.0 + 24.0)).abs() < f64::EPSILON);
     }
 
     #[test]

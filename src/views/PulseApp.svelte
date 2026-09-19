@@ -4,59 +4,14 @@
   import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
   import { PhysicalPosition } from "@tauri-apps/api/dpi";
   import QuotaRing from "../components/pulse/QuotaRing.svelte";
-  import DetailCard from "../components/pulse/DetailCard.svelte";
   import { fmtCredits, splitBalance } from "../lib/quota-format";
+  import type { PulseData, PulseQuota } from "../lib/pulse-types";
 
-  interface PulseWindow {
-    label: string;
-    used_pct: number;
-    resets_at?: string;
-    /** Absolute used/total (e.g. credits) for "剩余 X" display. */
-    used_value?: number;
-    total_value?: number;
-  }
-
-  interface PulseBalance {
-    amount: number;
-    currency: string;
-    /** Today / month spend (API vendors, e.g. DeepSeek). */
-    today_consumption?: number;
-    month_consumption?: number;
-  }
-
-  interface PulseQuota {
-    vendor: string;
-    plan?: string;
-    /** Credits/balance-only vendor: amount under the ring, no progress arc. */
-    planless?: boolean;
-    status: string;
-    windows: PulseWindow[];
-    critical_pct: number;
-    critical_label: string;
-    balance?: PulseBalance;
-    /** Subscription plan expiry (RFC3339) — shown beside the plan badge. */
-    expires_at?: string;
-    second_pct?: number;
-    second_label?: string;
-    is_running?: boolean;
-    is_refreshing?: boolean;
-  }
-
-  interface PulseData {
-    quotas: PulseQuota[];
-    size: string;
-    ring_diameter: number;
-    theme: string;
-    /** Surface opacity (0.2–1.0), from config. */
-    opacity?: number;
-  }
-
-  // Expand payload from Rust (ui/pulse.rs expand_pulse).
-  interface ExpandPayload {
-    vendor: string | null;
-    /** true → window grew leftward, so the card opens LEFT of the rings. */
-    cardLeft?: boolean;
-  }
+  // Ring panel window. The detail card lives in its OWN window
+  // ("pulse-card", fixed size, only ever MOVED by Rust) — this window
+  // NEVER resizes, which is what keeps hover ghost/flash-free: resizing a
+  // transparent window whose content re-anchors (flush-right panel) shows
+  // one stale web-process frame; pure moves never do.
 
   let data = $state<PulseData>({
     quotas: [],
@@ -65,43 +20,9 @@
     theme: "dark",
   });
 
-  let hoveredVendor = $state<string | null>(null);
-  let isExpanded = $state(false);
-  // Which side the detail card opens on — decided by Rust (it knows which
-  // way the window grew) so the card never lands outside the window.
-  let expandCardLeft = $state(false);
-
   // Listen for data updates from Rust.
   listen<PulseData>("pulse:update", (e) => {
     data = e.payload;
-  });
-
-  listen<ExpandPayload>("pulse:expand", (e) => {
-    // Fast pass-through guard: the pointer may have already left the panel
-    // before this (async) event landed — mounting the card now would flash.
-    if (!pointerInPanel) {
-      invoke("collapse_pulse").catch(() => {});
-      return;
-    }
-    isExpanded = true;
-    expandCardLeft = !!e.payload?.cardLeft;
-    // Pre-warm expands carry vendor=null — their only job is growing the
-    // window. Entering the panel directly onto a ring fires BOTH the
-    // pre-warm and the vendor expand; the two events can arrive out of
-    // order, so a null payload must never clobber an already-hovered ring
-    // (that unmounts the card → "hover shows nothing").
-    const vendor = e.payload?.vendor ?? null;
-    if (vendor !== null) hoveredVendor = vendor;
-  });
-
-  listen("pulse:collapse", () => {
-    isExpanded = false;
-    hoveredVendor = null;
-    expandCardLeft = false;
-    if (collapseTimer !== undefined) {
-      clearTimeout(collapseTimer);
-      collapseTimer = undefined;
-    }
   });
 
   // Pull data on mount. A webview reload / HMR resets component state, and
@@ -116,7 +37,7 @@
     });
 
   // Settings changed (theme, vendors, order, …) → re-pull immediately so the
-  // panel + card follow the new theme/config without waiting for a push.
+  // panel follows the new theme/config without waiting for a push.
   listen("config:changed", () => {
     invoke<PulseData>("get_pulse_data")
       .then((d) => {
@@ -214,15 +135,13 @@
   $effect(() => {
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      // Drag only from panel chrome (title, padding), never from interactive bits.
+      // Drag only from panel chrome (title, padding), never from rings.
       if (!target?.closest(".pulse-panel")) return;
-      if (target.closest(".ring-container, .detail-tooltip")) return;
+      if (target.closest(".ring-container")) return;
       win.startDragging().catch(() => {});
     };
     const onMouseUp = () => {
-      // Persist after a drag (the 1s Rust poller is the safety net). Skip
-      // while expanded — the window is lifted, y would be wrong.
-      if (isExpanded) return;
+      // Persist after a drag (the 1s Rust poller is the safety net).
       snapToEdge().then(() => {
         win
           .outerPosition()
@@ -238,8 +157,8 @@
     };
   });
 
-  // Track window moves (fires during native drag + expand/collapse shifts)
-  // to recompute which edge is fused.
+  // Track window moves (fires during native drag) to recompute which edge
+  // is fused.
   $effect(() => {
     const unlisten = win.onMoved(() => updateFlushSide());
     return () => {
@@ -250,18 +169,16 @@
   // Initial flush detection.
   updateFlushSide();
 
-  // ── Graceful collapse + fast-sweep protection ──────────────────────────
-  // Linger: after leaving, do NOTHING for LINGER_MS — sweeping across the
-  //   panel (or over the title strip between rings) re-enters within this
-  //   window and nothing was ever hidden → zero flicker.
-  // After the linger the card unmounts instantly (no animation), and the
-  //   window shrinks one painted frame LATER — a same-tick resize squeezes
-  //   the still-rendered card and leaves a ghost.
-  // `pointerInPanel` additionally guards the async pulse:expand event: a
-  // pass-through hover that already left never mounts the card at all.
+  // ── Hover → card window + fast-sweep protection ────────────────────────
+  // Ring hover asks Rust to position + show the CARD window (this window
+  // never resizes). Leaving hides it after a linger so sweeping across the
+  // title strip between rings doesn't flicker it off/on; a ring that was
+  // touched for only a few milliseconds is a fast sweep — hide at once so
+  // the card never flashes.
   const LINGER_MS = 120;
+  const SWEEP_MS = 80;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
-  let pointerInPanel = $state(false);
+  let lastRingEnterAt = 0;
 
   function cancelPendingCollapse() {
     if (collapseTimer !== undefined) {
@@ -271,104 +188,28 @@
   }
 
   function onWrapperEnter() {
-    pointerInPanel = true;
+    // No pre-warm needed — nothing about this window changes on hover.
     cancelPendingCollapse();
-    // Pre-warm: grow the window BEFORE any ring is hovered, while nothing
-    // is visible to animate — the (transparent) resize happens with no card
-    // on screen, so entering the panel from outside never flashes. The
-    // subsequent ring-hover expand is then a no-op resize (Rust guard).
-    invoke("expand_pulse", { vendor: null }).catch(() => {});
   }
 
   function onRingEnter(vendor: string) {
-    pointerInPanel = true;
     cancelPendingCollapse();
-    // hoveredVendor + isExpanded are set by the pulse:expand listener once
-    // Rust confirms the window is ready — setting them here races with the
-    // async event and the pre-warm expand (vendor=null) which would
-    // overwrite hoveredVendor with null.
+    lastRingEnterAt = Date.now();
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
 
   function onRingLeave() {
-    // Intentionally no-op: clearing the vendor here unmounts the card for a
-    // frame between adjacent rings. The wrapper's mouseleave collapses.
+    // Intentionally no-op: the wrapper's mouseleave drives the collapse,
+    // so moving between adjacent rings never flickers the card.
   }
 
   function onWrapperLeave() {
-    pointerInPanel = false;
+    const delay = Date.now() - lastRingEnterAt < SWEEP_MS ? 0 : LINGER_MS;
     collapseTimer = setTimeout(() => {
       collapseTimer = undefined;
-      hoveredVendor = null; // unmount the card first…
-      // …then shrink the window only after that unmount has PAINTED —
-      // resizing in the same tick squeezes the still-rendered card and
-      // leaves a one-frame ghost. Double-rAF waits one painted frame.
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          if (pointerInPanel) return; // re-entered mid-flight: keep expanded
-          invoke("collapse_pulse").catch(() => {});
-        })
-      );
-    }, LINGER_MS);
+      invoke("collapse_pulse").catch(() => {});
+    }, delay);
   }
-
-  let hoveredQuota = $derived(
-    hoveredVendor
-      ? data.quotas.find((q) => q.vendor === hoveredVendor) ?? null
-      : null
-  );
-
-  // Which ring index is hovered (for card positioning).
-  let hoveredIndex = $derived(
-    hoveredVendor ? data.quotas.findIndex((q) => q.vendor === hoveredVendor) : -1
-  );
-
-  // ── Card vertical placement (window never moves — the card fits inside
-  //    the pre-expanded window; the arrow slides along the card edge to
-  //    point at the hovered ring). ─────────────────────────────────────────
-  // NOTE: coordinates are RELATIVE TO .rail-with-tooltip (the tooltip's
-  // positioned ancestor, which already sits below the title block) — do NOT
-  // add PAD_V/TITLE_BLOCK here or the card lands ~54px below the ring.
-  const EST_CARD_H = 170; // pre-measure fallback for the first frame
-
-  let cardH = $state(0); // measured via bind:clientHeight on the tooltip
-  // Hide-until-measured, re-armed on every fresh appearance: a stale
-  // height from the previous card would place this one at the wrong `top`
-  // for a frame — the appear "ghost". If the measurement never lands
-  // (ResizeObserver hiccup), stop hiding after 80ms — a permanently
-  // invisible card reads as "hover shows nothing".
-  let measureGuaranteed = $state(false);
-  $effect(() => {
-    if (hoveredVendor === null) {
-      cardH = 0;
-      measureGuaranteed = false;
-      return;
-    }
-    const t = setTimeout(() => {
-      measureGuaranteed = true;
-    }, 80);
-    return () => clearTimeout(t);
-  });
-
-  // Hovered ring's center Y within the rail (index·pitch + half the ring).
-  let ringY = $derived(
-    hoveredIndex < 0
-      ? 0
-      : hoveredIndex * (data.ring_diameter + LABEL_H + ITEM_GAP) + data.ring_diameter / 2
-  );
-
-  // Card top: centered on the ring; the Rust expand reserves 140px of slack
-  // BELOW the panel so no upper clamp is needed beyond ≥ 0.
-  let cardTop = $derived.by(() => {
-    if (hoveredIndex < 0) return 0;
-    return Math.max(0, ringY - (cardH || EST_CARD_H) / 2);
-  });
-
-  // Arrow position on the card edge: where the ring actually is.
-  let arrowY = $derived.by(() => {
-    const h = cardH || EST_CARD_H;
-    return Math.max(12, Math.min(ringY - cardTop, h - 12));
-  });
 
   // Panel-level title explaining the percentage mode.
   let panelTitle = $derived("使用量");
@@ -404,18 +245,15 @@
   class:light={data.theme !== "dark"}
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
-  class:grow-left={expandCardLeft}
-  class:card-left={expandCardLeft}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px"
 >
-  <!-- Visual surface: bg + blur + radius. Its own layer so the tooltip
-       card can overflow the panel body. -->
+  <!-- Visual surface: bg + blur + radius. -->
   <div class="panel-surface" aria-hidden="true"></div>
 
   <!-- Panel title (mode indicator) -->
   <div class="panel-title">{panelTitle}</div>
 
-  <!-- Ring rail + tooltip container -->
+  <!-- Ring rail -->
   <div
     class="rail-with-tooltip"
     onmouseenter={onWrapperEnter}
@@ -449,28 +287,14 @@
         </div>
       {/if}
     </div>
-
-    <!-- Detail tooltip card — vertically centered on the hovered ring and
-         clamped inside the (pre-expanded) window; the arrow slides along
-         the card edge to point straight at the ring. -->
-    {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
-      <div
-        class="detail-tooltip"
-        class:measuring={cardH === 0 && !measureGuaranteed}
-        bind:clientHeight={cardH}
-        style="top: {cardTop}px; --arrow-y: {arrowY}px"
-      >
-        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} dark={data.theme === "dark"} pulseAlpha={data.opacity ?? 1} />
-      </div>
-    {/if}
   </div>
 </div>
 
 <style>
   /* The pulse window is borderless + transparent. Strip the popover chrome
      app.css puts on html/body/#app — the opaque bg, border and 15px radius
-     would paint a rounded opaque rect over the whole (expanded) window and
-     clip the fused flat edge. */
+     would paint a rounded opaque rect over the whole window and clip the
+     fused flat edge. */
   :global(html:has(.pulse-panel)),
   :global(body:has(.pulse-panel)),
   :global(#app:has(.pulse-panel)) {
@@ -486,8 +310,6 @@
     --pulse-warning: #ff4f42;
     --pulse-exhausted: #d92027;
     --pulse-bg: rgba(0, 0, 0, var(--pulse-alpha, 1));
-    --pulse-ring-bg: rgba(0, 0, 0, var(--pulse-alpha, 1));
-    --pulse-card-bg: rgba(12, 12, 12, 0.96);
     --pulse-text: #f2ede3;
     --pulse-text-dim: #8a857b;
     --pulse-track: rgba(255, 255, 255, 0.12);
@@ -500,8 +322,6 @@
     --pulse-warning: #cc2200;
     --pulse-exhausted: #a81820;
     --pulse-bg: rgba(240, 238, 234, var(--pulse-alpha, 1));
-    --pulse-ring-bg: rgba(240, 238, 234, var(--pulse-alpha, 1));
-    --pulse-card-bg: rgba(250, 248, 244, 0.96);
     --pulse-text: #1a1610;
     --pulse-text-dim: #7a756c;
     --pulse-track: rgba(0, 0, 0, 0.10);
@@ -510,7 +330,7 @@
 
   /* ── Panel shell ──────────────────────────────────────────────────────
      Visual surface (bg + blur + shape) lives on .panel-surface; the shell
-     itself stays unclipped so the detail tooltip can overflow it. */
+     itself stays simple. */
 
   .pulse-panel {
     position: relative;
@@ -560,8 +380,7 @@
   }
 
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
-     biased toward the edge (smaller padding on the fused side). The window
-     keeps a few px of slack, so right-fusing also right-anchors the panel. */
+     biased toward the edge (smaller padding on the fused side). */
   .pulse-panel.flush-right {
     padding: 30px 10px 30px 18px;
     margin-left: auto;
@@ -571,13 +390,6 @@
   .pulse-panel.flush-left {
     padding: 30px 18px 30px 10px;
     margin-left: -1px;
-  }
-
-  /* Right-fused expand: macOS anchors resizes top-left, so Rust shifts the
-     window leftward — right-anchor the panel so the rings don't jump. */
-  .pulse-panel.grow-left {
-    margin-left: auto;
-    margin-right: -1px;
   }
 
   /* ── Ring dock ─────────────────────────────────────────────────────── */
@@ -618,36 +430,6 @@
     text-align: center;
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
       -apple-system, sans-serif;
-  }
-
-  /* ── Detail tooltip card ────────────────────────────────────────────── */
-
-  .detail-tooltip {
-    position: absolute;
-    pointer-events: auto;
-    z-index: 20;
-  }
-
-  /* Pre-measure frame: the estimated height can differ from the real card,
-     so stay invisible until bind:clientHeight lands (one frame) — this
-     kills the position-jump flash on first hover. */
-  .detail-tooltip.measuring {
-    opacity: 0;
-  }
-
-  /* Card sits 30px clear of the panel's INNER edge (= pad_inner 18 + 30 =
-     48px from the ring rail). Vertical position comes from inline `top`
-     (ring-centered, clamped inside the window) — the window itself never
-     moves, so there is nothing to compensate for. */
-  .vertical .detail-tooltip {
-    left: calc(var(--ring-size) + 48px);
-  }
-
-  /* Window grew leftward (fused right / overflow clamped): the card opens
-     to the LEFT of the rings, into the screen interior. */
-  .vertical.card-left .detail-tooltip {
-    left: auto;
-    right: calc(var(--ring-size) + 48px);
   }
 
   /* ── Empty state ────────────────────────────────────────────────────── */
