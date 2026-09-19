@@ -254,8 +254,9 @@
   // Linger: after leaving, do NOTHING for LINGER_MS — sweeping across the
   //   panel (or over the title strip between rings) re-enters within this
   //   window and nothing was ever hidden → zero flicker.
-  // After the linger the card unmounts + window shrinks instantly (no
-  //   animation — the card simply appears and disappears).
+  // After the linger the card unmounts instantly (no animation), and the
+  //   window shrinks one painted frame LATER — a same-tick resize squeezes
+  //   the still-rendered card and leaves a ghost.
   // `pointerInPanel` additionally guards the async pulse:expand event: a
   // pass-through hover that already left never mounts the card at all.
   const LINGER_MS = 120;
@@ -298,8 +299,16 @@
     pointerInPanel = false;
     collapseTimer = setTimeout(() => {
       collapseTimer = undefined;
-      hoveredVendor = null;
-      invoke("collapse_pulse").catch(() => {});
+      hoveredVendor = null; // unmount the card first…
+      // …then shrink the window only after that unmount has PAINTED —
+      // resizing in the same tick squeezes the still-rendered card and
+      // leaves a one-frame ghost. Double-rAF waits one painted frame.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (pointerInPanel) return; // re-entered mid-flight: keep expanded
+          invoke("collapse_pulse").catch(() => {});
+        })
+      );
     }, LINGER_MS);
   }
 
@@ -323,11 +332,18 @@
   const EST_CARD_H = 170; // pre-measure fallback for the first frame
 
   let cardH = $state(0); // measured via bind:clientHeight on the tooltip
-  // Safety bound: if the height measurement never lands (ResizeObserver
-  // hiccup), stop hiding the card after 80ms — a permanently-invisible
-  // card reads as "hover shows nothing" while the window still expands.
+  // Hide-until-measured, re-armed on every fresh appearance: a stale
+  // height from the previous card would place this one at the wrong `top`
+  // for a frame — the appear "ghost". If the measurement never lands
+  // (ResizeObserver hiccup), stop hiding after 80ms — a permanently
+  // invisible card reads as "hover shows nothing".
   let measureGuaranteed = $state(false);
   $effect(() => {
+    if (hoveredVendor === null) {
+      cardH = 0;
+      measureGuaranteed = false;
+      return;
+    }
     const t = setTimeout(() => {
       measureGuaranteed = true;
     }, 80);

@@ -69,9 +69,15 @@
   class:dark={dark}
   style:--card-alpha={pulseAlpha}
 >
-  <!-- Arrow: large triangle protruding from the card's panel-facing
-       edge, positioned at --arrow-y (the hovered ring's line). -->
-  <div class="card-arrow" aria-hidden="true"></div>
+  <!-- Surface layer: bg + border + tail in ONE compositing layer. The
+       panel-matching alpha is applied via `opacity` here, so the tail's
+       overlap with the body never double-stacks translucency, and the
+       card border can't show through the junction (no dividing line). -->
+  <div class="card-surface" aria-hidden="true">
+    <!-- Arrow: large triangle protruding from the card's panel-facing
+         edge, positioned at --arrow-y (the hovered ring's line). -->
+    <div class="card-arrow"></div>
+  </div>
 
   <div class="card-body">
     <!-- Header: icon + vendor + plan badge; expiry hugs the line above. -->
@@ -156,9 +162,11 @@
 <style>
   /* Solid tooltip card — no glass/backdrop-filter, no shadows (a dark
      shadow reads as a translucent black background). Theme-aware via CSS
-     vars; all text uniform size per user preference. */
+     vars; all text uniform size per user preference. The bg/border/tail
+     live on .card-surface (one compositing layer) so the tail fuses
+     seamlessly with the body at every opacity. */
   .detail-card {
-    --card-bg: rgba(247, 245, 241, var(--card-alpha, 1));
+    --card-solid: #f7f5f1;
     --card-text: #1a1610;
     --card-border: rgba(0, 0, 0, 0.12);
     --card-track: rgba(0, 0, 0, 0.08);
@@ -166,9 +174,6 @@
     position: relative;
     min-width: 242px;
     max-width: 297px;
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 20px;
     padding: 14px 14px;
     font-size: 9px;
     line-height: 1.45;
@@ -178,14 +183,29 @@
   }
 
   .detail-card.dark {
-    --card-bg: rgba(22, 20, 15, var(--card-alpha, 1));
+    --card-solid: #16140f;
     --card-text: #f2ede3;
     --card-border: rgba(255, 255, 255, 0.1);
     --card-track: rgba(255, 255, 255, 0.1);
     --card-badge: rgba(255, 255, 255, 0.1);
   }
 
-  /* ── Arrow: large triangle on the card edge, pointing at the ring ── */
+  /* ── Surface layer: bg + border + tail, one compositing layer ──────
+     Solid fills inside; the panel-matching alpha is applied once via
+     `opacity` — overlapping regions can't double-stack translucency. */
+  .card-surface {
+    position: absolute;
+    inset: 0;
+    background: var(--card-solid);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    opacity: var(--card-alpha, 1);
+  }
+
+  /* ── Arrow: large triangle on the card edge, pointing at the ring ──
+     14px wide with a 2px overlap INTO the card — opaque-over-opaque
+     covers the border at the junction so the tail reads as part of the
+     body (no dividing line), at every opacity. */
   .card-arrow {
     position: absolute;
     top: var(--arrow-y, 50%);
@@ -195,16 +215,17 @@
     height: 0;
     border-top: 12px solid transparent;
     border-bottom: 12px solid transparent;
-    border-right: 12px solid var(--card-bg);
+    border-right: 14px solid var(--card-solid);
   }
   .detail-card.card-right .card-arrow {
     left: auto;
     right: -12px;
     border-right: none;
-    border-left: 12px solid var(--card-bg);
+    border-left: 14px solid var(--card-solid);
   }
 
   .card-body {
+    position: relative; /* paints above the positioned surface layer */
     display: flex;
     flex-direction: column;
     gap: 7px;

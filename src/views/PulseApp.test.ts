@@ -187,6 +187,54 @@ describe("PulseApp", () => {
     expect(target.querySelector(".detail-card")).toBeTruthy();
   });
 
+  it("hides the fresh card until measured, then reveals it (no appear ghost)", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    enterPanel(target);
+    emit("pulse:expand", { vendor: "codex", cardLeft: false });
+    await flush();
+
+    const tooltip = target.querySelector<HTMLElement>(".detail-tooltip");
+    expect(tooltip).toBeTruthy();
+    // ResizeObserver is a no-op mock → the height never lands → the card
+    // must stay hidden (measuring) instead of flashing at a wrong `top`.
+    expect(tooltip?.classList.contains("measuring")).toBe(true);
+
+    // 80ms fallback gives up hiding — card becomes visible.
+    await new Promise((r) => setTimeout(r, 90));
+    expect(tooltip?.classList.contains("measuring")).toBe(false);
+  });
+
+  it("shrinks the window only after the card unmount has painted", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+    enterPanel(target);
+    emit("pulse:expand", { vendor: "codex", cardLeft: false });
+    await flush();
+    invokeMock.mockClear();
+
+    target
+      .querySelector(".rail-with-tooltip")
+      ?.dispatchEvent(new MouseEvent("mouseleave"));
+    // Linger (120ms) elapsed → the card is unmounted, but collapse must
+    // still be waiting on its double-rAF (never the same tick).
+    await new Promise((r) => setTimeout(r, 130));
+    expect(target.querySelector(".detail-tooltip")).toBeFalsy();
+    expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
+
+    // rAF chain drains → the window shrinks after the unmount painted.
+    await new Promise((r) => setTimeout(r, 80));
+    expect(invokeMock).toHaveBeenCalledWith("collapse_pulse");
+  });
+
   it("clears expansion on pulse:collapse", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
