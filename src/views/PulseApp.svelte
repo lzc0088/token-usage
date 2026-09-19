@@ -310,7 +310,7 @@
         class="detail-tooltip"
         style="--hover-index: {hoveredIndex}; --ring-gap: {LABEL_H + ITEM_GAP}px;"
       >
-        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} />
+        <DetailCard quota={hoveredQuota} cardSide={expandCardLeft ? "right" : "left"} alpha={data.opacity ?? 1} dark={data.theme === "dark"} />
       </div>
     {/if}
   </div>

@@ -37,18 +37,31 @@
   interface Props {
     quota: PulseQuota;
     cardSide: "left" | "right";
+    /** Panel opacity (0.2–1.0), applied to card background. */
+    alpha?: number;
+    dark?: boolean;
   }
 
-  const { quota, cardSide }: Props = $props();
+  const { quota, cardSide, alpha = 1, dark = false }: Props = $props();
   const nowMs = Date.now();
+
+  // Reactive card background following the panel's opacity.
+  let cardBg = $derived(
+    dark
+      ? `rgba(12,12,12,${(0.96 * alpha).toFixed(2)})`
+      : `rgba(250,248,244,${(0.96 * alpha).toFixed(2)})`
+  );
 </script>
 
-<div class="detail-card" class:card-right={cardSide === "right"}>
-  <!-- Simple arrow pointer: left-pointing triangle, centered, 2px gap -->
-  <div class="card-pointer"></div>
+<div
+  class="detail-card"
+  class:card-right={cardSide === "right"}
+  style="background:{cardBg}"
+>
+  <div class="card-pointer" style="border-right-color:{cardBg};border-left-color:{cardBg}"></div>
 
   <div class="card-body">
-    <!-- Header: icon + vendor + plan badge …… 到期时间 (right) -->
+    <!-- Header: icon + vendor + plan badge -->
     <div class="card-header">
       <div class="header-line">
         <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
@@ -65,29 +78,31 @@
       {/if}
     </div>
 
-    <!-- Window rows -->
+    <!-- Window sections — 三行左对齐: 标题 · 进度条+百分比 · 数量 -->
     {#if quota.windows.length > 0}
       <div class="window-bars">
         {#each quota.windows as win}
-          <div class="window-row">
-            <!-- Row 1: name · bar · remaining · pct (single line) -->
-            <div class="row-main">
-              <span class="row-title">{windowLabel(win.label)}</span>
-              <div class="row-track">
+          <div class="window-section">
+            <div class="ws-title">{windowLabel(win.label)}</div>
+            <div class="ws-bar-row">
+              <div class="ws-track">
                 <div
-                  class="row-fill"
+                  class="ws-fill"
                   style="width:{Math.min(100, win.used_pct)}%"
                 ></div>
               </div>
-              {#if win.total_value != null && win.used_value != null}
-                <span class="row-remain">{fmtCredits(win.total_value - win.used_value)}</span>
-              {/if}
-              <span class="row-pct">{win.used_pct.toFixed(2)}%</span>
+              <span class="ws-pct">{win.used_pct.toFixed(2)}%</span>
             </div>
-            <!-- Row 2: reset time, centered vertically with the bar above -->
-            {#if win.resets_at}
-              <div class="row-reset">{formatReset(win.resets_at, nowMs)}</div>
-            {/if}
+            <div class="ws-value">
+              {#if win.total_value != null && win.used_value != null}
+                <span class="ws-remain">
+                  剩余 {fmtCredits(win.total_value - win.used_value)}
+                </span>
+              {/if}
+              {#if win.resets_at}
+                <span class="ws-reset">{formatReset(win.resets_at, nowMs)}</span>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
@@ -133,17 +148,17 @@
   .detail-card {
     position: relative;
     min-width: 220px;
-    max-width: 260px;
-    background: var(--pulse-card-bg, #0c0c0c);
+    max-width: 270px;
     border-radius: 10px;
     padding: 10px 12px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
     font-size: 10px;
     line-height: 1.45;
     color: var(--pulse-text);
+    /* background set inline via JS (follows panel opacity) */
   }
 
-  /* ── Simple triangle arrow pointer ──────────────────────────── */
+  /* ── Arrow pointer (CSS triangle) ──────────────────────────── */
   .card-pointer {
     position: absolute;
     top: 50%;
@@ -153,19 +168,24 @@
     height: 0;
     border-top: 6px solid transparent;
     border-bottom: 6px solid transparent;
-    border-right: 6px solid var(--pulse-card-bg, #0c0c0c);
+    border-right: 6px solid; /* color set inline */
   }
+  /* card-right: arrow on the right, pointing right */
   .detail-card.card-right .card-pointer {
     left: auto;
     right: -6px;
     border-right: none;
-    border-left: 6px solid var(--pulse-card-bg, #0c0c0c);
+    border-left: 6px solid;
+  }
+  /* left: arrow pointing left, color set inline */
+  .detail-card:not(.card-right) .card-pointer {
+    border-right: 6px solid;
   }
 
   .card-body {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 8px;
   }
 
   /* ── Header ──────────────────────────────────────────────────── */
@@ -228,69 +248,74 @@
     opacity: 0.8;
   }
 
-  /* ── Window rows ───────────────────────────────────────────── */
+  /* ── Window section: 三行左对齐 ─────────────────────────────── */
   .window-bars {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .window-section {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  /* 第一行: 标题 */
+  .ws-title {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--pulse-text-dim, #8a857b);
+  }
+
+  /* 第二行: 进度条 + 百分比 */
+  .ws-bar-row {
+    display: flex;
+    align-items: center;
     gap: 6px;
   }
 
-  .window-row {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  /* Row 1: name · bar · remain · pct — all on one line */
-  .row-main {
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .row-title {
-    font-size: 9px;
-    color: var(--pulse-text-dim, #8a857b);
-    white-space: nowrap;
-  }
-
-  .row-track {
-    width: 52px;
-    height: 3px;
-    border-radius: 2px;
+  .ws-track {
+    flex: 1;
+    height: 5px;
+    border-radius: 3px;
     background: var(--pulse-bar-track, rgba(255, 255, 255, 0.1));
     overflow: hidden;
   }
 
-  .row-fill {
+  .ws-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: 3px;
     background: var(--pulse-good, #00e68a);
     transition: width 0.35s ease;
   }
 
-  .row-remain {
+  .ws-pct {
     font-size: 9px;
     font-weight: 600;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-    white-space: nowrap;
-  }
-
-  .row-pct {
-    font-size: 9px;
-    font-weight: 600;
-    width: 40px;
+    width: 44px;
     text-align: right;
     font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    flex-shrink: 0;
   }
 
-  /* Row 2: reset time, vertically centered with the bar above */
-  .row-reset {
+  /* 第三行: 剩余数量 + 重置时间 */
+  .ws-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ws-remain {
+    font-size: 9px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  }
+
+  .ws-reset {
     font-size: 8px;
     color: var(--pulse-text-dim, #8a857b);
     opacity: 0.75;
-    padding-left: 1px;
   }
 
   /* ── Balance + consumption ──────────────────────────────────── */
