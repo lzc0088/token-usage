@@ -58,6 +58,49 @@ const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
 /// KV key persisting the pulse panel's on-screen position.
 const POS_KEY: &str = "pulse_pos";
 
+/// Hot-path cache for card-window placement: dock order, ring pitch, theme,
+/// opacity. Refreshed by `push_pulse_data` (every quota/config change), so a
+/// hover expand does ZERO database work — expand_pulse is a synchronous
+/// command on the main thread, and per-hover DB reads made hovering janky.
+#[derive(Clone)]
+struct DockCache {
+    vendors: Vec<String>,
+    diameter: f64,
+    panel_w: f64,
+    theme: String,
+    opacity: f64,
+}
+
+static DOCK_CACHE: std::sync::Mutex<Option<DockCache>> = std::sync::Mutex::new(None);
+
+/// Rebuild the dock cache from data that is already loaded (no extra reads).
+fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) {
+    let d = ring_diameter(&cfg.pulse_size);
+    let cache = DockCache {
+        vendors: quotas.iter().map(|q| q.vendor.clone()).collect(),
+        diameter: d,
+        panel_w: d + PANEL_PAD * 2.0,
+        theme: theme.to_string(),
+        opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
+    };
+    *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
+}
+
+/// Dock cache for the hover hot path. Cold (push never ran yet) → build
+/// once from the DB; afterwards it is refreshed by push_pulse_data.
+fn dock_cache(app: &AppHandle) -> Option<DockCache> {
+    if let Some(c) = DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Some(c);
+    }
+    let state = app.try_state::<AppState>()?;
+    let conn = state.db.lock().ok()?;
+    let cfg = config::load(&conn).ok()?;
+    let quotas = load_quotas(&conn);
+    let theme = resolved_theme(app, &cfg);
+    refresh_dock_cache(&cfg, &theme, &quotas);
+    DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Resolve ring diameter from config size string.
 fn ring_diameter(size: &str) -> f64 {
     match size {
@@ -118,6 +161,9 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     }
 
     let payload = build_pulse_data(app, conn);
+
+    // Keep the hover hot-path cache in lockstep with what was just pushed.
+    refresh_dock_cache(&cfg, &payload.theme, &payload.quotas);
 
     // Both windows consume the payload (the card window follows theme,
     // opacity, and live usage updates while it happens to be open).
@@ -299,16 +345,13 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(vendor) = vendor else {
         return;
     };
+    // Hot path: dock layout comes from the cache (refreshed on every
+    // quota/config push) — no DB access on the main thread per hover.
+    let Some(dock) = dock_cache(app) else {
+        return;
+    };
 
-    let cfg = app
-        .try_state::<AppState>()
-        .and_then(|s| s.load_config().ok())
-        .unwrap_or_default();
-
-    let ring_count = load_quota_count(app);
-    let (w_c, _) = collapsed_size(&cfg, ring_count);
-    let d = ring_diameter(&cfg.pulse_size);
-    let index = load_quota_index(app, &vendor);
+    let index = dock.vendors.iter().position(|v| *v == vendor).unwrap_or(0);
 
     let mut card_on_left = false;
     if let (Ok(pos), Ok(Some(mon))) = (ring.outer_position(), ring.current_monitor()) {
@@ -318,21 +361,24 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let mon_top = mon.position().y as f64 / scale;
         let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
-        card_on_left = mon_right - (px + w_c) <= 8.0;
-        let x = card_window_x(px, w_c, card_on_left);
-        let y = card_window_y(py + ring_center_y(d, index), mon_top, mon_bottom);
+        card_on_left = mon_right - (px + dock.panel_w) <= 8.0;
+        let x = card_window_x(px, dock.panel_w, card_on_left);
+        let y = card_window_y(
+            py + ring_center_y(dock.diameter, index),
+            mon_top,
+            mon_bottom,
+        );
         // Pure move (the window keeps its creation size) — never a resize.
         let _ = card.set_position(LogicalPosition::new(x, y));
     }
 
-    apply_floating_level(&card, cfg.pulse_topmost);
     let _ = card.emit(
         "pulse:card",
         serde_json::json!({
             "vendor": vendor,
             "cardOnLeft": card_on_left,
-            "theme": resolved_theme(app, &cfg),
-            "opacity": cfg.pulse_opacity.clamp(0.2, 1.0),
+            "theme": dock.theme,
+            "opacity": dock.opacity,
         }),
     );
     let _ = card.show();
@@ -344,33 +390,6 @@ pub fn collapse_pulse(app: &AppHandle) {
     if let Some(card) = app.get_webview_window("pulse-card") {
         let _ = card.hide();
     }
-}
-
-/// Count loaded quotas (for sizing).
-fn load_quota_count(app: &AppHandle) -> usize {
-    let Some(state) = app.try_state::<AppState>() else {
-        return 1;
-    };
-    let conn = match state.db.lock() {
-        Ok(c) => c,
-        Err(_) => return 1,
-    };
-    load_quotas(&conn).len().max(1)
-}
-
-/// Dock index of a vendor (for card-window placement). Unknown → 0.
-fn load_quota_index(app: &AppHandle, vendor: &str) -> usize {
-    let Some(state) = app.try_state::<AppState>() else {
-        return 0;
-    };
-    let conn = match state.db.lock() {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
-    load_quotas(&conn)
-        .iter()
-        .position(|q| q.vendor == vendor)
-        .unwrap_or(0)
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
