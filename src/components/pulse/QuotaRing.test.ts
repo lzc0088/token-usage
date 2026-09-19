@@ -59,6 +59,6 @@ describe("QuotaRing", () => {
     const target = renderRing({ diameter: 48 });
     const icon = target.querySelector<HTMLElement>(".ring-icon");
     expect(icon).toBeTruthy();
-    expect(icon?.style.width).toBe("26px");
+    expect(icon?.style.width).toBe("19px");
   });
 });

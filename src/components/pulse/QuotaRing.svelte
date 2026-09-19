@@ -35,8 +35,8 @@
   let radius = $derived((diameter - strokeWidth) / 2);
   let circumference = $derived(2 * Math.PI * radius);
   let centerRadius = $derived(Math.max(4, (diameter - strokeWidth * 2 - 8) / 2));
-  // Center glyph size — fills most of the hole inside the ring track.
-  let iconSize = $derived(Math.round(centerRadius * 1.7));
+  // Center glyph size — small mark floating in the (transparent) hole.
+  let iconSize = $derived(Math.round(centerRadius * 1.25));
   // Real brand SVG markup from the app's shared icon set (currentColor fill).
   let iconMarkup = $derived(vendorIconMarkup(vendor));
   let iconOffset = $derived((diameter - iconSize) / 2);
@@ -221,14 +221,7 @@
       transform="rotate(-90 {diameter / 2} {diameter / 2})"
     />
 
-    <!-- ── Center disc (dark, creates separation) ──────────────────────── -->
-    <circle
-      cx={diameter / 2}
-      cy={diameter / 2}
-      r={centerRadius}
-      fill="var(--pulse-ring-bg)"
-    />
-
+    <!-- No center disc — the glyph floats over the transparent hole. -->
   </svg>
 
   <!-- ── Center glyph: real brand mark only (pct lives below the ring) ── -->

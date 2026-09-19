@@ -1,6 +1,6 @@
 <script lang="ts">
   import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
-  import { fmtCredits } from "../../lib/quota-format";
+  import { fmtCredits, formatShortExpiry } from "../../lib/quota-format";
 
   interface PulseWindow {
     label: string;
@@ -25,6 +25,8 @@
     critical_pct: number;
     critical_label: string;
     balance?: PulseBalance;
+    /** Subscription plan expiry (RFC3339). */
+    expires_at?: string;
   }
 
   interface Props {
@@ -114,6 +116,9 @@
       <span class="vendor-name">{displayName}</span>
       {#if quota.plan}
         <span class="plan-badge">{quota.plan}</span>
+      {/if}
+      {#if quota.expires_at && formatShortExpiry(quota.expires_at)}
+        <span class="plan-badge expiry">到期 {formatShortExpiry(quota.expires_at)}</span>
       {/if}
     </div>
 
@@ -270,6 +275,10 @@
     color: var(--pulse-text-dim);
     font-weight: 500;
     letter-spacing: 0.01em;
+  }
+
+  .plan-badge.expiry {
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
   }
 
   .window-list {

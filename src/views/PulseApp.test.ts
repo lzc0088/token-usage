@@ -145,20 +145,24 @@ describe("PulseApp", () => {
     const style =
       target.querySelector<HTMLElement>(".panel-surface")?.getAttribute("style") ?? "";
     expect(style).toContain("clip-path");
-    // path("M 0 c C 0 c1 x2 y2 W 0 L W H C ...") — parse the TOP cap numbers.
-    const m = style.match(/M 0 ([\d.]+) C 0 ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) 0/);
+    // path("M 0 c C c1x c1y c2x c2y W 0 L W H C ...") — parse the TOP cap.
+    const m = style.match(
+      /M 0 ([\d.]+) C ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) 0/
+    );
     expect(m).toBeTruthy();
-    const [c, c1, y2] = [Number(m![1]), Number(m![2]), Number(m![4])];
+    const [c, c1x, c1y, c2x, c2y, w] = m!.slice(1).map(Number);
 
-    // Deepest cut AT the inner corner; control point stays above the corner.
-    expect(c).toBeGreaterThan(48);
-    expect(c1).toBeLessThan(c);
-    // Arrives flat (horizontal tangent) at the fused edge.
-    expect(y2).toBe(0);
+    // Leaf cap: inner corner carved deep, soft fillet (c1y just under c),
+    // early lift (c2y small, c2x past mid-width), flat arrival at the edge.
+    expect(c).toBeGreaterThan(36);
+    expect(c1y).toBeLessThan(c);
+    expect(c1x).toBeLessThan(w * 0.2);
+    expect(c2y).toBeLessThan(c * 0.2);
+    expect(c2x).toBeGreaterThan(w * 0.5);
 
     // Sample the cubic: the top cap must rise monotonically toward the edge.
     const bez = (t: number) =>
-      (1 - t) ** 3 * c + 3 * (1 - t) ** 2 * t * c1 + 3 * (1 - t) * t * t * y2;
+      (1 - t) ** 3 * c + 3 * (1 - t) ** 2 * t * c1y + 3 * (1 - t) * t * t * c2y;
     let prev = c;
     for (let i = 1; i <= 10; i++) {
       const y = bez(i / 10);

@@ -31,6 +31,8 @@
     critical_pct: number;
     critical_label: string;
     balance?: PulseBalance;
+    /** Subscription plan expiry (RFC3339) — shown beside the plan badge. */
+    expires_at?: string;
     second_pct?: number;
     second_label?: string;
     is_running?: boolean;
@@ -108,9 +110,9 @@
   const TITLE_BLOCK = 24;
   const PAD_V_MIN = 14;
   // Swoop amplitude: fraction of the content height, clamped.
-  const SWOOP_FRAC = 0.45;
-  const SWOOP_MIN = 48;
-  const SWOOP_MAX = 170;
+  const SWOOP_FRAC = 0.30;
+  const SWOOP_MIN = 36;
+  const SWOOP_MAX = 110;
   // Panel height cap — the ring dock scrolls beyond this.
   const MAX_PANEL_H = 520;
   const PAD_FLUSH_INNER = 18;
@@ -126,7 +128,7 @@
     Math.min(Math.max(contentH * SWOOP_FRAC, SWOOP_MIN), SWOOP_MAX)
   );
   // Vertical padding clears the swoop curve at the content's x-extent.
-  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.3)));
+  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.68)));
   // Dock height capped by MAX_PANEL_H (scrolls when overflow).
   let dockMax = $derived(Math.max(60, MAX_PANEL_H - padV * 2 - TITLE_BLOCK));
   let dockH = $derived(Math.min(dockNatural, dockMax));
@@ -142,21 +144,20 @@
   );
   let panelW = $derived(data.ring_diameter + padH);
 
-  // Flush silhouette per the reference mock: the INNER-side corner is carved
-  // LOWEST (~1/3 of panel height) and the boundary rises in an S-shaped
-  // SLOPE toward the fused screen edge — tight fillet out of the corner,
-  // steep mid sweep, flat (horizontal) arrival at the edge, which stays
-  // full height. Floating → rounded pill.
+  // Flush silhouette: a harmonious leaf cap — the inner corner is carved
+  // ~1/4 of the panel height, and one smooth sweep lifts steadily from the
+  // soft corner fillet to a flat arrival at the fused screen edge (which
+  // stays full height). Both caps mirror; floating → rounded pill.
   let surfaceStyle = $derived.by(() => {
     const w = panelW;
     const h = Math.max(panelH, SWOOP_MIN);
     const c = Math.min(swoopC, h / 2.5);
     const f = (v: number) => v.toFixed(1);
     if (flushSide === "right") {
-      return `clip-path: path("M 0 ${f(c)} C 0 ${f(c * 0.55)} ${f(w * 0.45)} 0 ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.45)} ${f(h)} 0 ${f(h - c * 0.55)} 0 ${f(h - c)} Z")`;
+      return `clip-path: path("M 0 ${f(c)} C ${f(w * 0.12)} ${f(c * 0.9)} ${f(w * 0.58)} ${f(c * 0.14)} ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.58)} ${f(h)} ${f(w * 0.12)} ${f(h - c * 0.9)} 0 ${f(h - c)} Z")`;
     }
     if (flushSide === "left") {
-      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w)} ${f(c * 0.55)} ${f(w * 0.55)} 0 0 0 L 0 ${f(h)} C ${f(w * 0.55)} ${f(h)} ${f(w)} ${f(h - c * 0.55)} ${f(w)} ${f(h - c)} Z")`;
+      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w * 0.88)} ${f(c * 0.9)} ${f(w * 0.42)} ${f(c * 0.14)} 0 0 L 0 ${f(h)} C ${f(w * 0.42)} ${f(h)} ${f(w * 0.88)} ${f(h - c * 0.9)} ${f(w)} ${f(h - c)} Z")`;
     }
     return "";
   });
@@ -500,12 +501,12 @@
   }
 
   /* Card is CENTERED on the hovered ring (pointer beak at its vertical
-     middle), kept 22px clear of the panel edge (pad_inner 18 + margin).
-     Rust guarantees the room: the window top is lifted and the height
-     extended (payload.lift) so no CSS clamping is needed — the card never
-     offsets away from the ring. */
+     middle), kept 10px clear of the panel's INNER edge (= pad_inner 18 +
+     10 = 28px from the ring rail). Rust guarantees the room: the window top
+     is lifted and the height extended (payload.lift) so no CSS clamping is
+     needed — the card never offsets away from the ring. */
   .vertical .detail-tooltip {
-    left: calc(var(--ring-size) + 22px);
+    left: calc(var(--ring-size) + 28px);
     top: calc(
       var(--hover-index) * (var(--ring-size) + var(--ring-gap)) +
       var(--ring-size) / 2
@@ -517,7 +518,7 @@
      to the LEFT of the rings, into the screen interior. */
   .vertical.card-left .detail-tooltip {
     left: auto;
-    right: calc(var(--ring-size) + 22px);
+    right: calc(var(--ring-size) + 28px);
   }
 
   @keyframes tooltipIn {

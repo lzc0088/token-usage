@@ -30,12 +30,13 @@ const TITLE_BLOCK: f64 = 24.0;
 const PAD_V_MIN: f64 = 14.0;
 
 /// Swoop amplitude (flush silhouette): fraction of the content height,
-/// clamped. Per the reference mock, the inner-side corners are carved LOWEST
-/// (~1/3 of panel height) and the boundary rises in an S-shaped SLOPE
-/// (corner fillet → steep sweep → flat arrival at the fused screen edge).
-const SWOOP_FRAC: f64 = 0.45;
-const SWOOP_MIN: f64 = 48.0;
-const SWOOP_MAX: f64 = 170.0;
+/// clamped. Harmonious proportions: the inner corner is carved ~1/4 of the
+/// panel height and the boundary sweeps up smoothly (soft fillet → steady
+/// lift → flat arrival at the fused edge), deep enough to read as a leaf
+/// cap without crowding the content.
+const SWOOP_FRAC: f64 = 0.30;
+const SWOOP_MIN: f64 = 36.0;
+const SWOOP_MAX: f64 = 110.0;
 
 /// Panel height cap (logical px) — beyond this the ring dock scrolls.
 const MAX_PANEL_H: f64 = 520.0;
@@ -45,8 +46,8 @@ const MAX_PANEL_H: f64 = 520.0;
 const PANEL_PAD: f64 = 16.0;
 
 /// Gap between the ring rail and the detail card (logical px) — matches the
-/// CSS tooltip offset (22px clear of the panel edge).
-const CARD_SPACING: f64 = 22.0;
+/// CSS tooltip offset (10px clear of the panel's inner edge + 18px pad).
+const CARD_SPACING: f64 = 28.0;
 
 /// Detail card width (logical px) — CSS max-width 236 + pointer overhang.
 const CARD_WIDTH: f64 = 240.0;
@@ -189,6 +190,7 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                             today_consumption: b.today_consumption,
                             month_consumption: b.month_consumption,
                         }),
+                        expires_at: q.expires_at.clone(),
                         second_pct: second.map(|w| w.used_pct),
                         second_label: second.map(|w| w.label.clone()),
                         is_running: false,
@@ -218,9 +220,10 @@ fn swoop_c(d: f64, n: usize) -> f64 {
     ((TITLE_BLOCK + dock_height(d, n)) * SWOOP_FRAC).clamp(SWOOP_MIN, SWOOP_MAX)
 }
 
-/// Vertical padding — clears the swoop curve at the content's x-extent.
+/// Vertical padding — clears the swoop curve at the content's x-extent
+/// (the boundary still sits ~68% of the amplitude at the title's left edge).
 fn pad_v(d: f64, n: usize) -> f64 {
-    (swoop_c(d, n) * 0.3).ceil().max(PAD_V_MIN)
+    (swoop_c(d, n) * 0.68).ceil().max(PAD_V_MIN)
 }
 
 /// Where the ring rail starts inside the window (pad + title block).
@@ -527,6 +530,9 @@ pub struct PulseQuota {
     pub critical_pct: f64,
     pub critical_label: String,
     pub balance: Option<PulseBalance>,
+    /// Subscription plan expiry (RFC3339) — shown beside the plan badge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
     /// Second-most-critical window, for the inner ring.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub second_pct: Option<f64>,
@@ -587,11 +593,11 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*61 + 2*8 = 199,
-        // swoop = clamp(223 * 0.45) ≈ 100.4 → pad = ceil(30.1) = 31,
-        // height = 31*2 + 24 + 199 = 285.
+        // swoop = clamp(223 * 0.30) ≈ 66.9 → pad = ceil(45.5) = 46,
+        // height = 46*2 + 24 + 199 = 315.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 285.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 315.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
@@ -620,7 +626,7 @@ mod tests {
         assert!(c3 > c1, "more rings → deeper swoop");
         assert!(c9 <= SWOOP_MAX, "swoop clamped at the maximum");
         // Padding always clears a fixed fraction of the swoop.
-        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.3);
+        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.68);
     }
 
     #[test]
