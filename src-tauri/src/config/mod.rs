@@ -150,6 +150,12 @@ pub struct Config {
     /// Pulse ring size: "small" (36px) | "medium" (48px) | "large" (60px).
     #[serde(default = "default_pulse_size")]
     pub pulse_size: String,
+    /// Pulse panel surface opacity (0.2–1.0; 1 = opaque).
+    #[serde(default = "default_pulse_opacity")]
+    pub pulse_opacity: f64,
+    /// Pulse panel floats above other apps (NSPanel floating level).
+    #[serde(default = "default_true")]
+    pub pulse_topmost: bool,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -198,6 +204,8 @@ impl Default for Config {
             pulse_enabled: default_false(),
             pulse_side: default_pulse_side(),
             pulse_size: default_pulse_size(),
+            pulse_opacity: default_pulse_opacity(),
+            pulse_topmost: default_true(),
         }
     }
 }
@@ -273,6 +281,9 @@ fn default_pulse_side() -> String {
 }
 fn default_pulse_size() -> String {
     "medium".into()
+}
+fn default_pulse_opacity() -> f64 {
+    1.0
 }
 
 // Stable config keys.

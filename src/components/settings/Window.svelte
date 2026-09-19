@@ -414,6 +414,35 @@
         onchange={(v) => onUpdate({ pulse_size: v as "small" | "medium" | "large" })}
       />
     </div>
+    <div class="box-row">
+      <div class="lab">透明度</div>
+      <Select
+        class="sel"
+        style="min-width:150px"
+        value={String(config.pulse_opacity ?? 1)}
+        options={[
+          { value: "1", label: "不透明" },
+          { value: "0.9", label: "90%" },
+          { value: "0.8", label: "80%" },
+          { value: "0.7", label: "70%" },
+          { value: "0.6", label: "60%" },
+        ]}
+        onchange={(v) => onUpdate({ pulse_opacity: parseFloat(v) || 1 })}
+      />
+    </div>
+    <div class="box-row">
+      <div class="lab">悬浮于其他应用之上<div class="hint">关闭后作为普通窗口，不遮挡其他应用</div></div>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={config.pulse_topmost !== false}
+          role="switch"
+          aria-checked={config.pulse_topmost !== false}
+          aria-label="悬浮于其他应用之上"
+          onclick={() => onUpdate({ pulse_topmost: !(config.pulse_topmost !== false) })}
+        ></button>
+      </div>
+    </div>
     {/if}
   </div>
   {/if}

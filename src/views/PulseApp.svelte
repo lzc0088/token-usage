@@ -10,11 +10,17 @@
     label: string;
     used_pct: number;
     resets_at?: string;
+    /** Absolute used/total (e.g. credits) for "剩余 X" display. */
+    used_value?: number;
+    total_value?: number;
   }
 
   interface PulseBalance {
     amount: number;
     currency: string;
+    /** Today / month spend (API vendors, e.g. DeepSeek). */
+    today_consumption?: number;
+    month_consumption?: number;
   }
 
   interface PulseQuota {
@@ -36,6 +42,8 @@
     size: string;
     ring_diameter: number;
     theme: string;
+    /** Surface opacity (0.2–1.0), from config. */
+    opacity?: number;
   }
 
   // Expand payload from Rust (ui/pulse.rs expand_pulse).
@@ -88,25 +96,30 @@
   const ITEM_GAP = 8;
   const TITLE_BLOCK = 24;
   const PAD_V_MIN = 14;
-  // Inverted-S swoop amplitude: fraction of the content height, clamped.
-  const SWOOP_FRAC = 0.38;
-  const SWOOP_MIN = 40;
-  const SWOOP_MAX = 150;
+  // Swoop amplitude: fraction of the content height, clamped.
+  const SWOOP_FRAC = 0.45;
+  const SWOOP_MIN = 48;
+  const SWOOP_MAX = 170;
+  // Panel height cap — the ring dock scrolls beyond this.
+  const MAX_PANEL_H = 520;
   const PAD_FLUSH_INNER = 18;
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
 
   let ringCount = $derived(Math.max(data.quotas.length, 1));
-  let dockH = $derived(
+  let dockNatural = $derived(
     ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
   );
-  let contentH = $derived(TITLE_BLOCK + dockH);
+  let contentH = $derived(TITLE_BLOCK + dockNatural);
   let swoopC = $derived(
     Math.min(Math.max(contentH * SWOOP_FRAC, SWOOP_MIN), SWOOP_MAX)
   );
-  // Vertical padding clears the swoop's deepest point (~65% of amplitude).
-  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.65)));
-  let panelH = $derived(padV * 2 + contentH);
+  // Vertical padding clears the swoop curve at the content's x-extent.
+  let padV = $derived(Math.max(PAD_V_MIN, Math.ceil(swoopC * 0.3)));
+  // Dock height capped by MAX_PANEL_H (scrolls when overflow).
+  let dockMax = $derived(Math.max(60, MAX_PANEL_H - padV * 2 - TITLE_BLOCK));
+  let dockH = $derived(Math.min(dockNatural, dockMax));
+  let panelH = $derived(padV * 2 + TITLE_BLOCK + dockH);
 
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
@@ -118,21 +131,21 @@
   );
   let panelW = $derived(data.ring_diameter + padH);
 
-  // Flush silhouette: the reference's true inverted-S (倒S) — leaving the
-  // fused screen edge FLAT, the boundary dips deep toward the panel's inner
-  // third, then swings back UP to a high rounded corner at the inner edge
-  // (an inflected S, not a one-way slope). Both caps mirror; amplitude =
-  // ~28% of panel height. Floating → rounded pill.
+  // Flush silhouette per the reference mock: the INNER-side corner is carved
+  // LOWEST (~1/3 of panel height) and the boundary rises in an S-shaped
+  // SLOPE toward the fused screen edge — tight fillet out of the corner,
+  // steep mid sweep, flat (horizontal) arrival at the edge, which stays
+  // full height. Floating → rounded pill.
   let surfaceStyle = $derived.by(() => {
     const w = panelW;
     const h = Math.max(panelH, SWOOP_MIN);
     const c = Math.min(swoopC, h / 2.5);
     const f = (v: number) => v.toFixed(1);
     if (flushSide === "right") {
-      return `clip-path: path("M 0 ${f(c * 0.3)} C ${f(w * 0.08)} ${f(c * 1.2)} ${f(w * 0.55)} ${f(c * 0.3)} ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.55)} ${f(h - c * 0.3)} ${f(w * 0.08)} ${f(h - c * 1.2)} 0 ${f(h - c * 0.3)} Z")`;
+      return `clip-path: path("M 0 ${f(c)} C 0 ${f(c * 0.55)} ${f(w * 0.45)} 0 ${f(w)} 0 L ${f(w)} ${f(h)} C ${f(w * 0.45)} ${f(h)} 0 ${f(h - c * 0.55)} 0 ${f(h - c)} Z")`;
     }
     if (flushSide === "left") {
-      return `clip-path: path("M ${f(w)} ${f(c * 0.3)} C ${f(w * 0.92)} ${f(c * 1.2)} ${f(w * 0.45)} ${f(c * 0.3)} 0 0 L 0 ${f(h)} C ${f(w * 0.45)} ${f(h - c * 0.3)} ${f(w * 0.92)} ${f(h - c * 1.2)} ${f(w)} ${f(h - c * 0.3)} Z")`;
+      return `clip-path: path("M ${f(w)} ${f(c)} C ${f(w)} ${f(c * 0.55)} ${f(w * 0.55)} 0 0 0 L 0 ${f(h)} C ${f(w * 0.55)} ${f(h)} ${f(w)} ${f(h - c * 0.55)} ${f(w)} ${f(h - c)} Z")`;
     }
     return "";
   });
@@ -269,10 +282,10 @@
   class:flush-left={flushSide === "left"}
   class:grow-left={expandCardLeft}
   class:card-left={expandCardLeft}
-  style="--ring-size: {data.ring_diameter}px; width:{panelW}px; height:{panelH}px; margin-top: {expandLift}px"
+  style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px; margin-top: {expandLift}px"
 >
-  <!-- Shaped surface: bg + blur + large inverted-S swoop clip. Kept on its
-       own layer so the tooltip card can overflow the (clipped) panel body. -->
+  <!-- Shaped surface: bg + blur + swoop clip. Kept on its own layer so the
+       tooltip card can overflow the (clipped) panel body. -->
   <div class="panel-surface" style={surfaceStyle} aria-hidden="true"></div>
 
   <!-- Panel title (mode indicator) -->
@@ -280,7 +293,7 @@
 
   <!-- Ring rail + tooltip container -->
   <div class="rail-with-tooltip" onmouseleave={onWrapperLeave} role="group">
-    <div class="ring-dock">
+    <div class="ring-dock" style="max-height: {dockMax}px">
       {#each data.quotas as quota (quota.vendor)}
         <QuotaRing
           vendor={quota.vendor}
@@ -337,8 +350,8 @@
     --pulse-caution: #ffc226;
     --pulse-warning: #ff4f42;
     --pulse-exhausted: #d92027;
-    --pulse-bg: #000000;
-    --pulse-ring-bg: #000000;
+    --pulse-bg: rgba(0, 0, 0, var(--pulse-alpha, 1));
+    --pulse-ring-bg: rgba(0, 0, 0, var(--pulse-alpha, 1));
     --pulse-card-bg: rgba(12, 12, 12, 0.96);
     --pulse-text: #f2ede3;
     --pulse-text-dim: #8a857b;
@@ -351,8 +364,8 @@
     --pulse-caution: #cc8800;
     --pulse-warning: #cc2200;
     --pulse-exhausted: #a81820;
-    --pulse-bg: rgba(240, 238, 234, 0.96);
-    --pulse-ring-bg: rgba(240, 238, 234, 0.96);
+    --pulse-bg: rgba(240, 238, 234, var(--pulse-alpha, 1));
+    --pulse-ring-bg: rgba(240, 238, 234, var(--pulse-alpha, 1));
     --pulse-card-bg: rgba(250, 248, 244, 0.96);
     --pulse-text: #1a1610;
     --pulse-text-dim: #7a756c;
@@ -437,6 +450,18 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* Scroll when the vendor count would exceed the panel height cap. */
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .ring-dock::-webkit-scrollbar {
+    width: 3px;
+  }
+
+  .ring-dock::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 2px;
   }
 
   /* ── Panel title ────────────────────────────────────────────────────── */
@@ -448,18 +473,10 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     margin-bottom: 4px;
-    align-self: flex-start;
-    margin-left: 2px;
+    align-self: center;
+    text-align: center;
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
       -apple-system, sans-serif;
-  }
-
-  /* Right-fused: hug the edge side so the title clears the swoop, which
-     carves deepest over the inner (left) side. */
-  .pulse-panel.flush-right .panel-title {
-    align-self: flex-end;
-    margin-left: 0;
-    margin-right: 2px;
   }
 
   /* ── Detail tooltip card ────────────────────────────────────────────── */

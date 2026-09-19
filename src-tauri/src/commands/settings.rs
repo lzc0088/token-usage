@@ -60,6 +60,8 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.pulse_enabled != next.pulse_enabled
         || prev.pulse_side != next.pulse_side
         || prev.pulse_size != next.pulse_size
+        || prev.pulse_topmost != next.pulse_topmost
+        || (prev.pulse_opacity - next.pulse_opacity).abs() > f64::EPSILON
 }
 
 /// Fields that change what the tray icon bitmap renders.

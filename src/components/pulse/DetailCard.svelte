@@ -1,15 +1,20 @@
 <script lang="ts">
   import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
+  import { fmtCredits } from "../../lib/quota-format";
 
   interface PulseWindow {
     label: string;
     used_pct: number;
     resets_at?: string;
+    used_value?: number;
+    total_value?: number;
   }
 
   interface PulseBalance {
     amount: number;
     currency: string;
+    today_consumption?: number;
+    month_consumption?: number;
   }
 
   interface PulseQuota {
@@ -56,6 +61,13 @@
     } catch {
       return null;
     }
+  }
+
+  // Currency symbol for spend amounts (DeepSeek etc.).
+  function currencySymbol(cur: string): string {
+    if (/usd/i.test(cur)) return "$";
+    if (/cny|rmb/i.test(cur)) return "¥";
+    return cur ? `${cur} ` : "";
   }
 
   // Split label into quota type + model name subtitle.
@@ -124,12 +136,34 @@
               style="width:{Math.min(win.used_pct, 100)}%;background:{barColor(win.used_pct)}"
             ></div>
           </div>
-          {#if relativeReset(win.resets_at)}
-            <span class="reset-time">{relativeReset(win.resets_at)}</span>
+          {#if relativeReset(win.resets_at) || (win.total_value != null && win.used_value != null)}
+            <div class="row-meta">
+              {#if relativeReset(win.resets_at)}
+                <span class="reset-time">{relativeReset(win.resets_at)}</span>
+              {/if}
+              {#if win.total_value != null && win.used_value != null}
+                <span class="remaining">剩余 {fmtCredits(win.total_value - win.used_value)}</span>
+              {/if}
+            </div>
           {/if}
         </div>
       {/each}
     </div>
+
+    {#if quota.balance?.today_consumption != null || quota.balance?.month_consumption != null}
+      <div class="cons-row">
+        {#if quota.balance?.today_consumption != null}
+          <span class="cons-item">
+            今日 <b>{currencySymbol(quota.balance.currency)}{quota.balance.today_consumption.toFixed(2)}</b>
+          </span>
+        {/if}
+        {#if quota.balance?.month_consumption != null}
+          <span class="cons-item">
+            本月 <b>{currencySymbol(quota.balance.currency)}{quota.balance.month_consumption.toFixed(2)}</b>
+          </span>
+        {/if}
+      </div>
+    {/if}
 
     {#if quota.balance}
       <div class="balance-row">
@@ -308,12 +342,45 @@
     transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
+  .row-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 1px;
+  }
+
   .reset-time {
     font-size: 9px;
     color: var(--pulse-text-dim);
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     opacity: 0.6;
-    margin-top: 1px;
+  }
+
+  .remaining {
+    font-size: 9px;
+    color: var(--pulse-text-dim);
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+  }
+
+  .cons-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .cons-item {
+    font-size: 10px;
+    color: var(--pulse-text-dim);
+  }
+
+  .cons-item b {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--pulse-text);
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
   }
 
   .balance-row {
@@ -332,7 +399,7 @@
   }
 
   .balance-amount {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     letter-spacing: -0.01em;

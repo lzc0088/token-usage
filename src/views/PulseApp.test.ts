@@ -24,7 +24,7 @@ const onMovedCbs: Array<() => void> = [];
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     label: "pulse",
-    outerPosition: async () => ({ x: 1400, y: 300 }),
+    outerPosition: async () => ({ x: 1432, y: 300 }),
     outerSize: async () => ({ width: 80, height: 300 }),
     scaleFactor: async () => 2,
     startDragging: async () => {},
@@ -132,5 +132,38 @@ describe("PulseApp", () => {
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
     expect(panel?.style.marginTop).toBe("0px");
     expect(target.querySelector(".detail-tooltip")).toBeFalsy();
+  });
+
+  it("flush swoop carves the inner corner low and rises flat to the edge", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+
+    const style =
+      target.querySelector<HTMLElement>(".panel-surface")?.getAttribute("style") ?? "";
+    expect(style).toContain("clip-path");
+    // path("M 0 c C 0 c1 x2 y2 W 0 L W H C ...") — parse the TOP cap numbers.
+    const m = style.match(/M 0 ([\d.]+) C 0 ([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) 0/);
+    expect(m).toBeTruthy();
+    const [c, c1, y2] = [Number(m![1]), Number(m![2]), Number(m![4])];
+
+    // Deepest cut AT the inner corner; control point stays above the corner.
+    expect(c).toBeGreaterThan(48);
+    expect(c1).toBeLessThan(c);
+    // Arrives flat (horizontal tangent) at the fused edge.
+    expect(y2).toBe(0);
+
+    // Sample the cubic: the top cap must rise monotonically toward the edge.
+    const bez = (t: number) =>
+      (1 - t) ** 3 * c + 3 * (1 - t) ** 2 * t * c1 + 3 * (1 - t) * t * t * y2;
+    let prev = c;
+    for (let i = 1; i <= 10; i++) {
+      const y = bez(i / 10);
+      expect(y).toBeLessThanOrEqual(prev + 0.001);
+      prev = y;
+    }
   });
 });

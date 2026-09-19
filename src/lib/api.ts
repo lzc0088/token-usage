@@ -316,6 +316,10 @@ export interface Config {
   pulse_side?: "left" | "right";
   /** Pulse ring size: "small" | "medium" | "large". */
   pulse_size?: "small" | "medium" | "large";
+  /** Pulse panel surface opacity (0.2–1.0). */
+  pulse_opacity?: number;
+  /** Pulse panel floats above other apps. */
+  pulse_topmost?: boolean;
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────

@@ -29,13 +29,16 @@ const RING_GAP: f64 = 8.0;
 const TITLE_BLOCK: f64 = 24.0;
 const PAD_V_MIN: f64 = 14.0;
 
-/// Inverted-S swoop amplitude (flush silhouette): fraction of the content
-/// height, clamped. The top/bottom boundaries leave the fused screen edge
-/// flat, dip deep toward the inner side, then swing back up — a true S with
-/// an inflection, per the reference mock.
-const SWOOP_FRAC: f64 = 0.38;
-const SWOOP_MIN: f64 = 40.0;
-const SWOOP_MAX: f64 = 150.0;
+/// Swoop amplitude (flush silhouette): fraction of the content height,
+/// clamped. Per the reference mock, the inner-side corners are carved LOWEST
+/// (~1/3 of panel height) and the boundary rises in an S-shaped SLOPE
+/// (corner fillet → steep sweep → flat arrival at the fused screen edge).
+const SWOOP_FRAC: f64 = 0.45;
+const SWOOP_MIN: f64 = 48.0;
+const SWOOP_MAX: f64 = 170.0;
+
+/// Panel height cap (logical px) — beyond this the ring dock scrolls.
+const MAX_PANEL_H: f64 = 520.0;
 
 /// Horizontal window padding (logical px) — flush panels use 18px on the
 /// screen-interior side + 10px on the fused edge; the window keeps slack.
@@ -79,7 +82,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     if cfg.pulse_enabled {
         position_pulse(app, conn);
         if let Some(h) = app.get_webview_window("pulse") {
-            apply_floating_level(&h);
+            apply_floating_level(&h, cfg.pulse_topmost);
             let _ = h.show();
         }
         push_pulse_data(app, conn);
@@ -108,6 +111,7 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
         size: cfg.pulse_size.clone(),
         ring_diameter: ring_diameter(&cfg.pulse_size),
         theme: resolved_theme(app, &cfg),
+        opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
     };
 
     if let Some(w) = app.get_webview_window("pulse") {
@@ -165,6 +169,8 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                                 label: w.label.clone(),
                                 used_pct: w.used_pct,
                                 resets_at: w.resets_at.clone(),
+                                used_value: w.used_value,
+                                total_value: w.total_value,
                             })
                             .collect(),
                         critical_pct: critical_window.as_ref().map(|w| w.used_pct).unwrap_or(0.0),
@@ -175,6 +181,8 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                         balance: q.balance.as_ref().map(|b| PulseBalance {
                             amount: b.amount,
                             currency: b.currency.clone(),
+                            today_consumption: b.today_consumption,
+                            month_consumption: b.month_consumption,
                         }),
                         second_pct: second.map(|w| w.used_pct),
                         second_label: second.map(|w| w.label.clone()),
@@ -205,10 +213,9 @@ fn swoop_c(d: f64, n: usize) -> f64 {
     ((TITLE_BLOCK + dock_height(d, n)) * SWOOP_FRAC).clamp(SWOOP_MIN, SWOOP_MAX)
 }
 
-/// Vertical padding — clears the swoop's deepest point at the content's
-/// x-extent (the dip bottoms out around 65% of the amplitude mid-panel).
+/// Vertical padding — clears the swoop curve at the content's x-extent.
 fn pad_v(d: f64, n: usize) -> f64 {
-    (swoop_c(d, n) * 0.65).ceil().max(PAD_V_MIN)
+    (swoop_c(d, n) * 0.3).ceil().max(PAD_V_MIN)
 }
 
 /// Where the ring rail starts inside the window (pad + title block).
@@ -216,14 +223,21 @@ fn rail_top(d: f64, n: usize) -> f64 {
     pad_v(d, n) + TITLE_BLOCK
 }
 
+/// Dock height for n rings, capped so the panel never exceeds MAX_PANEL_H —
+/// the CSS dock scrolls when the natural height overflows.
+fn dock_height_capped(d: f64, n: usize) -> f64 {
+    let avail = (MAX_PANEL_H - pad_v(d, n) * 2.0 - TITLE_BLOCK).max(60.0);
+    dock_height(d, n).min(avail)
+}
+
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
-/// vertical padding (swoop clearance) + title block + dock height.
+/// vertical padding (swoop clearance) + title block + capped dock height.
 fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
     let d = ring_diameter(&cfg.pulse_size);
     let n = ring_count.max(1);
     (
         d + PANEL_PAD * 2.0,
-        pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height(d, n),
+        pad_v(d, n) * 2.0 + TITLE_BLOCK + dock_height_capped(d, n),
     )
 }
 
@@ -453,15 +467,17 @@ fn load_pos(conn: &Connection) -> Option<(f64, f64)> {
     Some((x, y))
 }
 
-/// Set the window to floating level (above normal windows, below menu bar).
+/// Set the window level: floating (above normal windows, below menu bar)
+/// when topmost, otherwise a normal window that stacks under focused apps.
 #[cfg(target_os = "macos")]
-fn apply_floating_level(win: &tauri::WebviewWindow) {
+fn apply_floating_level(win: &tauri::WebviewWindow, topmost: bool) {
     use objc::{msg_send, sel, sel_impl};
     if let Ok(ns_win) = win.ns_window() {
         let w: *mut objc::runtime::Object = ns_win as *mut _;
         unsafe {
-            // NSWindow.Level.floating = 3
-            let _: () = msg_send![w, setLevel: 3i64];
+            // NSWindow.Level.floating = 3, .normal = 0
+            let level: i64 = if topmost { 3 } else { 0 };
+            let _: () = msg_send![w, setLevel: level];
             let _: () = msg_send![w, setCollectionBehavior:
                 (1u64 << 0) |  // canJoinAllSpaces
                 (1u64 << 4) |  // stationary
@@ -472,7 +488,7 @@ fn apply_floating_level(win: &tauri::WebviewWindow) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn apply_floating_level(_win: &tauri::WebviewWindow) {}
+fn apply_floating_level(_win: &tauri::WebviewWindow, _topmost: bool) {}
 
 /// Resolve the effective theme from config.
 fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {
@@ -493,6 +509,8 @@ pub struct PulseData {
     pub size: String,
     pub ring_diameter: f64,
     pub theme: String,
+    /// Surface opacity (0.2–1.0), from config.
+    pub opacity: f64,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -520,12 +538,22 @@ pub struct PulseWindow {
     pub label: String,
     pub used_pct: f64,
     pub resets_at: Option<String>,
+    /// Absolute used/total (e.g. credits) for "剩余 X" display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_value: Option<f64>,
 }
 
 #[derive(serde::Serialize, Clone)]
 pub struct PulseBalance {
     pub amount: f64,
     pub currency: String,
+    /// Today / month spend (API vendors, e.g. DeepSeek).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub today_consumption: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub month_consumption: Option<f64>,
 }
 
 #[cfg(test)]
@@ -554,16 +582,28 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*61 + 2*8 = 199,
-        // swoop = clamp(223 * 0.38) ≈ 84.7 → pad = ceil(55.1) = 56,
-        // height = 56*2 + 24 + 199 = 335.
+        // swoop = clamp(223 * 0.45) ≈ 100.4 → pad = ceil(30.1) = 31,
+        // height = 31*2 + 24 + 199 = 285.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3);
-            assert!((h3 - 335.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 285.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0);
         let (_, h1) = collapsed_size(&cfg, 1);
         assert_eq!(h0, h1);
+    }
+
+    #[test]
+    fn panel_height_caps_at_max() {
+        let cfg = config::Config::default();
+        let (_, h10) = collapsed_size(&cfg, 10);
+        assert!(
+            h10 <= MAX_PANEL_H + f64::EPSILON,
+            "10 rings capped: {h10} > {MAX_PANEL_H}"
+        );
+        let (_, h3) = collapsed_size(&cfg, 3);
+        assert!(h3 < MAX_PANEL_H, "3 rings stay under the cap");
     }
 
     #[test]
@@ -575,7 +615,7 @@ mod tests {
         assert!(c3 > c1, "more rings → deeper swoop");
         assert!(c9 <= SWOOP_MAX, "swoop clamped at the maximum");
         // Padding always clears a fixed fraction of the swoop.
-        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.65);
+        assert!(pad_v(RING_MEDIUM, 3) >= swoop_c(RING_MEDIUM, 3) * 0.3);
     }
 
     #[test]

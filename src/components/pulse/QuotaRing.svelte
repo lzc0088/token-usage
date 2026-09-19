@@ -252,17 +252,8 @@
     border: none;
     cursor: pointer;
     padding: 0;
-    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     color: var(--pulse-text);
     -webkit-tap-highlight-color: transparent;
-  }
-
-  .ring-container:hover {
-    transform: scale(1.08);
-  }
-
-  .ring-container:active {
-    transform: scale(1.04);
   }
 
   .ring-svg {
