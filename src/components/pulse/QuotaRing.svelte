@@ -12,6 +12,8 @@
     isRefreshing?: boolean;
     secondPct?: number;
     showsRemaining?: boolean;
+    /** Plan-less vendors: credits/balance shown under the ring instead of %. */
+    subLabel?: string;
   }
 
   let {
@@ -25,6 +27,7 @@
     isRefreshing = false,
     secondPct,
     showsRemaining = false,
+    subLabel,
   }: Props = $props();
 
   let displayName = $derived(vendorDisplayName(vendor));
@@ -231,8 +234,9 @@
     aria-hidden="true">{@html iconMarkup}</span
   >
 
-  <!-- ── Percentage label under the ring ──────────────────────────────── -->
-  <span class="pct-label">{Math.round(displayPct)}%</span>
+  <!-- ── Label under the ring: credits/balance for plan-less vendors,
+         otherwise the usage percentage. ───────────────────────────────── -->
+  <span class="pct-label">{subLabel ?? `${Math.round(displayPct)}%`}</span>
 </button>
 
 <style>

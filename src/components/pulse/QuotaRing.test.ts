@@ -55,6 +55,24 @@ describe("QuotaRing", () => {
     expect(target.querySelector(".pct-label")?.textContent).toContain("73%");
   });
 
+  it("shows the credits sub-label instead of pct for plan-less vendors", () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(QuotaRing, {
+      target,
+      props: {
+        vendor: "workbuddy",
+        pct: 40,
+        label: "credits",
+        diameter: 48,
+        onHover: () => {},
+        onLeave: () => {},
+        subLabel: "1,234",
+      },
+    });
+    expect(target.querySelector(".pct-label")?.textContent).toBe("1,234");
+  });
+
   it("sizes the icon inside the ring hole", () => {
     const target = renderRing({ diameter: 48 });
     const icon = target.querySelector<HTMLElement>(".ring-icon");

@@ -253,7 +253,7 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let (w_e, h_e_full) = expanded_size(&cfg, ring_count);
 
     let mut card_left = false;
-    if let (Ok(pos), Ok(_size), Ok(Some(mon))) = (
+    if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
         win.outer_position(),
         win.outer_size(),
         win.current_monitor(),
@@ -261,6 +261,8 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
+        let w_now = size.width as f64 / scale;
+        let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
         let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
         // Clamp the downward slack to the screen; never touch y.
@@ -271,10 +273,14 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
         } else {
             px
         };
-        if card_left {
+        // Skip no-op geometry: re-hovering another ring fires expand again,
+        // and a redundant setFrame makes the WKWebView flash.
+        if card_left && (target_x - px).abs() > 0.5 {
             let _ = win.set_position(LogicalPosition::new(target_x, py));
         }
-        let _ = win.set_size(LogicalSize::new(w_e, h_e.max(h_c)));
+        if (w_now - w_e).abs() > 0.5 || (h_now - h_e).abs() > 0.5 {
+            let _ = win.set_size(LogicalSize::new(w_e, h_e.max(h_c)));
+        }
     } else {
         let _ = win.set_size(LogicalSize::new(w_e, h_e_full));
     }

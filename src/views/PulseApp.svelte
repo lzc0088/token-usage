@@ -5,6 +5,7 @@
   import { PhysicalPosition } from "@tauri-apps/api/dpi";
   import QuotaRing from "../components/pulse/QuotaRing.svelte";
   import DetailCard from "../components/pulse/DetailCard.svelte";
+  import { fmtCredits, splitBalance } from "../lib/quota-format";
 
   interface PulseWindow {
     label: string;
@@ -249,34 +250,27 @@
   );
 
   // ── Card vertical placement (window never moves — the card fits inside
-  //    the pre-expanded window; clamping keeps it fully visible and the
-  //    arrow slides along the card edge to point at the hovered ring). ────
+  //    the pre-expanded window; the arrow slides along the card edge to
+  //    point at the hovered ring). ─────────────────────────────────────────
+  // NOTE: coordinates are RELATIVE TO .rail-with-tooltip (the tooltip's
+  // positioned ancestor, which already sits below the title block) — do NOT
+  // add PAD_V/TITLE_BLOCK here or the card lands ~54px below the ring.
   const EST_CARD_H = 170; // pre-measure fallback for the first frame
 
   let cardH = $state(0); // measured via bind:clientHeight on the tooltip
-  let winH = $state(typeof window !== "undefined" ? window.innerHeight : 600);
 
-  $effect(() => {
-    const onResize = () => {
-      winH = window.innerHeight;
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
-
-  // Hovered ring's absolute center Y inside the window (rail top + index·pitch).
+  // Hovered ring's center Y within the rail (index·pitch + half the ring).
   let ringY = $derived(
     hoveredIndex < 0
       ? 0
-      : PAD_V + TITLE_BLOCK + hoveredIndex * (data.ring_diameter + LABEL_H + ITEM_GAP) + data.ring_diameter / 2
+      : hoveredIndex * (data.ring_diameter + LABEL_H + ITEM_GAP) + data.ring_diameter / 2
   );
 
-  // Card top: centered on the ring, clamped to stay inside the window.
+  // Card top: centered on the ring; the Rust expand reserves 140px of slack
+  // BELOW the panel so no upper clamp is needed beyond ≥ 0.
   let cardTop = $derived.by(() => {
     if (hoveredIndex < 0) return 0;
-    const h = cardH || EST_CARD_H;
-    const top = ringY - h / 2;
-    return Math.max(0, Math.min(top, winH - h - 4));
+    return Math.max(0, ringY - (cardH || EST_CARD_H) / 2);
   });
 
   // Arrow position on the card edge: where the ring actually is.
@@ -287,6 +281,20 @@
 
   // Panel-level title explaining the percentage mode.
   let panelTitle = $derived("使用量");
+
+  // Plan-less vendors (credits/balance only): the label under the ring
+  // shows the remaining amount instead of a percentage.
+  function ringSubLabel(q: PulseQuota): string | undefined {
+    if (q.plan) return undefined;
+    if (q.balance) {
+      const { unit, value } = splitBalance(q.balance.currency, q.balance.amount);
+      return `${unit}${value}`;
+    }
+    const w = q.windows.find(
+      (win) => win.total_value != null && win.used_value != null
+    );
+    return w ? fmtCredits(w.total_value! - w.used_value!) : undefined;
+  }
 </script>
 
 <div
@@ -321,6 +329,7 @@
           isRefreshing={quota.is_refreshing ?? false}
           secondPct={quota.second_pct}
           showsRemaining={false}
+          subLabel={ringSubLabel(quota)}
         />
       {/each}
       {#if data.quotas.length === 0}
@@ -508,7 +517,9 @@
     position: absolute;
     pointer-events: auto;
     z-index: 20;
-    animation: tooltipIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* Gentle fade only — no translate (clashes with the inline `top`
+       re-clamp when the measured height arrives) and no overshoot bounce. */
+    animation: tooltipIn 0.3s ease-out;
   }
 
   /* Card sits 30px clear of the panel's INNER edge (= pad_inner 18 + 30 =
@@ -529,11 +540,9 @@
   @keyframes tooltipIn {
     from {
       opacity: 0;
-      transform: translateY(-4px) scale(0.97);
     }
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
     }
   }
 

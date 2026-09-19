@@ -42,6 +42,13 @@
   const { quota, cardSide }: Props = $props();
   const nowMs = Date.now();
 
+  // First window reporting absolute credits (plan-less vendors).
+  let creditsWin = $derived(
+    quota.windows.find(
+      (w) => w.total_value != null && w.used_value != null
+    ) ?? null
+  );
+
   // Bar color thresholds on the light card background.
   function barColor(pct: number): string {
     if (pct >= 80) return "#cc2200";
@@ -72,8 +79,8 @@
       {/if}
     </div>
 
-    <!-- Window sections — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
-    {#if quota.windows.length > 0}
+    {#if quota.plan && quota.windows.length > 0}
+      <!-- Plan vendors — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-section">
@@ -98,6 +105,15 @@
           </div>
         {/each}
       </div>
+    {:else if !quota.plan}
+      <!-- Credits/balance-only vendors (no plan): just the remaining credits —
+           no progress bars, no reset times. -->
+      {#if creditsWin}
+        <div class="stat-row">
+          <span class="stat-label">剩余 Credits</span>
+          <span class="stat-amount">{fmtCredits(creditsWin.total_value! - creditsWin.used_value!)}</span>
+        </div>
+      {/if}
     {/if}
 
     <!-- Balance + consumption rows -->
@@ -211,6 +227,8 @@
   }
 
   .expiry-line {
+    display: flex;
+    justify-content: flex-end;
     font-size: 9px;
     margin-top: 0;
     opacity: 0.75;
