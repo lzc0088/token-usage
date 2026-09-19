@@ -270,6 +270,11 @@
   function onWrapperEnter() {
     pointerInPanel = true;
     cancelPendingCollapse();
+    // Pre-warm: grow the window BEFORE any ring is hovered, while nothing
+    // is visible to animate — the (transparent) resize happens with no card
+    // on screen, so entering the panel from outside never flashes. The
+    // subsequent ring-hover expand is then a no-op resize (Rust guard).
+    invoke("expand_pulse", { vendor: null }).catch(() => {});
   }
 
   function onRingEnter(vendor: string) {

@@ -42,6 +42,12 @@ pub fn set_config(config: Config, state: State<AppState>, app: AppHandle) -> Res
     if tray_appearance_changed(&prev, &config) {
         crate::ui::tray::refresh_from_db(&app, &conn);
     }
+    // Theme changes must reach the pulse panel instantly — push directly
+    // instead of waiting for the frontend's config:changed → invoke round
+    // trip (two hops → one).
+    if prev.theme != config.theme {
+        crate::ui::pulse::push_pulse_data(&app, &conn);
+    }
     // Notify all windows (e.g. the main popover) so layout/currency changes
     // apply live without waiting for a manual refresh.
     let _ = app.emit("config:changed", ());

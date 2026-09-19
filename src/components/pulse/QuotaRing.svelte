@@ -269,7 +269,7 @@
   <span class="pct-label">
     {#if subValue}
       {#if subUnit}<span class="sub-unit">{subUnit}</span>{/if}{subValue}
-    {:else}{Math.round(displayPct)}%
+    {:else}{Math.round(displayPct)}<span class="pct-sign">%</span>
     {/if}
   </span>
 </button>
@@ -324,9 +324,15 @@
     user-select: none;
   }
 
-  /* Currency unit (¥/$) renders smaller than the digits. */
+  /* Currency unit (¥/$) renders smaller than the digits, 1px clear of
+     them (user-specified spacing). */
   .pct-label .sub-unit {
     font-size: 8px;
+    margin-right: 1px;
+  }
+
+  .pct-label .pct-sign {
+    margin-left: 1px;
   }
 
   .usage-arc {

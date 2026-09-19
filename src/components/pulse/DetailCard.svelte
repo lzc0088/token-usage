@@ -66,9 +66,16 @@
   class:card-right={cardSide === "right"}
   class:dark={dark}
 >
-  <!-- Arrow: big triangle protruding from the card's panel-facing edge,
+  <!-- Arrow: curved beak protruding from the card's panel-facing edge,
        positioned at --arrow-y (the hovered ring's line). -->
-  <div class="card-arrow"></div>
+  <svg
+    class="card-arrow"
+    viewBox="0 0 12 24"
+    preserveAspectRatio="none"
+    aria-hidden="true"
+  >
+    <path d="M12 0 C 2 3.5, 2 20.5, 12 24 Z" fill="var(--card-bg)" />
+  </svg>
 
   <div class="card-body">
     <!-- Header: icon + vendor + plan badge; expiry hugs the line above. -->
@@ -100,7 +107,7 @@
                   style="width:{Math.min(100, win.used_pct)}%;background:{barColor(win.used_pct)}"
                 ></div>
               </div>
-              <span class="ws-pct">{win.used_pct.toFixed(2)}%</span>
+              <span class="ws-pct">{win.used_pct.toFixed(2)}<span class="pct-sign">%</span></span>
             </div>
             <div class="ws-value">
               {#if win.total_value != null && win.used_value != null}
@@ -182,23 +189,19 @@
     --card-badge: rgba(255, 255, 255, 0.1);
   }
 
-  /* ── Arrow: big triangle on the card edge, pointing at the ring ── */
+  /* ── Arrow: curved beak on the card edge, pointing at the ring ── */
   .card-arrow {
     position: absolute;
     top: var(--arrow-y, 50%);
-    left: -9px;
+    left: -11px; /* 1px overlap hides the seam against the card border */
     transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    border-top: 9px solid transparent;
-    border-bottom: 9px solid transparent;
-    border-right: 9px solid var(--card-bg);
+    width: 12px;
+    height: 24px;
   }
   .detail-card.card-right .card-arrow {
     left: auto;
-    right: -9px;
-    border-right: none;
-    border-left: 9px solid var(--card-bg);
+    right: -11px;
+    transform: translateY(-50%) scaleX(-1);
   }
 
   .card-body {
@@ -221,8 +224,8 @@
   }
 
   .vendor-icon {
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
     flex-shrink: 0;
     color: var(--card-text); /* follows the theme: light icon on dark card */
   }
@@ -232,13 +235,13 @@
   }
 
   .vendor-name {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 600;
     flex: 1;
   }
 
   .plan-badge {
-    font-size: 9px;
+    font-size: 10px;
     padding: 0 4px;
     border-radius: 3px;
     background: var(--card-badge);
@@ -248,7 +251,7 @@
   .expiry-line {
     display: flex;
     justify-content: flex-end;
-    font-size: 9px;
+    font-size: 10px;
     margin-top: 0;
     opacity: 0.75;
   }
@@ -331,5 +334,10 @@
   /* Currency unit (¥/$) renders smaller than the digits. */
   .stat-amount .stat-unit {
     font-size: 8px;
+    margin-right: 1px;
+  }
+
+  .ws-pct .pct-sign {
+    margin-left: 1px;
   }
 </style>
