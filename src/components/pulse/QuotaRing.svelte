@@ -14,6 +14,8 @@
     showsRemaining?: boolean;
     /** Plan-less vendors: credits/balance shown under the ring instead of %. */
     subLabel?: string;
+    /** Plan-less vendors: no progress arc at all — icon + amount only. */
+    plain?: boolean;
   }
 
   let {
@@ -28,6 +30,7 @@
     secondPct,
     showsRemaining = false,
     subLabel,
+    plain = false,
   }: Props = $props();
 
   let displayName = $derived(vendorDisplayName(vendor));
@@ -134,46 +137,65 @@
       </filter>
     </defs>
 
-    <!-- ── Background track ──────────────────────────────────────────── -->
-    <circle
-      cx={diameter / 2}
-      cy={diameter / 2}
-      r={radius}
-      fill="none"
-      stroke="var(--pulse-track)"
-      stroke-width={strokeWidth}
-    />
-
-    <!-- ── Halo glow (wider blurred arc) ─────────────────────────────── -->
-    <circle
-      cx={diameter / 2}
-      cy={diameter / 2}
-      r={radius}
-      fill="none"
-      stroke={arcColor}
-      stroke-width={strokeWidth * 2}
-      stroke-linecap="round"
-      stroke-dasharray={circumference}
-      stroke-dashoffset={offset}
-      transform="rotate(-90 {diameter / 2} {diameter / 2})"
-      opacity="0.15"
-      filter="url(#{filterId})"
-    />
-
-    <!-- ── Second inner ring ──────────────────────────────────────────── -->
-    {#if secondPct != null && secondOffset != null}
+    <!-- ── Static progress elements — hidden for plan-less vendors
+         (plain mode: icon + amount, no progress bars anywhere). ──────── -->
+    {#if !plain}
+      <!-- ── Background track ────────────────────────────────────────── -->
       <circle
         cx={diameter / 2}
         cy={diameter / 2}
-        r={Math.max(4, radius - strokeWidth * 0.8)}
+        r={radius}
+        fill="none"
+        stroke="var(--pulse-track)"
+        stroke-width={strokeWidth}
+      />
+
+      <!-- ── Halo glow (wider blurred arc) ───────────────────────────── -->
+      <circle
+        cx={diameter / 2}
+        cy={diameter / 2}
+        r={radius}
         fill="none"
         stroke={arcColor}
-        stroke-width={strokeWidth * 0.45}
+        stroke-width={strokeWidth * 2}
         stroke-linecap="round"
-        stroke-dasharray={2 * Math.PI * Math.max(4, radius - strokeWidth * 0.8)}
-        stroke-dashoffset={secondOffset}
+        stroke-dasharray={circumference}
+        stroke-dashoffset={offset}
         transform="rotate(-90 {diameter / 2} {diameter / 2})"
-        opacity="0.35"
+        opacity="0.15"
+        filter="url(#{filterId})"
+      />
+
+      <!-- ── Second inner ring ────────────────────────────────────────── -->
+      {#if secondPct != null && secondOffset != null}
+        <circle
+          cx={diameter / 2}
+          cy={diameter / 2}
+          r={Math.max(4, radius - strokeWidth * 0.8)}
+          fill="none"
+          stroke={arcColor}
+          stroke-width={strokeWidth * 0.45}
+          stroke-linecap="round"
+          stroke-dasharray={2 * Math.PI * Math.max(4, radius - strokeWidth * 0.8)}
+          stroke-dashoffset={secondOffset}
+          transform="rotate(-90 {diameter / 2} {diameter / 2})"
+          opacity="0.35"
+        />
+      {/if}
+
+      <!-- ── Usage arc (main progress) ─────────────────────────────────── -->
+      <circle
+        class="usage-arc"
+        cx={diameter / 2}
+        cy={diameter / 2}
+        r={radius}
+        fill="none"
+        stroke={arcColor}
+        stroke-width={strokeWidth}
+        stroke-linecap="round"
+        stroke-dasharray={circumference}
+        stroke-dashoffset={offset}
+        transform="rotate(-90 {diameter / 2} {diameter / 2})"
       />
     {/if}
 
@@ -208,21 +230,6 @@
         opacity="0.6"
       />
     {/if}
-
-    <!-- ── Usage arc (main progress) ───────────────────────────────────── -->
-    <circle
-      class="usage-arc"
-      cx={diameter / 2}
-      cy={diameter / 2}
-      r={radius}
-      fill="none"
-      stroke={arcColor}
-      stroke-width={strokeWidth}
-      stroke-linecap="round"
-      stroke-dasharray={circumference}
-      stroke-dashoffset={offset}
-      transform="rotate(-90 {diameter / 2} {diameter / 2})"
-    />
 
     <!-- No center disc — the glyph floats over the transparent hole. -->
   </svg>

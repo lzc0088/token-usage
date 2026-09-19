@@ -2,7 +2,7 @@
   import {
     windowLabel,
     fmtCredits,
-    formatExpiryTime,
+    formatShortExpiry,
     formatReset,
     splitBalance,
   } from "../../lib/quota-format";
@@ -74,7 +74,7 @@
       </div>
       {#if quota.expires_at}
         <div class="expiry-line">
-          <span>到期 {formatExpiryTime(quota.expires_at)}</span>
+          <span>到期 {formatShortExpiry(quota.expires_at)}</span>
         </div>
       {/if}
     </div>
@@ -143,7 +143,8 @@
 </div>
 
 <style>
-  /* Light, solid tooltip card — no glass/backdrop-filter, no theme variance.
+  /* Light, solid tooltip card — no glass/backdrop-filter, no shadows (a
+     dark shadow reads as a translucent black background), no theme variance.
      All text near-black (#1a1610) at a uniform 9px per user preference. */
   .detail-card {
     position: relative;
@@ -153,7 +154,6 @@
     border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: 10px;
     padding: 10px 12px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
     font-size: 9px;
     line-height: 1.45;
     color: #1a1610;
@@ -172,14 +172,12 @@
     border-top: 9px solid transparent;
     border-bottom: 9px solid transparent;
     border-right: 9px solid #f7f5f1;
-    filter: drop-shadow(-1px 0 0 rgba(0, 0, 0, 0.12));
   }
   .detail-card.card-right .card-arrow {
     left: auto;
     right: -9px;
     border-right: none;
     border-left: 9px solid #f7f5f1;
-    filter: drop-shadow(1px 0 0 rgba(0, 0, 0, 0.12));
   }
 
   .card-body {

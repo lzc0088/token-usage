@@ -84,6 +84,7 @@
     isExpanded = false;
     hoveredVendor = null;
     expandCardLeft = false;
+    isCollapsing = false;
   });
 
   // Pull data on mount. A webview reload / HMR resets component state, and
@@ -222,20 +223,36 @@
   // Initial flush detection.
   updateFlushSide();
 
+  // ── Graceful collapse: fade the card out FIRST, then shrink the window.
+  // Collapsing while the card is still visible makes the abrupt unmount +
+  // window resize read as a flash. A re-enter during the grace period
+  // cancels the pending collapse. ─────────────────────────────────────────
+  const COLLAPSE_DELAY_MS = 160;
+  let collapseTimer: ReturnType<typeof setTimeout> | undefined;
+  let isCollapsing = $state(false);
+
   function onRingEnter(vendor: string) {
+    if (collapseTimer !== undefined) {
+      clearTimeout(collapseTimer);
+      collapseTimer = undefined;
+    }
+    isCollapsing = false;
     hoveredVendor = vendor;
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
 
   function onRingLeave() {
-    hoveredVendor = null;
-    // Don't collapse here — let the wrapper handle collapse on full leave.
-    // This prevents flashing when moving from ring to tooltip card.
+    // Intentionally no-op: clearing the vendor here unmounts the card for a
+    // frame between adjacent rings. The wrapper's mouseleave collapses.
   }
 
   function onWrapperLeave() {
-    hoveredVendor = null;
-    invoke("collapse_pulse").catch(() => {});
+    isCollapsing = true; // card fades out immediately
+    collapseTimer = setTimeout(() => {
+      collapseTimer = undefined;
+      hoveredVendor = null;
+      invoke("collapse_pulse").catch(() => {});
+    }, COLLAPSE_DELAY_MS);
   }
 
   let hoveredQuota = $derived(
@@ -330,6 +347,7 @@
           secondPct={quota.second_pct}
           showsRemaining={false}
           subLabel={ringSubLabel(quota)}
+          plain={!quota.plan}
         />
       {/each}
       {#if data.quotas.length === 0}
@@ -348,6 +366,7 @@
     {#if isExpanded && hoveredQuota && hoveredIndex >= 0}
       <div
         class="detail-tooltip"
+        class:out={isCollapsing}
         bind:clientHeight={cardH}
         style="top: {cardTop}px; --arrow-y: {arrowY}px"
       >
@@ -520,6 +539,13 @@
     /* Gentle fade only — no translate (clashes with the inline `top`
        re-clamp when the measured height arrives) and no overshoot bounce. */
     animation: tooltipIn 0.3s ease-out;
+    transition: opacity 0.15s ease-in;
+  }
+
+  /* Leaving the panel: fade out BEFORE Rust shrinks the window, so the
+     collapse never reads as a flash. */
+  .detail-tooltip.out {
+    opacity: 0;
   }
 
   /* Card sits 30px clear of the panel's INNER edge (= pad_inner 18 + 30 =

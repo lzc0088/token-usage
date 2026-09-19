@@ -306,6 +306,7 @@ pub fn collapse_pulse(app: &AppHandle) {
     let ring_count = load_quota_count(app);
     let (w_c, h_c) = collapsed_size(&cfg, ring_count);
 
+    let mut already_collapsed = false;
     if let (Ok(pos), Ok(size), Ok(Some(mon))) = (
         win.outer_position(),
         win.outer_size(),
@@ -314,14 +315,22 @@ pub fn collapse_pulse(app: &AppHandle) {
         let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
+        let w_now = size.width as f64 / scale;
+        let h_now = size.height as f64 / scale;
         let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
-        let flush_right = mon_right - (px + size.width as f64 / scale) <= 8.0;
-        if flush_right {
+        let flush_right = mon_right - (px + w_now) <= 8.0;
+        if flush_right && (mon_right - w_c - px).abs() > 0.5 {
             let _ = win.set_position(LogicalPosition::new(mon_right - w_c, py));
         }
+        already_collapsed =
+            (w_now - w_c).abs() <= 0.5 && (h_now - h_c).abs() <= 0.5;
     }
 
-    let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
+    // Skip the no-op resize — a redundant setFrame makes the WKWebView flash
+    // (rapid leave/re-enter cycles can collapse while already collapsed).
+    if !already_collapsed {
+        let _ = win.set_size(LogicalSize::new(w_c.max(60.0), h_c.max(60.0)));
+    }
     let _ = win.emit("pulse:collapse", ());
 }
 
