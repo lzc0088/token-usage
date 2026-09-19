@@ -66,16 +66,9 @@
   class:card-right={cardSide === "right"}
   class:dark={dark}
 >
-  <!-- Arrow: curved beak protruding from the card's panel-facing edge,
-       positioned at --arrow-y (the hovered ring's line). -->
-  <svg
-    class="card-arrow"
-    viewBox="0 0 12 24"
-    preserveAspectRatio="none"
-    aria-hidden="true"
-  >
-    <path d="M12 0 C 2 3.5, 2 20.5, 12 24 Z" fill="var(--card-bg)" />
-  </svg>
+  <!-- Arrow: large triangle protruding from the card's panel-facing
+       edge, positioned at --arrow-y (the hovered ring's line). -->
+  <div class="card-arrow" aria-hidden="true"></div>
 
   <div class="card-body">
     <!-- Header: icon + vendor + plan badge; expiry hugs the line above. -->
@@ -173,7 +166,7 @@
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: 20px;
-    padding: 10px 12px;
+    padding: 14px 14px;
     font-size: 9px;
     line-height: 1.45;
     color: var(--card-text);
@@ -189,19 +182,23 @@
     --card-badge: rgba(255, 255, 255, 0.1);
   }
 
-  /* ── Arrow: curved beak on the card edge, pointing at the ring ── */
+  /* ── Arrow: large triangle on the card edge, pointing at the ring ── */
   .card-arrow {
     position: absolute;
     top: var(--arrow-y, 50%);
-    left: -11px; /* 1px overlap hides the seam against the card border */
+    left: -12px;
     transform: translateY(-50%);
-    width: 12px;
-    height: 24px;
+    width: 0;
+    height: 0;
+    border-top: 12px solid transparent;
+    border-bottom: 12px solid transparent;
+    border-right: 12px solid var(--card-bg);
   }
   .detail-card.card-right .card-arrow {
     left: auto;
-    right: -11px;
-    transform: translateY(-50%) scaleX(-1);
+    right: -12px;
+    border-right: none;
+    border-left: 12px solid var(--card-bg);
   }
 
   .card-body {
