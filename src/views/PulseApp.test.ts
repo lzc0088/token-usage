@@ -82,6 +82,13 @@ function emit(name: string, payload: unknown) {
   listeners.get(name)?.({ payload });
 }
 
+/** Simulate the pointer entering the panel (arms the expand-event guard). */
+function enterPanel(target: HTMLElement) {
+  target
+    .querySelector(".rail-with-tooltip")
+    ?.dispatchEvent(new MouseEvent("mouseenter"));
+}
+
 /** Let Svelte 5 flush its (microtask-batched) render effects. */
 async function flush() {
   await new Promise((r) => setTimeout(r, 0));
@@ -114,6 +121,7 @@ describe("PulseApp", () => {
 
     emit("pulse:update", SAMPLE);
     await flush();
+    enterPanel(target);
     emit("pulse:expand", { vendor: "codex", cardLeft: true });
     await flush();
 
@@ -134,6 +142,7 @@ describe("PulseApp", () => {
 
     emit("pulse:update", SAMPLE);
     await flush();
+    enterPanel(target);
     emit("pulse:expand", { vendor: "codex", cardLeft: true });
     await flush();
     emit("pulse:collapse", undefined);

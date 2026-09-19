@@ -10,11 +10,12 @@
     onLeave: () => void;
     isRunning?: boolean;
     isRefreshing?: boolean;
-    secondPct?: number;
+    /** Additional windows (week / MCP / …) rendered as inner concentric arcs. */
+    extraPcts?: number[];
     showsRemaining?: boolean;
     /** Plan-less vendors: credits/balance shown under the ring instead of %. */
     subLabel?: string;
-    /** Plan-less vendors: no progress arc at all — icon + amount only. */
+    /** Plan-less vendors: track ring only — icon + amount, no progress arcs. */
     plain?: boolean;
   }
 
@@ -27,7 +28,7 @@
     onLeave,
     isRunning = false,
     isRefreshing = false,
-    secondPct,
+    extraPcts,
     showsRemaining = false,
     subLabel,
     plain = false,
@@ -41,8 +42,37 @@
   let radius = $derived((diameter - strokeWidth) / 2);
   let circumference = $derived(2 * Math.PI * radius);
   let centerRadius = $derived(Math.max(4, (diameter - strokeWidth * 2 - 8) / 2));
-  // Center glyph size — small mark floating in the (transparent) hole.
-  let iconSize = $derived(Math.round(centerRadius * 1.25));
+
+  // All arcs, outer → inner: the critical window + extras. Each inner arc
+  // steps inward and thins so multi-window vendors (5h/week/MCP/…) keep
+  // every arc visible.
+  let arcs = $derived([
+    Math.min(100, Math.max(0, pct)),
+    ...(extraPcts ?? []).map((p) => Math.min(100, Math.max(0, p))),
+  ]);
+  const ARC_STEP = 1.18; // × strokeWidth between concentric arcs
+
+  // Per-arc geometry (radius / stroke / dash offset), skipping arcs that
+  // would collapse into the center.
+  let arcSpecs = $derived(
+    arcs
+      .map((p, i) => {
+        const r = radius - i * strokeWidth * ARC_STEP;
+        const sw = Math.max(2.0, strokeWidth * (1 - i * 0.22));
+        const c = 2 * Math.PI * r;
+        return { r, sw, c, offset: c * (1 - p / 100), isMain: i === 0, p };
+      })
+      .filter((a) => a.r >= 3)
+  );
+
+  // Center glyph — shrinks when inner arcs crowd the middle.
+  let iconSize = $derived.by(() => {
+    const innermost = arcSpecs.length > 0 ? arcSpecs[arcSpecs.length - 1] : null;
+    const defaultSize = Math.round(centerRadius * 1.25);
+    if (!innermost) return defaultSize;
+    const room = (innermost.r - innermost.sw / 2 - 1.2) * 2;
+    return Math.max(8, Math.min(defaultSize, Math.round(room)));
+  });
   // Real brand SVG markup from the app's shared icon set (currentColor fill).
   let iconMarkup = $derived(vendorIconMarkup(vendor));
   let iconOffset = $derived((diameter - iconSize) / 2);
@@ -51,17 +81,8 @@
 
   let usedPct = $derived(Math.min(100, Math.max(0, pct)));
   let displayPct = $derived(showsRemaining ? 100 - usedPct : usedPct);
-  let offset = $derived(circumference * (1 - displayPct / 100));
+  let offset = $derived(2 * Math.PI * radius * (1 - displayPct / 100));
   let arcColor = $derived(ringColor(usedPct));
-
-  // Second (inner) ring) — null when not shown.
-  let secondOffset = $derived(
-    secondPct == null
-      ? null
-      : Math.max(0, Math.min(100, secondPct)) === 100
-        ? 0
-        : circumference * (1 - Math.max(0, Math.min(100, secondPct)) / 100)
-  );
 
   // Unique filter ID per vendor.
   let filterId = $derived(`halo-${vendor}`);
@@ -137,20 +158,21 @@
       </filter>
     </defs>
 
-    <!-- ── Static progress elements — hidden for plan-less vendors
-         (plain mode: icon + amount, no progress bars anywhere). ──────── -->
-    {#if !plain}
-      <!-- ── Background track ────────────────────────────────────────── -->
-      <circle
-        cx={diameter / 2}
-        cy={diameter / 2}
-        r={radius}
-        fill="none"
-        stroke="var(--pulse-track)"
-        stroke-width={strokeWidth}
-      />
+    <!-- ── Background track — always visible (plain vendors keep the ring
+         outline, just without progress arcs). ─────────────────────────── -->
+    <circle
+      cx={diameter / 2}
+      cy={diameter / 2}
+      r={radius}
+      fill="none"
+      stroke="var(--pulse-track)"
+      stroke-width={strokeWidth}
+    />
 
-      <!-- ── Halo glow (wider blurred arc) ───────────────────────────── -->
+    <!-- ── Progress arcs — hidden for plan-less vendors. One concentric
+         arc per window (5h outer, week/MCP/… inner), thinning inward. ── -->
+    {#if !plain}
+      <!-- ── Halo glow (wider blurred arc around the MAIN arc only) ──── -->
       <circle
         cx={diameter / 2}
         cy={diameter / 2}
@@ -159,44 +181,29 @@
         stroke={arcColor}
         stroke-width={strokeWidth * 2}
         stroke-linecap="round"
-        stroke-dasharray={circumference}
+        stroke-dasharray={2 * Math.PI * radius}
         stroke-dashoffset={offset}
         transform="rotate(-90 {diameter / 2} {diameter / 2})"
         opacity="0.15"
         filter="url(#{filterId})"
       />
 
-      <!-- ── Second inner ring ────────────────────────────────────────── -->
-      {#if secondPct != null && secondOffset != null}
+      {#each arcSpecs as spec, i (i)}
         <circle
+          class="usage-arc"
           cx={diameter / 2}
           cy={diameter / 2}
-          r={Math.max(4, radius - strokeWidth * 0.8)}
+          r={spec.r}
           fill="none"
           stroke={arcColor}
-          stroke-width={strokeWidth * 0.45}
+          stroke-width={spec.sw}
           stroke-linecap="round"
-          stroke-dasharray={2 * Math.PI * Math.max(4, radius - strokeWidth * 0.8)}
-          stroke-dashoffset={secondOffset}
+          stroke-dasharray={spec.c}
+          stroke-dashoffset={spec.offset}
           transform="rotate(-90 {diameter / 2} {diameter / 2})"
-          opacity="0.35"
+          opacity={spec.isMain ? 1 : 0.5}
         />
-      {/if}
-
-      <!-- ── Usage arc (main progress) ─────────────────────────────────── -->
-      <circle
-        class="usage-arc"
-        cx={diameter / 2}
-        cy={diameter / 2}
-        r={radius}
-        fill="none"
-        stroke={arcColor}
-        stroke-width={strokeWidth}
-        stroke-linecap="round"
-        stroke-dasharray={circumference}
-        stroke-dashoffset={offset}
-        transform="rotate(-90 {diameter / 2} {diameter / 2})"
-      />
+      {/each}
     {/if}
 
     <!-- ── Busy travelling mark ────────────────────────────────────────── -->

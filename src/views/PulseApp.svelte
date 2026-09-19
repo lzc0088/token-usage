@@ -77,6 +77,12 @@
   });
 
   listen<ExpandPayload>("pulse:expand", (e) => {
+    // Fast pass-through guard: the pointer may have already left the panel
+    // before this (async) event landed — mounting the card now would flash.
+    if (!pointerInPanel) {
+      invoke("collapse_pulse").catch(() => {});
+      return;
+    }
     isExpanded = true;
     hoveredVendor = e.payload?.vendor ?? null;
     expandCardLeft = !!e.payload?.cardLeft;
@@ -87,6 +93,10 @@
     hoveredVendor = null;
     expandCardLeft = false;
     isCollapsing = false;
+    if (collapseTimer !== undefined) {
+      clearTimeout(collapseTimer);
+      collapseTimer = undefined;
+    }
   });
 
   // Pull data on mount. A webview reload / HMR resets component state, and
@@ -235,20 +245,36 @@
   // Initial flush detection.
   updateFlushSide();
 
-  // ── Graceful collapse: fade the card out FIRST, then shrink the window.
-  // Collapsing while the card is still visible makes the abrupt unmount +
-  // window resize read as a flash. A re-enter during the grace period
-  // cancels the pending collapse. ─────────────────────────────────────────
-  const COLLAPSE_DELAY_MS = 160;
+  // ── Graceful collapse + fast-sweep protection ──────────────────────────
+  // Phase 1 (linger): after leaving, do NOTHING for LINGER_MS — sweeping
+  //   across the panel (or over the title strip between rings) re-enters
+  //   within this window and nothing was ever hidden → zero flicker.
+  // Phase 2 (fade): fade the card out (150ms transition).
+  // Phase 3: unmount + shrink the window only after the fade finished.
+  // `pointerInPanel` additionally guards the async pulse:expand event: a
+  // pass-through hover that already left never mounts the card at all.
+  const LINGER_MS = 120;
+  const FADE_MS = 160;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
   let isCollapsing = $state(false);
+  let pointerInPanel = $state(false);
 
-  function onRingEnter(vendor: string) {
+  function cancelPendingCollapse() {
     if (collapseTimer !== undefined) {
       clearTimeout(collapseTimer);
       collapseTimer = undefined;
     }
     isCollapsing = false;
+  }
+
+  function onWrapperEnter() {
+    pointerInPanel = true;
+    cancelPendingCollapse();
+  }
+
+  function onRingEnter(vendor: string) {
+    pointerInPanel = true;
+    cancelPendingCollapse();
     hoveredVendor = vendor;
     invoke("expand_pulse", { vendor: vendor }).catch(() => {});
   }
@@ -259,12 +285,15 @@
   }
 
   function onWrapperLeave() {
-    isCollapsing = true; // card fades out immediately
+    pointerInPanel = false;
     collapseTimer = setTimeout(() => {
-      collapseTimer = undefined;
-      hoveredVendor = null;
-      invoke("collapse_pulse").catch(() => {});
-    }, COLLAPSE_DELAY_MS);
+      isCollapsing = true; // phase 2: fade out
+      collapseTimer = setTimeout(() => {
+        collapseTimer = undefined;
+        hoveredVendor = null;
+        invoke("collapse_pulse").catch(() => {}); // phase 3: shrink
+      }, FADE_MS);
+    }, LINGER_MS);
   }
 
   let hoveredQuota = $derived(
@@ -311,6 +340,15 @@
   // Panel-level title explaining the percentage mode.
   let panelTitle = $derived("使用量");
 
+  // Extra windows (week / MCP / …) as inner concentric arcs: all windows
+  // sorted by usage, minus the most critical one (that's the main arc).
+  function extraPcts(q: PulseQuota): number[] {
+    return q.windows
+      .map((w) => w.used_pct)
+      .sort((a, b) => b - a)
+      .slice(1);
+  }
+
   // Plan-less vendors (credits/balance only): the label under the ring
   // shows the remaining amount instead of a percentage.
   function ringSubLabel(q: PulseQuota): string | undefined {
@@ -344,7 +382,12 @@
   <div class="panel-title">{panelTitle}</div>
 
   <!-- Ring rail + tooltip container -->
-  <div class="rail-with-tooltip" onmouseleave={onWrapperLeave} role="group">
+  <div
+    class="rail-with-tooltip"
+    onmouseenter={onWrapperEnter}
+    onmouseleave={onWrapperLeave}
+    role="group"
+  >
     <div class="ring-dock" style="max-height: {dockMax}px">
       {#each data.quotas as quota (quota.vendor)}
         <QuotaRing
@@ -356,7 +399,7 @@
           onLeave={onRingLeave}
           isRunning={quota.is_running ?? false}
           isRefreshing={quota.is_refreshing ?? false}
-          secondPct={quota.second_pct}
+          extraPcts={extraPcts(quota)}
           showsRemaining={false}
           subLabel={ringSubLabel(quota)}
           plain={quota.planless ?? false}

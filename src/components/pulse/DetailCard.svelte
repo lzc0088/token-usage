@@ -165,7 +165,7 @@
     max-width: 270px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 10px;
+    border-radius: 20px;
     padding: 10px 12px;
     font-size: 9px;
     line-height: 1.45;
@@ -211,7 +211,7 @@
   .card-header {
     display: flex;
     flex-direction: column;
-    gap: 0; /* expiry hugs the plan line — tight per user preference */
+    gap: 4px; /* plan name ↔ expiry spacing (user-specified) */
   }
 
   .header-line {
@@ -224,7 +224,7 @@
     width: 11px;
     height: 11px;
     flex-shrink: 0;
-    color: #1a1610;
+    color: var(--card-text); /* follows the theme: light icon on dark card */
   }
   .vendor-icon :global(svg) {
     width: 100%;
