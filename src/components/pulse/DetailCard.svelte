@@ -3,6 +3,7 @@
     windowLabel,
     fmtCredits,
     formatExpiryTime,
+    formatReset,
     splitBalance,
   } from "../../lib/quota-format";
   import { vendorIconMarkup, vendorDisplayName } from "../../lib/vendorIcons";
@@ -39,32 +40,15 @@
   }
 
   const { quota, cardSide }: Props = $props();
+  const nowMs = Date.now();
 </script>
 
 <div class="detail-card" class:card-right={cardSide === "right"}>
-  <!-- Pointer beak: circle-arrow, 2px gap from panel edge (16px + 2px) -->
-  <div class="card-pointer">
-    <svg
-      viewBox="0 0 14 14"
-      width="14"
-      height="14"
-      fill="var(--pulse-card-bg, #0c0c0c)"
-      stroke="none"
-    >
-      <circle cx="7" cy="7" r="7" />
-      <path
-        d="M6 4.5l3 2.5-3 2.5"
-        fill="none"
-        stroke="var(--pulse-text-dim, #8a857b)"
-        stroke-width="1.2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  </div>
+  <!-- Simple arrow pointer: left-pointing triangle, centered, 2px gap -->
+  <div class="card-pointer"></div>
 
   <div class="card-body">
-    <!-- Header: icon + vendor + plan badge  ……  到期时间 (right-aligned) -->
+    <!-- Header: icon + vendor + plan badge …… 到期时间 (right) -->
     <div class="card-header">
       <div class="header-line">
         <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
@@ -81,37 +65,35 @@
       {/if}
     </div>
 
-    <!-- Window bars -->
+    <!-- Window rows -->
     {#if quota.windows.length > 0}
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-row">
-            <div class="row-label">
+            <!-- Row 1: name · bar · remaining · pct (single line) -->
+            <div class="row-main">
               <span class="row-title">{windowLabel(win.label)}</span>
-              <span class="row-meta">
-                {#if win.resets_at}
-                  <span class="reset-hint">{win.resets_at}</span>
-                {/if}
-                {#if win.total_value != null && win.used_value != null}
-                  <span class="remaining">
-                    剩余 {fmtCredits(win.total_value - win.used_value)}
-                  </span>
-                {/if}
-              </span>
+              <div class="row-track">
+                <div
+                  class="row-fill"
+                  style="width:{Math.min(100, win.used_pct)}%"
+                ></div>
+              </div>
+              {#if win.total_value != null && win.used_value != null}
+                <span class="row-remain">{fmtCredits(win.total_value - win.used_value)}</span>
+              {/if}
+              <span class="row-pct">{win.used_pct.toFixed(2)}%</span>
             </div>
-            <div class="row-track">
-              <div
-                class="row-fill"
-                style="width:{Math.min(100, win.used_pct)}%"
-              ></div>
-            </div>
-            <span class="row-pct">{win.used_pct}%</span>
+            <!-- Row 2: reset time, centered vertically with the bar above -->
+            {#if win.resets_at}
+              <div class="row-reset">{formatReset(win.resets_at, nowMs)}</div>
+            {/if}
           </div>
         {/each}
       </div>
     {/if}
 
-    <!-- Balance display -->
+    <!-- Balance -->
     {#if quota.balance}
       {@const { unit, value } = splitBalance(
         quota.balance.currency,
@@ -125,7 +107,6 @@
         </span>
       </div>
 
-      <!-- Today / month consumption (same style as balance) -->
       {#if quota.balance.today_consumption != null}
         <div class="cons-row">
           <span class="cons-label">今日消费</span>
@@ -162,18 +143,23 @@
     color: var(--pulse-text);
   }
 
-  /* ── Pointer beak ──────────────────────────────────────────── */
+  /* ── Simple triangle arrow pointer ──────────────────────────── */
   .card-pointer {
     position: absolute;
     top: 50%;
-    transform: translateY(-50%);
     left: -6px;
-    opacity: 0.96;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-right: 6px solid var(--pulse-card-bg, #0c0c0c);
   }
   .detail-card.card-right .card-pointer {
     left: auto;
     right: -6px;
-    transform: translateY(-50%) scaleX(-1);
+    border-right: none;
+    border-left: 6px solid var(--pulse-card-bg, #0c0c0c);
   }
 
   .card-body {
@@ -182,7 +168,7 @@
     gap: 7px;
   }
 
-  /* ── Header ────────────────────────────────────────────────── */
+  /* ── Header ──────────────────────────────────────────────────── */
   .card-header {
     display: flex;
     flex-direction: column;
@@ -242,51 +228,31 @@
     opacity: 0.8;
   }
 
-  /* ── Window bars ───────────────────────────────────────────── */
+  /* ── Window rows ───────────────────────────────────────────── */
   .window-bars {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
   }
 
   .window-row {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .row-label {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    min-width: 0;
+    gap: 2px;
+  }
+
+  /* Row 1: name · bar · remain · pct — all on one line */
+  .row-main {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 5px;
   }
 
   .row-title {
     font-size: 9px;
     color: var(--pulse-text-dim, #8a857b);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .row-meta {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
-
-  .reset-hint {
-    font-size: 8px;
-    color: var(--pulse-text-dim, #8a857b);
-    opacity: 0.7;
-  }
-
-  .remaining {
-    font-size: 9px;
-    font-weight: 600;
-    color: var(--pulse-text);
   }
 
   .row-track {
@@ -304,17 +270,30 @@
     transition: width 0.35s ease;
   }
 
+  .row-remain {
+    font-size: 9px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    white-space: nowrap;
+  }
+
   .row-pct {
     font-size: 9px;
     font-weight: 600;
-    width: 30px;
+    width: 40px;
     text-align: right;
     font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   }
 
-  /* ── Balance + consumption rows ────────────────────────────── */
-  /*  All three (余额 / 今日消费 / 月度消费) share the same layout:
-      left label  ……  right mono number — no duplicate selectors. */
+  /* Row 2: reset time, vertically centered with the bar above */
+  .row-reset {
+    font-size: 8px;
+    color: var(--pulse-text-dim, #8a857b);
+    opacity: 0.75;
+    padding-left: 1px;
+  }
+
+  /* ── Balance + consumption ──────────────────────────────────── */
   .balance-row,
   .cons-row {
     display: flex;
@@ -332,7 +311,7 @@
 
   .balance-amount,
   .cons-amount {
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 600;
     display: flex;
     align-items: baseline;
@@ -342,7 +321,7 @@
 
   .balance-unit,
   .cons-unit {
-    font-size: 9px;
+    font-size: 8px;
     opacity: 0.7;
   }
 </style>

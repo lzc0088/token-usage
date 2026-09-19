@@ -460,7 +460,7 @@
   .panel-title {
     font-size: 10px;
     font-weight: 500;
-    color: var(--pulse-text-dim);
+    color: var(--pulse-text);
     letter-spacing: 0.03em;
     text-transform: uppercase;
     margin-bottom: 4px;
