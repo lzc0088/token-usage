@@ -12,7 +12,7 @@
 //! macOS only. Other platforms: no-op (the floating widget covers Windows/Linux).
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalSize};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
 use crate::config;
 use crate::quota::types::Quota;
@@ -61,20 +61,25 @@ const CARD_WIN_H: f64 = 480.0;
 /// deterministic regardless of card width.
 const CARD_GAP: f64 = -9.0;
 
-/// ── Peek mode (default-hidden panel) ───────────────────────────────────
-/// When enabled the panel shrinks to a narrow grip at the screen edge;
-/// the cursor entering the grip triggers a reveal, and leaving both the
-/// grip and the card hides it again. Modeled on token-monitor's
-/// edgeDock peek state machine.
-///
-const PEEK_HANDLE_W: f64 = 10.0;
-/// Delay before expanding after the cursor enters the grip (ms).
+/// ── Peek mode (auto-hidden panel) ──────────────────────────────────────
+/// Modeled on token-monitor's edgeDock: the peek handle is its OWN tiny
+/// window ("pulse-peek", 8×58 — a 34px grip with 12px shoulder curves),
+/// flush with the screen edge and vertically centered on the rail. The
+/// panel window itself NEVER resizes — it is only shown/hidden, which is
+/// what keeps the transparent-window ghost/flash away (pure visibility
+/// toggles present no stale re-anchored frame).
+const PEEK_WIN_W: f64 = 8.0;
+const PEEK_WIN_H: f64 = 58.0;
+/// Reveal trigger depth at the physical screen edge (logical px) — the
+/// pointer only needs to REACH the edge anywhere along the rail's height.
+const PEEK_TRIGGER_DEPTH: f64 = 3.0;
+/// Delay before expanding after the cursor enters the trigger (ms).
 const PEEK_REVEAL_MS: u64 = 140;
 /// Grace period after the cursor leaves before collapsing (ms).
 const PEEK_HIDE_MS: u64 = 320;
 
 /// Peek state machine — tracks whether the panel is fully visible,
-/// collapsed to a narrow grip, or in a transition.
+/// collapsed behind the peek handle, or in a transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PeekState {
     Visible,
@@ -87,9 +92,74 @@ enum PeekState {
 static PEEK_STATE: std::sync::Mutex<(PeekState, Option<std::time::Instant>)> =
     std::sync::Mutex::new((PeekState::Visible, None));
 
-fn is_peeking() -> bool {
-    let (st, _) = *PEEK_STATE.lock().unwrap_or_else(|e| e.into_inner());
-    st != PeekState::Visible
+fn peek_state() -> (PeekState, Option<std::time::Instant>) {
+    *PEEK_STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
+    *PEEK_STATE.lock().unwrap_or_else(|e| e.into_inner()) = (st, t);
+}
+
+/// Place the peek handle window at the screen edge, vertically centered on
+/// the panel's current rail (the panel keeps its full size + position even
+/// while hidden, so its rect doubles as the reveal-trigger bounds).
+fn position_peek(app: &AppHandle) {
+    let (Some(peek), Some(ring)) = (
+        app.get_webview_window("pulse-peek"),
+        app.get_webview_window("pulse"),
+    ) else {
+        return;
+    };
+    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
+        peek.current_monitor(),
+        ring.outer_position(),
+        ring.outer_size(),
+    ) else {
+        return;
+    };
+    let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
+    let px = pos.x as f64 / scale;
+    let py = pos.y as f64 / scale;
+    let w = size.width as f64 / scale;
+    let h = size.height as f64 / scale;
+    let mon_left = mon.position().x as f64 / scale;
+    let mon_right = mon_left + mon.size().width as f64 / scale;
+    // Same edge the panel itself hugs (center-of-panel heuristic).
+    let x = if px + w / 2.0 < (mon_left + mon_right) / 2.0 {
+        mon_left
+    } else {
+        mon_right - PEEK_WIN_W
+    };
+    let y = (py + (h - PEEK_WIN_H) / 2.0)
+        .max(mon.position().y as f64 / scale + 4.0)
+        .min(mon.position().y as f64 / scale + mon.size().height as f64 / scale - PEEK_WIN_H - 4.0);
+    let _ = peek.set_position(LogicalPosition::new(x, y));
+}
+
+/// Show the full panel, retire the peek handle (reveal transition end).
+fn reveal_pulse(app: &AppHandle) {
+    if let Some(ring) = app.get_webview_window("pulse") {
+        let _ = ring.show();
+    }
+    if let Some(peek) = app.get_webview_window("pulse-peek") {
+        let _ = peek.hide();
+    }
+    set_peek_state(PeekState::Visible, None);
+}
+
+/// Hide the panel, surface the peek handle at the edge (collapse end).
+fn collapse_pulse(app: &AppHandle) {
+    if let Some(ring) = app.get_webview_window("pulse") {
+        let _ = ring.hide();
+    }
+    if let Some(card) = app.get_webview_window("pulse-card") {
+        park_card(&card);
+    }
+    position_peek(app);
+    if let Some(peek) = app.get_webview_window("pulse-peek") {
+        let _ = peek.show();
+    }
+    set_peek_state(PeekState::Hidden, None);
 }
 
 /// Vertical offset of the ring rail inside the pulse window (pad + title).
@@ -165,32 +235,42 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     }
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
-        // Initialize peek state based on display mode.
-        if cfg.pulse_display_mode == "auto_hide" {
-            // Start collapsed — the panel will be positioned at full size
-            // then shrunk to a grip at the screen edge by park_card below.
-            if let Ok(mut st) = PEEK_STATE.lock() {
-                *st = (PeekState::Hidden, None);
-            }
-        } else {
-            // Fully expanded.
-            if let Ok(mut st) = PEEK_STATE.lock() {
-                *st = (PeekState::Visible, None);
-            }
-        }
+        let auto_hide = cfg.pulse_display_mode == "auto_hide";
         position_pulse(app, conn);
         if let Some(h) = app.get_webview_window("pulse") {
             apply_floating_level(&h, cfg.pulse_topmost);
-            let _ = h.show();
+            // Auto-hide starts collapsed: panel hidden, peek handle shown.
+            // Pure visibility toggles — the window is never resized here.
+            if auto_hide {
+                let _ = h.hide();
+            } else {
+                let _ = h.show();
+            }
         }
         if let Some(c) = app.get_webview_window("pulse-card") {
             apply_floating_level(&c, cfg.pulse_topmost);
             let _ = c.show();
-            // Grip push is NOT needed here: the trailing push_pulse_data below
-            // runs with THIS caller's DB guard (set_config / lib.rs setup hold
-            // it) — park_card itself must never lock the DB (self-deadlock).
-            let _shrunk = park_card(&c);
+            // park_card must never lock the DB (its callers — set_config /
+            // lib.rs setup — already hold the guard; re-locking self-deadlocks).
+            park_card(&c);
         }
+        if let Some(p) = app.get_webview_window("pulse-peek") {
+            apply_floating_level(&p, cfg.pulse_topmost);
+            if auto_hide {
+                position_peek(app);
+                let _ = p.show();
+            } else {
+                let _ = p.hide();
+            }
+        }
+        set_peek_state(
+            if auto_hide {
+                PeekState::Hidden
+            } else {
+                PeekState::Visible
+            },
+            None,
+        );
         // Cursor-driven hover (see ensure_hover_poller) — one poller ever.
         ensure_hover_poller(app);
         push_pulse_data(app, conn);
@@ -199,13 +279,14 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     }
 }
 
-/// Hide the pulse panel (and its card window).
+/// Hide the pulse panel (and its card + peek handle windows).
 pub fn hide_pulse(app: &AppHandle) {
-    for label in ["pulse", "pulse-card"] {
+    for label in ["pulse", "pulse-card", "pulse-peek"] {
         if let Some(h) = app.get_webview_window(label) {
             let _ = h.hide();
         }
     }
+    set_peek_state(PeekState::Visible, None);
 }
 
 /// Build the pulse frontend payload (quotas + panel settings).
@@ -222,7 +303,6 @@ pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
         theme: resolved_theme(app, &cfg),
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
         max_panel_h,
-        peek: is_peeking(),
         side: cfg.pulse_side.clone(),
     }
 }
@@ -239,30 +319,18 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     // Keep the hover hot-path cache in lockstep with what was just pushed.
     refresh_dock_cache(&cfg, &payload.theme, &payload.quotas);
 
-    // Both windows consume the payload (the card window follows theme,
-    // opacity, and live usage updates while it happens to be open).
+    // All three windows consume the payload (the card follows theme/opacity
+    // while open; the peek handle follows theme + side for its silhouette).
     for w in [
         app.get_webview_window("pulse"),
         app.get_webview_window("pulse-card"),
+        app.get_webview_window("pulse-peek"),
     ]
     .into_iter()
     .flatten()
     {
         let _ = w.emit("pulse:update", &payload);
     }
-}
-
-/// Push quota data from the hover-poller thread, which owns no DB guard —
-/// take the mutex just for the call. Safe: the poller thread holds no other
-/// locks across it, and main-thread holders (set_config / lib.rs setup)
-/// release without waiting on this thread.
-fn push_pulse_data_polled(app: &AppHandle) {
-    let Some(state) = app.try_state::<AppState>() else {
-        return;
-    };
-    if let Ok(conn) = state.db.lock() {
-        push_pulse_data(app, &conn);
-    };
 }
 
 /// Load vendor quotas from the quota_cache table, filtered AND ordered by
@@ -506,16 +574,10 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
 
 /// Move the card window off-screen instead of hiding it — the webview stays
 /// live and event-ready, and an off-screen window owns no interactable pixels.
-/// Show is then a pure position move back on-screen.
-///
-/// When peek mode is active, also shrinks the pulse window to a narrow grip
-/// and positions it at the screen edge so the cursor can hover over it to
-/// trigger a reveal. Returns `true` when the grip shrink was applied — the
-/// caller must then push a fresh pulse:update (peek=true) so the frontend
-/// renders the grip. The push is deliberately OUTSIDE this function:
-/// sync_pulse reaches here with the DB mutex already held (set_config /
-/// lib.rs setup), and re-locking it here self-deadlocks the main thread.
-fn park_card(card: &tauri::WebviewWindow) -> bool {
+/// Show is then a pure position move back on-screen. Must never lock the DB:
+/// callers (set_config / lib.rs setup) already hold the guard, and re-locking
+/// it on the same thread self-deadlocks.
+fn park_card(card: &tauri::WebviewWindow) {
     // Park the card off-screen.
     let (cx, cy) = match card.current_monitor() {
         Ok(Some(mon)) => {
@@ -528,46 +590,6 @@ fn park_card(card: &tauri::WebviewWindow) -> bool {
         _ => (-4000.0, -4000.0),
     };
     let _ = card.set_position(LogicalPosition::new(cx, cy));
-
-    // Peek mode: shrink the pulse window to a narrow grip at the screen edge.
-    let mut shrunk = false;
-    if is_peeking() {
-        if let Some(ring) = card.app_handle().get_webview_window("pulse") {
-            if let (Ok(size), Ok(Some(mon))) = (ring.outer_size(), ring.current_monitor()) {
-                let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
-                let handle_px = (PEEK_HANDLE_W * scale).round() as u32;
-                let _ = ring.set_size(PhysicalSize::new(handle_px.max(1), size.height));
-
-                // Position at the screen edge (not off-screen) so the cursor
-                // can hit-test the grip. Read the window's current position
-                // to determine which edge it's on.
-                if let Ok(pos) = ring.outer_position() {
-                    let wx = pos.x as f64 / scale;
-                    let wy = pos.y as f64 / scale;
-                    let mon_left = mon.position().x as f64 / scale;
-                    let mon_right = mon_left + mon.size().width as f64 / scale;
-                    let mon_h = mon.size().height as f64 / scale;
-                    let my = mon.position().y as f64 / scale;
-                    let edge_x =
-                        if wx + size.width as f64 / scale / 2.0 < (mon_left + mon_right) / 2.0 {
-                            mon_left
-                        } else {
-                            mon_right - handle_px as f64 / scale
-                        };
-                    let center_y = wy + size.height as f64 / scale / 2.0;
-                    let gy = (center_y - handle_px as f64 / scale / 2.0)
-                        .max(my + 4.0)
-                        .min(my + mon_h - handle_px as f64 / scale - 4.0);
-                    let _ = ring.set_position(LogicalPosition::new(
-                        (edge_x * scale).round() as i32,
-                        (gy * scale).round() as i32,
-                    ));
-                }
-                shrunk = true;
-            }
-        }
-    }
-    shrunk
 }
 
 /// Ask the card webview to fade its content out (graceful-hide step one).
@@ -705,16 +727,6 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             ) else {
                 break;
             };
-            // Panel disabled/hidden → park the card and idle.
-            if !ring.is_visible().unwrap_or(false) {
-                if visible {
-                    park_card(&card);
-                    visible = false;
-                    shown = None;
-                    hiding_since = None;
-                }
-                continue;
-            }
             let Some(dock) = dock_cache(&app) else {
                 continue;
             };
@@ -725,6 +737,80 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             };
             let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
             let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
+
+            // ── Auto-hide: panel hidden behind the peek handle. The reveal
+            // trigger is the handle window itself (with grace) OR a thin
+            // strip at the screen edge spanning the rail's height — the
+            // pointer only needs to REACH the edge (token-monitor edgeDock).
+            if !ring.is_visible().unwrap_or(false) {
+                if visible {
+                    park_card(&card);
+                    visible = false;
+                    shown = None;
+                    hiding_since = None;
+                }
+                if dock.peek_enabled {
+                    let in_peek = app
+                        .get_webview_window("pulse-peek")
+                        .and_then(|p| {
+                            let s = p.scale_factor().unwrap_or(1.0).max(1.0);
+                            p.outer_position()
+                                .ok()
+                                .map(|pp| (pp.x as f64 / s, pp.y as f64 / s))
+                        })
+                        .map(|(qx, qy)| {
+                            mx >= qx - HOVER_GRACE
+                                && mx < qx + PEEK_WIN_W + HOVER_GRACE
+                                && my >= qy - HOVER_GRACE
+                                && my < qy + PEEK_WIN_H + HOVER_GRACE
+                        })
+                        .unwrap_or(false);
+                    let near_panel_edge = ring
+                        .current_monitor()
+                        .ok()
+                        .flatten()
+                        .map(|mon| {
+                            let s = mon.scale_factor();
+                            let ml = mon.position().x as f64 / s;
+                            let mr = ml + mon.size().width as f64 / s;
+                            if px + w_c / 2.0 < (ml + mr) / 2.0 {
+                                mx <= px + PEEK_TRIGGER_DEPTH
+                            } else {
+                                mx >= px + w_c - PEEK_TRIGGER_DEPTH
+                            }
+                        })
+                        .unwrap_or(false);
+                    let in_trigger = in_peek || (near_panel_edge && my >= py && my < py + h_c);
+                    match peek_state() {
+                        (PeekState::Hidden, _) if in_trigger => {
+                            set_peek_state(PeekState::Revealing, Some(std::time::Instant::now()));
+                        }
+                        (PeekState::Revealing, Some(t)) => {
+                            if in_trigger {
+                                if t.elapsed() >= std::time::Duration::from_millis(PEEK_REVEAL_MS) {
+                                    // Pure visibility toggle — the window kept
+                                    // its full size while hidden, so no resize
+                                    // (and no ghost frame) on reveal.
+                                    reveal_pulse(&app);
+                                    // Open the hovered ring's card right away.
+                                    let idx =
+                                        ring_index_at(my - py, dock.diameter, dock.vendors.len());
+                                    if let Some(idx) = idx {
+                                        card_on_left = show_card_for(&app, &dock, idx);
+                                        visible = true;
+                                        shown = dock.vendors.get(idx).cloned();
+                                    }
+                                }
+                            } else {
+                                // Cursor left during reveal — cancel.
+                                set_peek_state(PeekState::Hidden, None);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
 
             // Dragging = the panel is moving under the pointer; suppress.
             let dragging = (px - last_panel_pos.0).abs() + (py - last_panel_pos.1).abs() > 1.5;
@@ -756,10 +842,8 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     emit_card_hide(&app);
                     hiding_since = Some(std::time::Instant::now());
                     // Cancel any in-progress peek transition.
-                    if let Ok(mut st) = PEEK_STATE.lock() {
-                        if st.0 != PeekState::Visible {
-                            *st = (PeekState::Visible, None);
-                        }
+                    if peek_state().0 != PeekState::Visible {
+                        set_peek_state(PeekState::Visible, None);
                     }
                 }
             } else if let Some(idx) = ring_idx {
@@ -784,89 +868,25 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         hiding_since = Some(std::time::Instant::now());
                         // Transition to Hiding state (peek entry point).
                         if dock.peek_enabled {
-                            if let Ok(mut st) = PEEK_STATE.lock() {
-                                *st = (PeekState::Hiding, Some(std::time::Instant::now()));
-                            }
+                            set_peek_state(PeekState::Hiding, Some(std::time::Instant::now()));
                         }
                     }
                     (Some(t), _) if t.elapsed() >= HOVER_FADE => {
-                        let shrunk = park_card(&card);
+                        park_card(&card);
                         visible = false;
                         shown = None;
                         hiding_since = None;
                         last_inside = None;
-                        // Collapse to narrow grip (peek Hidden state).
-                        if dock.peek_enabled {
-                            if let Ok(mut st) = PEEK_STATE.lock() {
-                                *st = (PeekState::Hidden, None);
-                            }
-                        }
-                        // Render the grip (peek=true) — poller owns no DB guard.
-                        if shrunk {
-                            push_pulse_data_polled(&app);
-                        }
                     }
                     _ => {}
                 }
             } else if dock.peek_enabled {
-                // Card not visible — handle peek state transitions.
-                let peek_state = PEEK_STATE
-                    .lock()
-                    .map(|s| *s)
-                    .unwrap_or((PeekState::Visible, None));
-                match peek_state {
-                    (PeekState::Hidden, _) if in_panel => {
-                        // Cursor enters the narrow grip — begin reveal.
-                        if let Ok(mut st) = PEEK_STATE.lock() {
-                            *st = (PeekState::Revealing, Some(std::time::Instant::now()));
-                        }
+                // Card hidden, panel still up: finish the peek collapse once
+                // the hide grace elapses (panel hides, peek handle shows).
+                if let (PeekState::Hiding, Some(t)) = peek_state() {
+                    if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) {
+                        collapse_pulse(&app);
                     }
-                    (PeekState::Revealing, Some(t)) => {
-                        if in_panel {
-                            if t.elapsed() >= std::time::Duration::from_millis(PEEK_REVEAL_MS) {
-                                // Expand the panel back to full size.
-                                let max_h = panel_max_h(&ring);
-                                let d = dock.diameter;
-                                let n = dock.vendors.len().max(1);
-                                let fw = d + PANEL_PAD * 2.0;
-                                let fh = (PAD_V + PAD_V_BOT + TITLE_BLOCK) * layout_scale(d)
-                                    + dock_height_capped(d, n, max_h);
-                                let _ = ring.set_size(LogicalSize::new(fw, fh));
-                                // Emit card-show for the ring under cursor.
-                                if let Some(idx) = ring_idx {
-                                    card_on_left = show_card_for(&app, &dock, idx);
-                                    visible = true;
-                                    shown = dock.vendors.get(idx).cloned();
-                                }
-                                if let Ok(mut st) = PEEK_STATE.lock() {
-                                    *st = (PeekState::Visible, None);
-                                }
-                                // Push full-size data to frontend.
-                                push_pulse_data_polled(&app);
-                            }
-                        } else {
-                            // Cursor left during reveal — cancel.
-                            if let Ok(mut st) = PEEK_STATE.lock() {
-                                *st = (PeekState::Hidden, None);
-                            }
-                        }
-                    }
-                    (PeekState::Hiding, Some(t))
-                        if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) =>
-                    {
-                        let shrunk = park_card(&card);
-                        visible = false;
-                        shown = None;
-                        hiding_since = None;
-                        last_inside = None;
-                        if let Ok(mut st) = PEEK_STATE.lock() {
-                            *st = (PeekState::Hidden, None);
-                        }
-                        if shrunk {
-                            push_pulse_data_polled(&app);
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
@@ -1034,9 +1054,7 @@ pub struct PulseData {
     /// frontend CSS caps the ring dock at exactly this number so the
     /// window size and the rendered panel always agree.
     pub max_panel_h: f64,
-    /// Panel is collapsed to a narrow peek grip at the screen edge.
-    pub peek: bool,
-    /// Panel side: "left" | "right" — tells the peek grip which edge to anchor to.
+    /// Panel side: "left" | "right" — anchors the peek handle's silhouette.
     pub side: String,
 }
 

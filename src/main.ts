@@ -3,6 +3,7 @@ import App from "./App.svelte";
 import SettingsApp from "./views/SettingsApp.svelte";
 import PulseApp from "./views/PulseApp.svelte";
 import PulseCardApp from "./views/PulseCardApp.svelte";
+import PulsePeekApp from "./views/PulsePeekApp.svelte";
 import { mount } from "svelte";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./lib/api";
@@ -57,6 +58,7 @@ async function init(): Promise<void> {
   const Root = label === "settings" ? SettingsApp
     : label === "pulse" ? PulseApp
     : label === "pulse-card" ? PulseCardApp
+    : label === "pulse-peek" ? PulsePeekApp
     : App;
 
   mount(Root, {

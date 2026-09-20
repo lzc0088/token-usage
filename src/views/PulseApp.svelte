@@ -52,8 +52,10 @@
   const LABEL_H = 21;
   const ITEM_GAP = 14;
   const TITLE_BLOCK = 27;
-  // Fixed vertical padding (logical px) — matches Rust PAD_V (fixed, not scale-dependent).
+  // Fixed vertical padding (logical px) — matches Rust PAD_V / PAD_V_BOT
+  // (fixed, not scale-dependent; bottom is larger for visual breathing room).
   const PAD_V = 36;
+  const PAD_V_BOT = 44;
   // Panel height cap fallback — Rust sends the real cap (80% of the
   // current screen) in the payload; the fixed value only covers a stale
   // payload from before the field existed.
@@ -77,16 +79,11 @@
     Math.max(
       60,
       (data.max_panel_h ?? MAX_PANEL_H_FALLBACK) -
-        (PAD_V * 2 + TITLE_BLOCK * layoutS)
+        (PAD_V + PAD_V_BOT + TITLE_BLOCK * layoutS)
     )
   );
   let dockH = $derived(Math.min(dockNatural, dockMax));
-  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK * layoutS + dockH);
-
-  // Peek mode: the Rust poller shrinks the window to a narrow grip at the
-  // screen edge. When peek=true the frontend renders only a translucent
-  // handle strip — the full panel content is hidden.
-  let peeking = $derived(data.peek ?? false);
+  let panelH = $derived(PAD_V + PAD_V_BOT + TITLE_BLOCK * layoutS + dockH);
 
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
@@ -242,93 +239,83 @@
   class:light={data.theme !== "dark"}
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
-  class:peeking
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; --s: {layoutS}; width:{panelW}px; height:{panelH}px"
 >
-  {#if peeking}
-    <!-- Peek mode: narrow translucent grip at the screen edge. The
-         Rust poller has already shrunk the window; we render only the
-         handle strip so the webview stays live and event-ready. A thin
-         accent pill anchors to the panel-facing edge so the user knows
-         where to hover. -->
-    <div class="peek-grip" class:peek-grip-left={data.side === "left"} aria-label="hover to expand panel">
-      <span class="peek-pill"></span>
-    </div>
-  {:else}
-    <!-- Visual surface: bg + blur.  Docked edges use the concave-shoulder
-         rail clip-path (token-monitor style); floating pills use border-radius. -->
-    <!-- Hidden SVG: defines the <clipPath> for docked panel edges. -->
+  <!-- Visual surface: bg + blur.  Docked edges use the concave-shoulder
+       rail clip-path (token-monitor style); floating pills use border-radius.
+       The auto-hide peek handle lives in its OWN tiny window ("pulse-peek"),
+       so this window never renders a collapsed state. -->
+  <!-- Hidden SVG: defines the <clipPath> for docked panel edges. -->
+  {#if flushSide && railClip}
+    <svg
+      class="rail-defs"
+      width="0"
+      height="0"
+      aria-hidden="true"
+    >
+      <defs>
+        <clipPath id="rail-clip" clipPathUnits="userSpaceOnUse">
+          <path d={railClipClosed} />
+        </clipPath>
+      </defs>
+    </svg>
+  {/if}
+
+  <div class="panel-surface" aria-hidden="true">
     {#if flushSide && railClip}
+      <!-- Outline traces the interior (concave shoulders + rounded
+           corners); the screen edge is left open for a clean docked look. -->
       <svg
-        class="rail-defs"
-        width="0"
-        height="0"
+        class="rail-outline"
+        viewBox="0 0 {panelW} {panelH}"
+        width={panelW}
+        height={panelH}
         aria-hidden="true"
       >
-        <defs>
-          <clipPath id="rail-clip" clipPathUnits="userSpaceOnUse">
-            <path d={railClipClosed} />
-          </clipPath>
-        </defs>
+        <path
+          d={railClip}
+          fill="none"
+          stroke="var(--rail-stroke, rgba(255,255,255,0.15))"
+          stroke-width="1"
+          vector-effect="non-scaling-stroke"
+          pointer-events="none"
+        />
       </svg>
     {/if}
+  </div>
 
-    <div class="panel-surface" aria-hidden="true">
-      {#if flushSide && railClip}
-        <!-- Outline traces the interior (concave shoulders + rounded
-             corners); the screen edge is left open for a clean docked look. -->
-        <svg
-          class="rail-outline"
-          viewBox="0 0 {panelW} {panelH}"
-          width={panelW}
-          height={panelH}
-          aria-hidden="true"
+  <!-- Panel title (mode indicator) -->
+  <div class="panel-title">{panelTitle}</div>
+
+  <!-- Ring rail -->
+  <div class="rail-with-tooltip" role="group">
+    <div class="ring-dock" style="max-height: {dockMax}px">
+      {#each data.quotas as quota, index (quota.vendor)}
+        <QuotaRing
+          vendor={quota.vendor}
+          pct={quota.critical_pct}
+          label={quota.critical_label}
+          diameter={data.ring_diameter}
+          colorIndex={index}
+          isRunning={quota.is_running ?? false}
+          isRefreshing={quota.is_refreshing ?? false}
+          extraPcts={extraPcts(quota)}
+          showsRemaining={true}
+          subUnit={ringSubLabel(quota)?.unit}
+          subValue={ringSubLabel(quota)?.value}
+          plain={quota.planless ?? false}
+        />
+      {/each}
+      {#if data.quotas.length === 0}
+        <div
+          class="empty-ring"
+          style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
         >
-          <path
-            d={railClip}
-            fill="none"
-            stroke="var(--rail-stroke, rgba(255,255,255,0.15))"
-            stroke-width="1"
-            vector-effect="non-scaling-stroke"
-            pointer-events="none"
-          />
-        </svg>
+          <span class="empty-icon">📊</span>
+        </div>
       {/if}
     </div>
-
-    <!-- Panel title (mode indicator) -->
-    <div class="panel-title">{panelTitle}</div>
-
-    <!-- Ring rail -->
-    <div class="rail-with-tooltip" role="group">
-      <div class="ring-dock" style="max-height: {dockMax}px">
-        {#each data.quotas as quota, index (quota.vendor)}
-          <QuotaRing
-            vendor={quota.vendor}
-            pct={quota.critical_pct}
-            label={quota.critical_label}
-            diameter={data.ring_diameter}
-            colorIndex={index}
-            isRunning={quota.is_running ?? false}
-            isRefreshing={quota.is_refreshing ?? false}
-            extraPcts={extraPcts(quota)}
-            showsRemaining={true}
-            subUnit={ringSubLabel(quota)?.unit}
-            subValue={ringSubLabel(quota)?.value}
-            plain={quota.planless ?? false}
-          />
-        {/each}
-        {#if data.quotas.length === 0}
-          <div
-            class="empty-ring"
-            style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
-          >
-            <span class="empty-icon">📊</span>
-          </div>
-        {/if}
-      </div>
-    </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -442,13 +429,6 @@
     gap: calc(8px * var(--s, 1));
   }
 
-  /* Peek mode: window is only 10px wide — padding would zero out the
-     content box.  Drop all padding so the grip fills the window. */
-  .vertical.peeking {
-    padding: 0;
-    gap: 0;
-  }
-
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
      biased toward the edge (smaller padding on the fused side). */
   .pulse-panel.flush-right {
@@ -460,38 +440,6 @@
   .pulse-panel.flush-left {
     padding: 36px 14px 44px 10px;
     margin-left: -1px;
-  }
-
-  /* ── Peek grip: narrow translucent strip at the screen edge ────────
-     Shown when the Rust poller collapses the panel to a narrow handle;
-     the webview stays live so the first hover after reveal is instant.
-     A thin accent pill sits at the panel-facing edge so the user can
-     spot the grip (token-monitor style). */
-  .peek-grip {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    background: var(--pulse-bg);
-    border-radius: 0;
-    cursor: pointer;
-  }
-  .peek-pill {
-    position: absolute;
-    top: 50%;
-    right: 2px;
-    width: 2px;
-    height: 14px;
-    margin-top: -7px;
-    border-radius: 999px;
-    background: var(--pulse-accent, rgba(120, 160, 255, 0.75));
-    transition: transform 140ms ease;
-  }
-  .peek-grip-left .peek-pill {
-    right: auto;
-    left: 2px;
-  }
-  .peek-grip:hover .peek-pill {
-    transform: scaleY(1.3);
   }
 
   /* ── Ring dock ─────────────────────────────────────────────────────── */

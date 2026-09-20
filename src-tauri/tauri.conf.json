@@ -91,6 +91,22 @@
         "center": false,
         "focus": false,
         "devtools": false
+      },
+      {
+        "label": "pulse-peek",
+        "url": "/",
+        "width": 8,
+        "height": 58,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": false,
+        "focus": false,
+        "devtools": false
       }
     ],
     "security": {

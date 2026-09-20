@@ -48,9 +48,7 @@ export interface PulseData {
   /** Panel height cap (logical px) = 80% of the current screen, computed
    *  by Rust so the window size and the CSS dock cap agree exactly. */
   max_panel_h?: number;
-  /** Panel is collapsed to a narrow peek grip at the screen edge. */
-  peek?: boolean;
-  /** Panel side: "left" | "right" — tells the peek grip which edge to anchor to. */
+  /** Panel side: "left" | "right" — anchors the peek handle's silhouette. */
   side?: string;
 }
 
