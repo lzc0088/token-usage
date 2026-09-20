@@ -55,12 +55,12 @@ const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
 /// Card window offset from the panel edge (logical px). The card body
-/// hugs the window's panel-facing edge (slot padding 12 = arrow room) and
-/// the tail extends 11px, so the arrow tip lands at CARD_GAP − 1 relative
-/// to the panel edge — +2 → the tip reaches 1px PAST the edge, visually
-/// touching the ring's panel so card+arrow read as one connected shape.
-/// Deterministic regardless of card width.
-const CARD_GAP: f64 = 2.0;
+/// hugs the window's panel-facing edge (slot padding 12) and the tail tip
+/// extends 9px past the card border, so the tip lands 1px ONTO the panel
+/// surface (CARD_GAP − 3): card, arrow and panel read as one connected
+/// shape with no visible gap at either end of the tail. Deterministic
+/// regardless of card width.
+const CARD_GAP: f64 = 4.0;
 
 /// ── Peek mode (auto-hidden panel) ──────────────────────────────────────
 /// Modeled on token-monitor's edgeDock: the peek handle is its OWN tiny
@@ -745,6 +745,26 @@ fn global_mouse_topleft(_primary_h: f64) -> Option<(f64, f64)> {
     None
 }
 
+/// True while ANY mouse button is physically held, system-wide (not just in
+/// our app). The panel is dragged via a native titlebar-style drag, during
+/// which the button stays down — so this is the reliable "user is dragging"
+/// signal (the per-tick position-delta heuristic misses slow drags, and a
+/// slow drag near the edge used to trip the peek linger → panel collapsed
+/// mid-drag). Thread-safe class method, no permissions needed.
+#[cfg(target_os = "macos")]
+fn any_mouse_button_down() -> bool {
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let mask: i64 = msg_send![class!(NSEvent), pressedMouseButtons];
+        mask != 0
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn any_mouse_button_down() -> bool {
+    false
+}
+
 /// Start the hover poller once. Every tick: hit-test the system cursor
 /// against the ring bands (panel) and the visible card region; show the
 /// hovered vendor's card, keep it while the pointer rests on either
@@ -794,10 +814,12 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
             let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
 
-            // Peek is ARMED only while the panel is edge-docked: dragged to
-            // a floating spot, auto-hide is suspended (panel behaves like
-            // "always"); dragging back within EDGE_DOCK_THRESH re-arms it.
-            let peek_armed = dock.peek_enabled && panel_at_edge(&ring);
+            // Peek is ARMED only while the panel is edge-docked AND the user
+            // isn't holding the mouse (dragging): a floating panel suspends
+            // auto-hide entirely, and a held button suspends it mid-drag so a
+            // slow drag near the edge can't trip the linger and collapse the
+            // panel under the cursor.
+            let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !any_mouse_button_down();
 
             // ── Auto-hide: panel hidden behind the peek handle. The reveal
             // trigger is the handle window itself (with hover grace) — only

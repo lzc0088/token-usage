@@ -164,9 +164,9 @@
     display: flex;
     /* Default (cardOnLeft=false): the card window sits RIGHT of the
        panel, so the panel-facing edge is the window's LEFT — the card
-       hugs it with 12px of arrow room. The arrow tip then reaches 1px
-       past the panel edge (Rust CARD_GAP = +2: tip gap = GAP - 1),
-       touching the panel at a FIXED distance regardless of card width. */
+       hugs it with 12px of arrow room. The arrow tip then lands 1px ONTO
+       the panel surface (Rust CARD_GAP = +4: tip = GAP - 3), fusing
+       card+arrow+panel at a FIXED offset regardless of card width. */
     justify-content: flex-start;
     padding-left: 12px;
     animation: cardIn 0.16s ease-out;
