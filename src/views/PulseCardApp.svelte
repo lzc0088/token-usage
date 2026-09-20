@@ -145,27 +145,30 @@
     -webkit-user-select: none;
   }
 
-  /* The card centers horizontally; the inline `top` centers it vertically
-     (the window never resizes). Show/hide animate the CONTENT — the
-     window itself toggles invisibly. */
+  /* The inline `top` centers the card vertically (the window never
+     resizes). Show/hide animate the CONTENT — the window itself toggles
+     invisibly. */
   .card-slot {
     position: absolute;
     left: 0;
     right: 0;
     display: flex;
-    /* Anchor toward the panel: the card body sits 13px off the window's
-       panel-facing edge — exactly the arrow's reach, so the tip lands
-       ~8px off the panel edge at a FIXED distance regardless of card
-       width (matching Rust CARD_GAP = 9). */
-    justify-content: flex-end;
-    padding-right: 13px;
+    /* Default (cardOnLeft=false): the card window sits RIGHT of the
+       panel, so the panel-facing edge is the window's LEFT — the card
+       hugs it with 13px of arrow room. The arrow tip then lands 10px
+       short of the panel edge (Rust CARD_GAP = -9: tip gap = GAP - 1),
+       at a FIXED distance regardless of card width. */
+    justify-content: flex-start;
+    padding-left: 13px;
     animation: cardIn 0.16s ease-out;
   }
 
+  /* Flush-right panel (cardOnLeft=true): the card window sits LEFT of
+     the panel — the card hugs the window's RIGHT edge instead. */
   .card-slot.card-left {
-    justify-content: flex-start;
-    padding-right: 0;
-    padding-left: 13px;
+    justify-content: flex-end;
+    padding-left: 0;
+    padding-right: 13px;
   }
 
   .card-slot.out {

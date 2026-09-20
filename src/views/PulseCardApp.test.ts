@@ -96,6 +96,26 @@ describe("PulseCardApp", () => {
     expect(card?.classList.contains("card-right")).toBe(false);
   });
 
+  it("anchors the card toward the panel side (card-left class wiring)", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseCardApp, { target });
+
+    emit("pulse:update", SAMPLE);
+    await flush();
+
+    // Card window LEFT of the panel (flush-right dock) → .card-left →
+    // the CSS hugs the window's RIGHT edge (the panel-facing side).
+    emit("pulse:card", { vendor: "claude", cardOnLeft: true });
+    await flush();
+    expect(target.querySelector(".card-slot")?.classList.contains("card-left")).toBe(true);
+
+    // Card window RIGHT of the panel → default slot → hugs the LEFT edge.
+    emit("pulse:card", { vendor: "codex", cardOnLeft: false });
+    await flush();
+    expect(target.querySelector(".card-slot")?.classList.contains("card-left")).toBe(false);
+  });
+
   it("flips the arrow side for a flush-right panel (cardOnLeft)", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
