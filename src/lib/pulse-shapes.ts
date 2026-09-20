@@ -56,24 +56,24 @@ export function railPath(
 }
 
 /** Detail-card tail — token-monitor's bubbleCommands tail, user-tuned:
- *  deeper (tail 18 vs 12) and a SHARPER tip (ctrl offset ∓1.0 vs ∓1.5 →
- *  vertex ≈14°). The local box is 18 × 36 with the card edge at x = 18
+ *  deeper (tail 18 vs 12) and a SHARP tip (ctrl offset ∓0.8 → vertex
+ *  ≈11°). The local box is 18 × 36 with the card edge at x = 18
  *  and the tip at x = 1 (1px inside so antialiasing never clips); the
  *  center line is y = 18. The S-curve's first control point SUCKS UP TO
  *  the card edge (x = 18, y = ±0.4·neck) before the second control
- *  (x = tail/2, y ∓ 1.0) sweeps out to the tip — the curve leaves the
+ *  (x = tail/2, y ∓ 0.8) sweeps out to the tip — the curve leaves the
  *  edge vertically then bulges, giving the arrow its pronounced
  *  curvature. */
 export const TAIL_W = 18;
 export const TAIL_H = 36;
 export const TAIL_PATH =
-  "M 18 0 C 18 7.2 9 17 1 18 C 9 19 18 25.2 18 36 Z";
+  "M 18 0 C 18 7.2 9 17.2 1 18 C 9 18.8 18 25.2 18 36 Z";
 
 /** Outline variant of the tail: the same two curves WITHOUT the closing
  *  segment along the card edge (no Z) — stroking it draws the arrow's
  *  silhouette in the card's border color while the neck stays open, so the
  *  border appears to flow around the tail rather than cut through it.
  *  Same open-path convention as token-monitor's railCommands(outline).
- *  Renderers need stroke-miterlimit ≳ 8 for the ~14° tip — the default
+ *  Renderers need stroke-miterlimit ≳ 10 for the ~11° tip — the default
  *  miterlimit of 4 silently bevels (blunts) it. */
-export const TAIL_OUTLINE = "M 18 0 C 18 7.2 9 17 1 18 C 9 19 18 25.2 18 36";
+export const TAIL_OUTLINE = "M 18 0 C 18 7.2 9 17.2 1 18 C 9 18.8 18 25.2 18 36";

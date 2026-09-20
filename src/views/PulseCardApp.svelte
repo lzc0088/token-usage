@@ -164,9 +164,9 @@
     display: flex;
     /* Default (cardOnLeft=false): the card window sits RIGHT of the
        panel, so the panel-facing edge is the window's LEFT — the card
-       hugs it with 12px of arrow room. The 18px-deep tail (tip 16.3px
-       out, neck on the card's border line) puts the tip at CARD_GAP + 4.3
-       past the panel edge (Rust CARD_GAP = -4.3) → exactly AT the panel
+       hugs it with 12px of arrow room. The 18px-deep tail (tip 16.2px
+       out, neck on the card's border line) puts the tip at CARD_GAP + 4.2
+       past the panel edge (Rust CARD_GAP = -4.2) → exactly AT the panel
        edge, at a FIXED offset regardless of card width. */
     justify-content: flex-start;
     padding-left: 12px;

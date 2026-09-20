@@ -53,10 +53,10 @@ describe("TAIL_PATH", () => {
     expect(TAIL_PATH.endsWith(`${TAIL_W} ${TAIL_H} Z`)).toBe(true);
     // The FIRST control point of each curve sits ON the card edge
     // (x = TAIL_W, y = 0.4·neck from the end) — the curve departs
-    // vertically before the mid control (x = TAIL_W/2, center ∓1.0 for
-    // the sharp ~14° tip vertex) sweeps to the tip.
-    expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 ${TAIL_W / 2} 17 1 18`);
-    expect(TAIL_PATH).toContain(`C ${TAIL_W / 2} 19 ${TAIL_W} 25.2`);
+    // vertically before the mid control (x = TAIL_W/2, center ∓0.8 for
+    // the sharp ~11° tip vertex) sweeps to the tip.
+    expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 ${TAIL_W / 2} 17.2 1 18`);
+    expect(TAIL_PATH).toContain(`C ${TAIL_W / 2} 18.8 ${TAIL_W} 25.2`);
   });
 
   it("TAIL_OUTLINE is the tail without the card-edge closing segment", () => {

@@ -291,18 +291,18 @@
      meeting it at a jogged corner: one flowing outline, no "two stitched
      parts" read. The outline path carries stroke-miterlimit="20" — the
      tip's ~21° vertex exceeds SVG's default miterlimit of 4, which
-     silently bevels (blunts) the point. The tip at x=1 reaches 16.3px
+     silently bevels (blunts) the point. The tip at x=1 reaches 16.2px
      outside the card toward the panel. "card-tail-right" flips
      horizontally for the other side. */
   .card-tail {
     position: absolute;
-    left: -18.3px;
+    left: -18.2px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -18.3px;
+    right: -18.2px;
     transform: translateY(-50%) scaleX(-1);
   }
 
