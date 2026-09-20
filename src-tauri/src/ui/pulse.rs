@@ -811,11 +811,6 @@ fn any_mouse_button_down() -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn any_mouse_button_down() -> bool {
-    false
-}
-
 /// Start the hover poller once. Every tick: hit-test the system cursor
 /// against the ring bands (panel) and the visible card region; show the
 /// hovered vendor's card, keep it while the pointer rests on either
