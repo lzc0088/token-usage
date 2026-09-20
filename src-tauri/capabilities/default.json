@@ -7,7 +7,8 @@
     "settings",
     "floating",
     "pulse",
-    "pulse-card"
+    "pulse-card",
+    "pulse-peek"
   ],
   "permissions": [
     "core:default",
