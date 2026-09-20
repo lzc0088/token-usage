@@ -1,6 +1,6 @@
 // PulseApp mount tests — drive the real event flow (pulse:update) with
-// mocked Tauri APIs. The detail card lives in its own window now, so this
-// window's hover contract is purely: invoke expand_pulse / collapse_pulse.
+// mocked Tauri APIs. Hover show/hide is owned by the Rust cursor poller,
+// so this window has no hover contract at all — it just renders rings.
 import { mount } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -73,20 +73,6 @@ function emit(name: string, payload: unknown) {
   listeners.get(name)?.({ payload });
 }
 
-/** Simulate the pointer entering/leaving the panel root. */
-function firePanel(target: HTMLElement, type: "mouseenter" | "mouseleave") {
-  target
-    .querySelector(".pulse-panel")
-    ?.dispatchEvent(new MouseEvent(type));
-}
-
-/** Simulate the pointer moving onto a specific vendor's ring. */
-function enterRing(target: HTMLElement, index = 0) {
-  target
-    .querySelectorAll(".ring-container")
-    [index]?.dispatchEvent(new MouseEvent("mouseenter"));
-}
-
 /** Let Svelte 5 flush its (microtask-batched) render effects. */
 async function flush() {
   await new Promise((r) => setTimeout(r, 0));
@@ -110,40 +96,8 @@ describe("PulseApp", () => {
     expect(rings.length).toBe(2);
     expect(target.querySelector(".panel-title")?.textContent).toContain("剩余量");
     expect(target.querySelector(".ring-icon svg")).toBeTruthy();
-    expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
     // Remaining-amount mode: the label under a 73%-used ring shows 27%.
     expect(target.querySelector(".pct-label")?.textContent).toContain("27");
-  });
-
-  it("hovers a ring → invokes pulse_activity + expand_pulse with the vendor", async () => {
-    const target = document.createElement("div");
-    document.body.appendChild(target);
-    mount(PulseApp, { target });
-
-    emit("pulse:update", SAMPLE);
-    await flush();
-    firePanel(target, "mouseenter");
-    enterRing(target, 1);
-
-    expect(invokeMock).toHaveBeenCalledWith("pulse_activity");
-    expect(invokeMock).toHaveBeenCalledWith("expand_pulse", { vendor: "codex" });
-    // This window never mounts a card itself — the card lives in its own
-    // window shown by Rust.
-    expect(target.querySelector(".detail-tooltip")).toBeFalsy();
-  });
-
-  it("leaves the panel → invokes pulse_idle (Rust drives the graceful hide)", async () => {
-    const target = document.createElement("div");
-    document.body.appendChild(target);
-    mount(PulseApp, { target });
-
-    emit("pulse:update", SAMPLE);
-    await flush();
-    firePanel(target, "mouseenter");
-    enterRing(target, 0);
-    firePanel(target, "mouseleave");
-
-    expect(invokeMock).toHaveBeenCalledWith("pulse_idle");
   });
 
   it("flush surface rounds the interior side and stays flat on the fused edge", async () => {

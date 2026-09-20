@@ -49,11 +49,11 @@ const PANEL_PAD: f64 = 16.0;
 const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
-/// Clearance between the panel edge and the card window (logical px).
-/// Negative = the window stops 10px short of the panel; the arrow
-/// protrudes ~12px from the card body, putting its tip ≈20px off the
-/// panel edge (user-specified spacing).
-const CARD_GAP: f64 = -10.0;
+/// Overlap of the card window onto the panel (logical px). The card body
+/// hugs the window's panel-facing edge (slot padding 13 = arrow room), so
+/// the arrow tip lands ~8px off the panel edge — snug, deterministic
+/// regardless of card width (the frontend anchors, never centers).
+const CARD_GAP: f64 = 9.0;
 
 /// Vertical offset of the ring rail inside the pulse window (pad + title).
 const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
@@ -135,6 +135,8 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             let _ = c.show();
             park_card(&c);
         }
+        // Cursor-driven hover (see ensure_hover_poller) — one poller ever.
+        ensure_hover_poller(app);
         push_pulse_data(app, conn);
     } else {
         hide_pulse(app);
@@ -337,34 +339,17 @@ fn card_window_y(ring_center_y_screen: f64, mon_top: f64, mon_bottom: f64) -> f6
         .max(mon_top + 4.0)
 }
 
-/// Show the detail card for a vendor. The card renders in its OWN fixed-
-/// size window ("pulse-card") that is only ever MOVED — the ring window
-/// never resizes. Resizing the ring window made its re-anchored content
-/// (flush-right panel grows LEFTWARD) present one stale web-process frame
-/// — the ghost users saw. Moving windows keeps content viewport-fixed.
-pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
+/// Show the detail card for a vendor: position the card window beside the
+/// hovered ring (pure move) and notify its webview. Shared by the hover
+/// poller. Returns the window rect so the poller can hit-test keep-alive.
+fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) {
     let (Some(ring), Some(card)) = (
         app.get_webview_window("pulse"),
         app.get_webview_window("pulse-card"),
     ) else {
         return;
     };
-    // Pre-warm (vendor=None) is obsolete — there is no window resize to
-    // warm anymore; only a real ring hover shows the card.
-    let Some(vendor) = vendor else {
-        return;
-    };
-    // A fresh expand is hover activity — cancel any stale hide thread.
-    pulse_activity();
-
-    // Hot path: dock layout comes from the cache (refreshed on every
-    // quota/config push) — no DB access on the main thread per hover.
-    let Some(dock) = dock_cache(app) else {
-        return;
-    };
-
-    let index = dock.vendors.iter().position(|v| *v == vendor).unwrap_or(0);
-
+    let vendor = dock.vendors.get(index).cloned().unwrap_or_default();
     let mut card_on_left = false;
     if let (Ok(pos), Ok(Some(mon))) = (ring.outer_position(), ring.current_monitor()) {
         let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
@@ -393,63 +378,6 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
             "opacity": dock.opacity,
         }),
     );
-    let _ = card.show();
-}
-
-/// Hover-activity generation: every pointer enter (panel OR card window)
-/// bumps it, cancelling every pending hide scheduled against an older
-/// generation. Atomic because idle/activity arrive from two webviews.
-static CARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Graceful-hide timings: linger before hiding after the last leave, then
-/// the fade window before the card is parked off-screen.
-const IDLE_MS: u64 = 160;
-const FADE_MS: u64 = 190;
-
-/// Pointer entered the panel/card window — cancels any pending card hide.
-pub fn pulse_activity() {
-    use std::sync::atomic::Ordering;
-    CARD_GEN.fetch_add(1, Ordering::Relaxed);
-}
-
-/// Pointer left the panel (or the visible card) — hide the card after
-/// IDLE_MS unless new activity bumps the generation. Crossing from the
-/// panel to the card traverses the card window's inert transparent
-/// margin (~20px); the idle window covers that transit.
-pub fn pulse_idle(app: &AppHandle) {
-    schedule_card_hide(app, IDLE_MS);
-}
-
-/// Immediate graceful hide (explicit collapse): fade first, hide after.
-pub fn collapse_pulse(app: &AppHandle) {
-    schedule_card_hide(app, 0);
-}
-
-/// Schedule the graceful hide: after `delay`, emit `pulse:card-hide` (the
-/// card fades its content out), then PARK the window off-screen FADE_MS
-/// later — unless the generation moved on (re-hover). Parking (instead of
-/// hide) keeps the WKWebView live: a hidden window's web process gets
-/// throttled by macOS, delaying both the next show and the fade — that
-/// read as "hover is sluggish / needs a click".
-fn schedule_card_hide(app: &AppHandle, delay: u64) {
-    use std::sync::atomic::Ordering;
-    let gen = CARD_GEN.fetch_add(1, Ordering::Relaxed);
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(delay));
-        if CARD_GEN.load(Ordering::Relaxed) != gen + 1 {
-            return; // re-hovered in the meantime — keep the card
-        }
-        let Some(card) = app.get_webview_window("pulse-card") else {
-            return;
-        };
-        let _ = card.emit("pulse:card-hide", ());
-        std::thread::sleep(std::time::Duration::from_millis(FADE_MS));
-        if CARD_GEN.load(Ordering::Relaxed) != gen + 1 {
-            return;
-        }
-        park_card(&card);
-    });
 }
 
 /// Move the card window off-screen (just beyond its monitor's bottom-right
@@ -468,6 +396,195 @@ fn park_card(card: &tauri::WebviewWindow) {
         _ => (-4000.0, -4000.0),
     };
     let _ = card.set_position(LogicalPosition::new(x, y));
+}
+
+/// Ask the card webview to fade its content out (graceful-hide step one).
+fn emit_card_hide(app: &AppHandle) {
+    if let Some(card) = app.get_webview_window("pulse-card") {
+        let _ = card.emit("pulse:card-hide", ());
+    }
+}
+
+/// ══ Global-pointer hover poller ═══════════════════════════════════════
+/// The card show/hide is driven from the SYSTEM cursor position polled in
+/// Rust, not from WKWebView DOM hover events — after the two-window split
+/// those proved unreliable (a non-key webview can stop delivering hover
+/// until clicked). `NSEvent.mouseLocation` is thread-safe and needs no
+/// permissions; 30Hz hit-testing costs nothing.
+const POLL_MS: u64 = 33;
+/// Linger after the pointer leaves both windows before hiding the card.
+const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
+/// Fade window between the hide signal and parking the window off-screen.
+const HOVER_FADE: std::time::Duration = std::time::Duration::from_millis(190);
+/// Grace margin around both windows that still counts as "inside".
+const HOVER_GRACE: f64 = 12.0;
+/// Keep-alive inset of the card window (transparent margins don't count).
+const CARD_KEEP_INSET: f64 = 24.0;
+/// Primary-monitor height cache refresh cadence (ticks).
+const PRIMARY_REFRESH: u32 = 90;
+
+static POLLER_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ring index for a pointer y INSIDE the panel window, or None. Only the
+/// circle band counts (crossing the label/gap zones between rings must not
+/// flip cards).
+fn ring_index_at(y: f64, d: f64, count: usize) -> Option<usize> {
+    if y < RAIL_TOP {
+        return None;
+    }
+    let rel = y - RAIL_TOP;
+    let pitch = d + LABEL_H + RING_GAP;
+    let idx = (rel / pitch).floor() as usize;
+    if idx >= count {
+        return None;
+    }
+    let in_item = rel - idx as f64 * pitch;
+    (in_item <= d + 4.0).then_some(idx)
+}
+
+/// Thread-safe global cursor position (AppKit coords flipped to top-left
+/// logical using the primary screen height, mirroring tao's conversion).
+#[cfg(target_os = "macos")]
+fn global_mouse_topleft(primary_h: f64) -> Option<(f64, f64)> {
+    use objc::{class, msg_send, sel, sel_impl};
+    #[repr(C)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    unsafe {
+        let pt: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+        Some((pt.x, primary_h - pt.y))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn global_mouse_topleft(_primary_h: f64) -> Option<(f64, f64)> {
+    None
+}
+
+/// Start the hover poller once. Every tick: hit-test the system cursor
+/// against the ring bands (panel) and the visible card region; show the
+/// hovered vendor's card, keep it while the pointer rests on either
+/// window, and gracefully hide it after a linger once the pointer leaves.
+pub fn ensure_hover_poller(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if POLLER_STARTED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut visible = false;
+        let mut shown: Option<String> = None;
+        let mut hiding_since: Option<std::time::Instant> = None;
+        let mut last_inside = None::<std::time::Instant>;
+        let mut last_panel_pos = (0.0, 0.0);
+        let mut primary_h = 0.0f64;
+        let mut tick: u32 = 0;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+            tick = tick.wrapping_add(1);
+            if tick % PRIMARY_REFRESH == 0 {
+                if let Ok(Some(m)) = app.primary_monitor() {
+                    let f = m.scale_factor();
+                    primary_h = m.size().height as f64 / f;
+                }
+            }
+            let Some((mx, my)) = global_mouse_topleft(primary_h) else {
+                continue;
+            };
+
+            let (Some(ring), Some(card)) = (
+                app.get_webview_window("pulse"),
+                app.get_webview_window("pulse-card"),
+            ) else {
+                break;
+            };
+            // Panel disabled/hidden → park the card and idle.
+            if !ring.is_visible().unwrap_or(false) {
+                if visible {
+                    park_card(&card);
+                    visible = false;
+                    shown = None;
+                    hiding_since = None;
+                }
+                continue;
+            }
+            let Some(dock) = dock_cache(&app) else {
+                continue;
+            };
+
+            let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
+            let (Ok(pos), Ok(size)) = (ring.outer_position(), ring.outer_size()) else {
+                continue;
+            };
+            let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
+            let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
+
+            // Dragging = the panel is moving under the pointer; suppress.
+            let dragging = (px - last_panel_pos.0).abs() + (py - last_panel_pos.1).abs() > 1.5;
+            last_panel_pos = (px, py);
+
+            let in_panel = mx >= px - HOVER_GRACE
+                && mx < px + w_c + HOVER_GRACE
+                && my >= py - HOVER_GRACE
+                && my < py + h_c + HOVER_GRACE;
+            let ring_idx = if in_panel && !dragging {
+                ring_index_at(my - py, dock.diameter, dock.vendors.len())
+            } else {
+                None
+            };
+            let on_card = visible && {
+                let cpos = card.outer_position().ok();
+                let cscale = card.scale_factor().unwrap_or(1.0).max(1.0);
+                cpos.map(|p| (p.x as f64 / cscale, p.y as f64 / cscale))
+                    .map(|(cx, cy)| {
+                        mx >= cx + CARD_KEEP_INSET
+                            && mx < cx + CARD_WIN_W - CARD_KEEP_INSET
+                            && my >= cy + CARD_KEEP_INSET
+                            && my < cy + CARD_WIN_H - CARD_KEEP_INSET
+                    })
+                    .unwrap_or(false)
+            };
+
+            if dragging {
+                if visible && hiding_since.is_none() {
+                    emit_card_hide(&app);
+                    hiding_since = Some(std::time::Instant::now());
+                }
+            } else if let Some(idx) = ring_idx {
+                hiding_since = None;
+                last_inside = Some(std::time::Instant::now());
+                let vendor = dock.vendors.get(idx).cloned();
+                if vendor.is_some() && (vendor != shown || !visible) {
+                    show_card_for(&app, &dock, idx);
+                    visible = true;
+                    shown = vendor;
+                }
+            } else if on_card {
+                hiding_since = None;
+                last_inside = Some(std::time::Instant::now());
+            } else if visible {
+                let lingered = last_inside
+                    .map(|t| t.elapsed() >= HOVER_LINGER)
+                    .unwrap_or(true);
+                match (hiding_since, lingered) {
+                    (None, true) => {
+                        emit_card_hide(&app);
+                        hiding_since = Some(std::time::Instant::now());
+                    }
+                    (Some(t), _) if t.elapsed() >= HOVER_FADE => {
+                        park_card(&card);
+                        visible = false;
+                        shown = None;
+                        hiding_since = None;
+                        last_inside = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
@@ -715,6 +832,23 @@ mod tests {
         assert!(
             (card_window_y(960.0, 0.0, 982.0) - (982.0 - CARD_WIN_H - 4.0)).abs() < f64::EPSILON
         );
+    }
+
+    #[test]
+    fn ring_index_at_hits_circle_bands_only() {
+        let d = 48.0;
+        // Above the rail: nothing.
+        assert_eq!(ring_index_at(10.0, d, 3), None);
+        assert_eq!(ring_index_at(RAIL_TOP - 0.1, d, 3), None);
+        // First ring band (RAIL_TOP .. +d, +4 slack).
+        assert_eq!(ring_index_at(RAIL_TOP + 5.0, d, 3), Some(0));
+        assert_eq!(ring_index_at(RAIL_TOP + d + 4.0, d, 3), Some(0));
+        // Label/gap zone between rings: no card flip.
+        assert_eq!(ring_index_at(RAIL_TOP + d + 5.0, d, 3), None);
+        // Second ring (pitch = 48+21+14 = 83).
+        assert_eq!(ring_index_at(RAIL_TOP + 83.0 + 24.0, d, 3), Some(1));
+        // Past the dock: nothing.
+        assert_eq!(ring_index_at(RAIL_TOP + 3.0 * 83.0 + 10.0, d, 3), None);
     }
 
     #[test]

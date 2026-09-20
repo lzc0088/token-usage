@@ -90,30 +90,19 @@
   // card's own coordinates.
   let arrowY = $derived(Math.max(12, CARD_WIN_H / 2 - cardTop));
 
-  // The visible card is part of the hover area — the pointer resting on
-  // it (reading the details) keeps it alive. The transparent window
-  // margins report nothing (see template note).
-  function onCardEnter() {
-    invoke("pulse_activity").catch(() => {});
-  }
-  function onCardLeave() {
-    invoke("pulse_idle").catch(() => {});
-  }
+  // NOTE: hover keep-alive is handled by the Rust cursor poller — this
+  // view only renders and animates.
 </script>
 
 <div class="pulse-card-root" class:dark={data.theme === "dark"}>
   {#if quota}
-    <!-- Hover tracking lives on the VISIBLE card only: the window's
-         transparent margins must stay inert, otherwise they form an
-         invisible 340×480 hover surface that keeps the card alive (and
-         moves the hide trigger) far beyond the panel's edge. -->
+    <!-- The card hugs the window's panel-facing edge (never centered —
+         centering drifts with card width and unsticks the arrow gap). -->
     <div
       class="card-slot"
       class:out={hiding}
+      class:card-left={!!card?.cardOnLeft}
       style="top: {cardTop}px"
-      role="presentation"
-      onmouseenter={onCardEnter}
-      onmouseleave={onCardLeave}
       bind:clientHeight={cardH}
     >
       <DetailCard
@@ -155,8 +144,19 @@
     left: 0;
     right: 0;
     display: flex;
-    justify-content: center;
+    /* Anchor toward the panel: the card body sits 13px off the window's
+       panel-facing edge — exactly the arrow's reach, so the tip lands
+       ~8px off the panel edge at a FIXED distance regardless of card
+       width (matching Rust CARD_GAP = 9). */
+    justify-content: flex-end;
+    padding-right: 13px;
     animation: cardIn 0.16s ease-out;
+  }
+
+  .card-slot.card-left {
+    justify-content: flex-start;
+    padding-right: 0;
+    padding-left: 13px;
   }
 
   .card-slot.out {

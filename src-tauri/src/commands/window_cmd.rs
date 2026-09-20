@@ -388,13 +388,6 @@ pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::Floating
 
 // ── Pulse floating panel commands ─────────────────────────────────────────
 
-/// Expand the pulse panel to show detail card for a vendor.
-#[tauri::command]
-pub fn expand_pulse(app: AppHandle, vendor: Option<String>) -> Result<(), String> {
-    crate::ui::pulse::expand_pulse(&app, vendor);
-    Ok(())
-}
-
 /// Initial (or re-) fetch of the pulse panel payload. The frontend calls this
 /// on mount so a webview reload / HMR never leaves the panel empty waiting
 /// for the next `pulse:update` push (quota refreshes can be minutes apart).
@@ -411,27 +404,6 @@ pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> 
     let state = app.state::<crate::state::AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::ui::pulse::save_pos(&conn, x, y);
-    Ok(())
-}
-
-/// Collapse the pulse panel back to ring-only.
-#[tauri::command]
-pub fn collapse_pulse(app: AppHandle) -> Result<(), String> {
-    crate::ui::pulse::collapse_pulse(&app);
-    Ok(())
-}
-
-/// Pointer entered a pulse window (panel or card) — cancels pending hides.
-#[tauri::command]
-pub fn pulse_activity() -> Result<(), String> {
-    crate::ui::pulse::pulse_activity();
-    Ok(())
-}
-
-/// Pointer left a pulse window — graceful card hide after the idle linger.
-#[tauri::command]
-pub fn pulse_idle(app: AppHandle) -> Result<(), String> {
-    crate::ui::pulse::pulse_idle(&app);
     Ok(())
 }
 

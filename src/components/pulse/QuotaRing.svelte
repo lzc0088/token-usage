@@ -6,8 +6,8 @@
     pct: number;
     label: string;
     diameter: number;
-    onHover: () => void;
-    onLeave: () => void;
+    onHover?: () => void;
+    onLeave?: () => void;
     isRunning?: boolean;
     isRefreshing?: boolean;
     /** Additional windows (week / MCP / …) rendered as inner concentric arcs. */

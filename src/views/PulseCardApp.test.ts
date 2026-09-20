@@ -169,36 +169,6 @@ describe("PulseCardApp", () => {
     expect(hideMock).not.toHaveBeenCalled();
   });
 
-  it("reports hover activity from the visible card only (inert margins)", async () => {
-    const target = document.createElement("div");
-    document.body.appendChild(target);
-    mount(PulseCardApp, { target });
-
-    emit("pulse:update", SAMPLE);
-    await flush();
-    emit("pulse:card", { vendor: "claude", cardOnLeft: true });
-    await flush();
-    invokeMock.mockClear();
-
-    // The transparent window margins must NOT report activity — they are
-    // not part of the hover area (the root has no handlers).
-    target
-      .querySelector(".pulse-card-root")
-      ?.dispatchEvent(new MouseEvent("mouseenter"));
-    expect(invokeMock).not.toHaveBeenCalledWith("pulse_activity");
-
-    // The visible card does.
-    target
-      .querySelector(".card-slot")
-      ?.dispatchEvent(new MouseEvent("mouseenter"));
-    expect(invokeMock).toHaveBeenCalledWith("pulse_activity");
-
-    target
-      .querySelector(".card-slot")
-      ?.dispatchEvent(new MouseEvent("mouseleave"));
-    expect(invokeMock).toHaveBeenCalledWith("pulse_idle");
-  });
-
   it("keeps the card mounted on pulse:update while open", async () => {
     const target = document.createElement("div");
     document.body.appendChild(target);

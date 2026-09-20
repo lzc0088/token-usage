@@ -169,28 +169,10 @@
   // Initial flush detection.
   updateFlushSide();
 
-  // ── Hover → card window ────────────────────────────────────────────────
-  // Ring hover asks Rust to position + show the CARD window (this window
-  // never resizes). Hide timing lives on the Rust side as a generation-
-  // guarded idle timer fed by BOTH windows (panel + card) — moving the
-  // pointer onto the card to read it keeps it alive; leaving both hides
-  // it gracefully after a linger.
-  function onPanelEnter() {
-    invoke("pulse_activity").catch(() => {});
-  }
-
-  function onPanelLeave() {
-    invoke("pulse_idle").catch(() => {});
-  }
-
-  function onRingEnter(vendor: string) {
-    invoke("expand_pulse", { vendor: vendor }).catch(() => {});
-  }
-
-  function onRingLeave() {
-    // Intentionally no-op: the panel's mouseleave drives the idle; moving
-    // between adjacent rings never flickers the card.
-  }
+  // NOTE: hover show/hide is driven entirely by the Rust-side cursor
+  // poller (ui/pulse.rs ensure_hover_poller) — DOM hover events in the
+  // non-key webview proved unreliable after the two-window split. This
+  // window reports nothing; it only render the rings.
 
   // Panel-level title explaining the percentage mode — the rings report
   // what is LEFT (usage-remaining mode; plan-less vendors show their
@@ -229,9 +211,6 @@
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px"
-  role="presentation"
-  onmouseenter={onPanelEnter}
-  onmouseleave={onPanelLeave}
 >
   <!-- Visual surface: bg + blur + radius. -->
   <div class="panel-surface" aria-hidden="true"></div>
@@ -248,8 +227,6 @@
           pct={quota.critical_pct}
           label={quota.critical_label}
           diameter={data.ring_diameter}
-          onHover={() => onRingEnter(quota.vendor)}
-          onLeave={onRingLeave}
           isRunning={quota.is_running ?? false}
           isRefreshing={quota.is_refreshing ?? false}
           extraPcts={extraPcts(quota)}
