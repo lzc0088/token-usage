@@ -403,13 +403,15 @@
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
   }
 
-  /* Currency unit (¥/$) renders smaller than the digits. */
+  /* Currency unit (¥/$) smaller than the digits (user-tuned 7px). No CSS
+     margin — the glyph's natural side bearing provides the ~1px optical
+     gap; a margin on top of it double-spaced the pair. */
   .stat-amount .stat-unit {
-    font-size: 8px;
-    margin-right: 1px;
+    font-size: 7px;
+    margin-right: 0;
   }
 
   .ws-pct .pct-sign {
-    margin-left: 1px;
+    margin-left: 0;
   }
 </style>

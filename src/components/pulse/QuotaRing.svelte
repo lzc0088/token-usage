@@ -324,15 +324,16 @@
     user-select: none;
   }
 
-  /* Currency unit (¥/$) renders smaller than the digits, 1px clear of
-     them (user-specified spacing). */
+  /* Currency unit (¥/$) renders smaller than the digits. No CSS margin —
+     the glyph's natural side bearing provides the ~1px optical gap; a
+     margin on top of it double-spaced the pair (user-tuned 1px). */
   .pct-label .sub-unit {
     font-size: 8px;
-    margin-right: 1px;
+    margin-right: 0;
   }
 
   .pct-label .pct-sign {
-    margin-left: 1px;
+    margin-left: 0;
   }
 
   .usage-arc {
