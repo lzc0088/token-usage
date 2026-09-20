@@ -134,7 +134,7 @@
         stroke="var(--card-border)"
         stroke-width="1"
         stroke-linecap="round"
-        stroke-miterlimit="20"
+        stroke-miterlimit="24"
         pointer-events="none"
       />
     </svg>
