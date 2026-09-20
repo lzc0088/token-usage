@@ -182,18 +182,27 @@ fn reveal_pulse(app: &AppHandle) -> bool {
 
 /// Hide the panel, surface the peek handle at the edge (collapse end).
 /// Runs on the poller thread (no DB guard held), so it may lock the DB to
-/// read config for the handle's edge.
+/// read config for the handle's edge. Before anything re-appears, the panel
+/// is snapped back flush to the configured edge (an INVISIBLE move — the
+/// window is already hidden): auto-hide requires edge-docking because the
+/// reveal handle lives on the screen edge, and a panel dragged to a
+/// floating spot re-triggers the reveal/flicker loop.
 fn collapse_pulse(app: &AppHandle) {
+    // Bind the state handle first — the guard borrows through it, so it must
+    // outlive the lock (and_then on a temporary fails E0515).
+    let state = app.try_state::<AppState>();
+    let conn_guard = state.as_ref().and_then(|s| s.db.lock().ok());
     if let Some(ring) = app.get_webview_window("pulse") {
         let _ = ring.hide();
+        if let Some(conn) = conn_guard.as_deref() {
+            snap_pulse_to_edge(conn, &ring);
+        }
     }
     if let Some(card) = app.get_webview_window("pulse-card") {
         park_card(&card);
     }
-    if let Some(state) = app.try_state::<AppState>() {
-        if let Ok(conn) = state.db.lock() {
-            position_peek(app, &conn);
-        }
+    if let Some(conn) = conn_guard.as_deref() {
+        position_peek(app, conn);
     }
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.show();
@@ -824,12 +833,23 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                     // on failure the handle stays visible and
                                     // Revealing retries after another dwell.
                                     if reveal_pulse(&app) {
-                                        // Open the hovered ring's card right away.
-                                        let idx = ring_index_at(
-                                            my - py,
-                                            dock.diameter,
-                                            dock.vendors.len(),
-                                        );
+                                        // Open the hovered ring's card right
+                                        // away — only when the cursor is REALLY
+                                        // inside the revealed panel (ring_index_at
+                                        // checks y only; with a floating panel
+                                        // the cursor's y can match a ring band
+                                        // while x is at the edge handle, popping
+                                        // a card nothing can keep alive → the
+                                        // hide/reveal flicker loop).
+                                        let idx = if mx >= px && mx < px + w_c && my >= py && my < py + h_c {
+                                            ring_index_at(
+                                                my - py,
+                                                dock.diameter,
+                                                dock.vendors.len(),
+                                            )
+                                        } else {
+                                            None
+                                        };
                                         if let Some(idx) = idx {
                                             card_on_left = show_card_for(&app, &dock, idx);
                                             visible = true;
@@ -940,13 +960,31 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         }
                     }
                 }
-            } else if dock.peek_enabled {
-                // Card hidden, panel still up: finish the peek collapse once
-                // the hide grace elapses (panel hides, peek handle shows).
-                if let (PeekState::Hiding, Some(t)) = peek_state() {
-                    if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) {
+            } else if dock.peek_enabled && !in_panel {
+                // Auto-hide drives the PANEL directly, not just the card: a
+                // revealed panel whose pointer has left (no card open either)
+                // must also collapse — previously only the card-hide path set
+                // Hiding, so a cardless reveal floated forever (or looped
+                // against the edge handle). Guarded by !in_panel so hovering
+                // the panel's title/padding keeps it alive.
+                match peek_state() {
+                    (PeekState::Visible, _) => {
+                        let lingered = last_inside
+                            .map(|t| t.elapsed() >= HOVER_LINGER)
+                            .unwrap_or(true);
+                        if lingered {
+                            set_peek_state(PeekState::Hiding, Some(std::time::Instant::now()));
+                        }
+                    }
+                    (PeekState::Hiding, Some(t))
+                        if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) =>
+                    {
+                        // collapse_pulse snaps the panel flush to the edge
+                        // first (invisible, window already hidden) — which is
+                        // what breaks the drag-to-floating reveal loop.
                         collapse_pulse(&app);
                     }
+                    _ => {}
                 }
             }
         }
