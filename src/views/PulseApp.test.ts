@@ -115,4 +115,28 @@ describe("PulseApp", () => {
     // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 239px.
     expect(panel?.style.height).toBe("239px");
   });
+
+  it("caps the dock at the payload's screen-relative max (80%)", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    // Many vendors + a small screen cap → the dock scrolls inside the cap.
+    const many = {
+      ...SAMPLE,
+      quotas: Array.from({ length: 12 }, (_, i) => ({
+        ...SAMPLE.quotas[0],
+        vendor: `v${i}`,
+      })),
+      max_panel_h: 200,
+    };
+    emit("pulse:update", many);
+    await flush();
+
+    const panel = target.querySelector<HTMLElement>(".pulse-panel");
+    // Panel height = max_panel_h (dock capped at 200 - 87 = 113).
+    expect(panel?.style.height).toBe("200px");
+    const dock = target.querySelector<HTMLElement>(".ring-dock");
+    expect(dock?.style.maxHeight).toBe("113px");
+  });
 });

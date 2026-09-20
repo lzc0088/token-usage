@@ -43,6 +43,9 @@ export interface PulseData {
   theme: string;
   /** Surface opacity (0.2–1.0), from config. */
   opacity?: number;
+  /** Panel height cap (logical px) = 80% of the current screen, computed
+   *  by Rust so the window size and the CSS dock cap agree exactly. */
+  max_panel_h?: number;
 }
 
 /** Card-show payload from Rust (ui/pulse.rs expand_pulse → "pulse:card"). */

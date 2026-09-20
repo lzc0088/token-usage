@@ -33,7 +33,10 @@ const TITLE_BLOCK: f64 = 27.0;
 /// Fixed vertical padding (user-specified: padding-top 30px).
 const PAD_V: f64 = 30.0;
 
-/// Panel height cap (logical px) — beyond this the ring dock scrolls.
+/// Panel height cap: 80% of the current screen's height — with many vendors
+/// enabled the ring dock scrolls only past that (user-tuned "show as much
+/// as possible"). `MAX_PANEL_H` is the fallback when no monitor is readable.
+const MAX_PANEL_H_RATIO: f64 = 0.8;
 const MAX_PANEL_H: f64 = 520.0;
 
 /// Horizontal window padding (logical px) — flush panels use 18px on the
@@ -156,12 +159,17 @@ pub fn hide_pulse(app: &AppHandle) {
 /// Build the pulse frontend payload (quotas + panel settings).
 pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
     let cfg = config::load(conn).unwrap_or_default();
+    let max_panel_h = app
+        .get_webview_window("pulse")
+        .map(|w| panel_max_h(&w))
+        .unwrap_or(MAX_PANEL_H);
     PulseData {
         quotas: load_quotas(conn),
         size: cfg.pulse_size.clone(),
         ring_diameter: ring_diameter(&cfg.pulse_size),
         theme: resolved_theme(app, &cfg),
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
+        max_panel_h,
     }
 }
 
@@ -296,21 +304,38 @@ fn dock_height(d: f64, n: usize) -> f64 {
     n * (d + LABEL_H) + (n - 1.0) * RING_GAP
 }
 
-/// Dock height for n rings, capped so the panel never exceeds MAX_PANEL_H —
-/// the CSS dock scrolls when the natural height overflows.
-fn dock_height_capped(d: f64, n: usize) -> f64 {
-    let avail = (MAX_PANEL_H - PAD_V * 2.0 - TITLE_BLOCK).max(60.0);
+/// Dock height for n rings, capped so the panel never exceeds `max_panel_h`
+/// — the CSS dock scrolls when the natural height overflows.
+fn dock_height_capped(d: f64, n: usize, max_panel_h: f64) -> f64 {
+    let avail = (max_panel_h - PAD_V * 2.0 - TITLE_BLOCK).max(60.0);
     dock_height(d, n).min(avail)
 }
 
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
 /// vertical padding + title block + capped dock height.
-fn collapsed_size(cfg: &config::Config, ring_count: usize) -> (f64, f64) {
+fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> (f64, f64) {
     let d = ring_diameter(&cfg.pulse_size);
     (
         d + PANEL_PAD * 2.0,
-        PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, ring_count),
+        PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, ring_count, max_panel_h),
     )
+}
+
+/// Effective panel height cap (logical px) for the window's CURRENT screen:
+/// 80% of that screen's height, floored to whole px so the Rust window size
+/// and the frontend CSS (fed via `PulseData.max_panel_h`) agree exactly.
+/// Falls back to the fixed `MAX_PANEL_H` when no monitor can be read.
+fn panel_max_h(win: &tauri::WebviewWindow) -> f64 {
+    let mon = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let Some(mon) = mon else {
+        return MAX_PANEL_H;
+    };
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    ((mon.size().height as f64 / scale) * MAX_PANEL_H_RATIO).floor()
 }
 
 /// Ring center Y inside the pulse window (logical px from the window top),
@@ -628,7 +653,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     };
     let cfg = config::load(conn).unwrap_or_default();
     let ring_count = load_quotas(conn).len().max(1);
-    let (w, h) = collapsed_size(&cfg, ring_count);
+    let (w, h) = collapsed_size(&cfg, ring_count, panel_max_h(&win));
 
     let _ = win.set_size(LogicalSize::new(w.max(60.0), h.max(60.0)));
 
@@ -690,7 +715,7 @@ pub fn persist_pulse_pos(app: &AppHandle) {
     // size), so persisting now would save the shifted y and drift the panel
     // upward across restarts.
     let cfg = config::load(&conn).unwrap_or_default();
-    let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len());
+    let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len(), panel_max_h(&h));
     let h_now = h
         .outer_size()
         .map(|s| s.height as f64 / scale)
@@ -754,6 +779,10 @@ pub struct PulseData {
     pub theme: String,
     /// Surface opacity (0.2–1.0), from config.
     pub opacity: f64,
+    /// Panel height cap (logical px) = 80% of the current screen — the
+    /// frontend CSS caps the ring dock at exactly this number so the
+    /// window size and the rendered panel always agree.
+    pub max_panel_h: f64,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -822,9 +851,9 @@ mod tests {
         let cfg = config::Config::default();
         let d = ring_diameter(&cfg.pulse_size);
         for n in [1usize, 3, 5] {
-            let (w, h) = collapsed_size(&cfg, n);
+            let (w, h) = collapsed_size(&cfg, n, MAX_PANEL_H);
             assert_eq!(w, d + PANEL_PAD * 2.0);
-            let expect_h = PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, n);
+            let expect_h = PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, n, MAX_PANEL_H);
             assert!(
                 (h - expect_h).abs() < f64::EPSILON,
                 "n={n}: {h} != {expect_h}"
@@ -833,12 +862,12 @@ mod tests {
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
         // height = 30*2 + 27 (title block) + 235 = 322.
         if d == RING_MEDIUM {
-            let (_, h3) = collapsed_size(&cfg, 3);
+            let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
             assert!((h3 - 322.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
-        let (_, h0) = collapsed_size(&cfg, 0);
-        let (_, h1) = collapsed_size(&cfg, 1);
+        let (_, h0) = collapsed_size(&cfg, 0, MAX_PANEL_H);
+        let (_, h1) = collapsed_size(&cfg, 1, MAX_PANEL_H);
         assert_eq!(h0, h1);
     }
 
@@ -915,13 +944,29 @@ mod tests {
     #[test]
     fn panel_height_caps_at_max() {
         let cfg = config::Config::default();
-        let (_, h10) = collapsed_size(&cfg, 10);
+        let (_, h10) = collapsed_size(&cfg, 10, MAX_PANEL_H);
         assert!(
             h10 <= MAX_PANEL_H + f64::EPSILON,
             "10 rings capped: {h10} > {MAX_PANEL_H}"
         );
-        let (_, h3) = collapsed_size(&cfg, 3);
+        let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
         assert!(h3 < MAX_PANEL_H, "3 rings stay under the cap");
+    }
+
+    #[test]
+    fn panel_height_cap_is_eighty_percent_of_screen() {
+        let cfg = config::Config::default();
+        let screen_h = 982.0; // common macOS logical height
+        let max = (screen_h * MAX_PANEL_H_RATIO).floor(); // 785
+                                                          // 20 large rings: natural dock = 20*81 + 19*14 = 1906 ≫ avail.
+        let (w, h20) = collapsed_size(&cfg, 20, max);
+        assert!((h20 - max).abs() < f64::EPSILON, "capped to {max}: {h20}");
+        // Width is untouched by the height cap.
+        let d = ring_diameter(&cfg.pulse_size);
+        assert_eq!(w, d + PANEL_PAD * 2.0);
+        // A tiny screen still leaves the 60px minimum dock (never negative).
+        let (_, h_tiny) = collapsed_size(&cfg, 20, 100.0);
+        assert!((h_tiny - (PAD_V * 2.0 + TITLE_BLOCK + 60.0)).abs() < f64::EPSILON);
     }
 
     #[test]

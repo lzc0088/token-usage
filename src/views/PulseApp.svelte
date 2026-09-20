@@ -53,8 +53,10 @@
   const TITLE_BLOCK = 27;
   // Fixed vertical padding (user-specified: padding-top 20px).
   const PAD_V = 30;
-  // Panel height cap — the ring dock scrolls beyond this.
-  const MAX_PANEL_H = 520;
+  // Panel height cap fallback — Rust sends the real cap (80% of the
+  // current screen) in the payload; the fixed value only covers a stale
+  // payload from before the field existed.
+  const MAX_PANEL_H_FALLBACK = 520;
   const PAD_FLUSH_INNER = 18;
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
@@ -63,8 +65,13 @@
   let dockNatural = $derived(
     ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
   );
-  // Dock height capped by MAX_PANEL_H (scrolls when overflow).
-  let dockMax = $derived(Math.max(60, MAX_PANEL_H - PAD_V * 2 - TITLE_BLOCK));
+  // Dock height capped by the screen-relative max (scrolls when overflow).
+  let dockMax = $derived(
+    Math.max(
+      60,
+      (data.max_panel_h ?? MAX_PANEL_H_FALLBACK) - PAD_V * 2 - TITLE_BLOCK
+    )
+  );
   let dockH = $derived(Math.min(dockNatural, dockMax));
   let panelH = $derived(PAD_V * 2 + TITLE_BLOCK + dockH);
 
