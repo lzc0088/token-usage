@@ -102,21 +102,16 @@ fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
 /// `cfg.pulse_side` — it does not follow the panel's current x position
 /// (the panel may have been dragged away from the edge, but the handle must
 /// stay glued to the configured edge so users always know where to find it).
-fn position_peek(app: &AppHandle) {
+/// Takes `conn` from the caller — callers (set_config / lib.rs setup) already
+/// hold the DB guard, and re-locking it on this thread self-deadlocks.
+fn position_peek(app: &AppHandle, conn: &Connection) {
     let (Some(peek), Some(ring)) = (
         app.get_webview_window("pulse-peek"),
         app.get_webview_window("pulse"),
     ) else {
         return;
     };
-    // Read config for pulse_side (left/right).
-    let Some(state) = app.try_state::<AppState>() else {
-        return;
-    };
-    let cfg = match state.db.lock() {
-        Ok(c) => config::load(&c).unwrap_or_default(),
-        Err(_) => return,
-    };
+    let cfg = config::load(conn).unwrap_or_default();
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         peek.current_monitor(),
         ring.outer_position(),
@@ -183,6 +178,8 @@ fn reveal_pulse(app: &AppHandle) -> bool {
 }
 
 /// Hide the panel, surface the peek handle at the edge (collapse end).
+/// Runs on the poller thread (no DB guard held), so it may lock the DB to
+/// read config for the handle's edge.
 fn collapse_pulse(app: &AppHandle) {
     if let Some(ring) = app.get_webview_window("pulse") {
         let _ = ring.hide();
@@ -190,7 +187,11 @@ fn collapse_pulse(app: &AppHandle) {
     if let Some(card) = app.get_webview_window("pulse-card") {
         park_card(&card);
     }
-    position_peek(app);
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(conn) = state.db.lock() {
+            position_peek(app, &conn);
+        }
+    }
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.show();
     }
@@ -296,7 +297,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         if let Some(p) = app.get_webview_window("pulse-peek") {
             apply_floating_level(&p, cfg.pulse_topmost);
             if auto_hide {
-                position_peek(app);
+                position_peek(app, conn);
                 let _ = p.show();
             } else {
                 let _ = p.hide();
@@ -979,17 +980,13 @@ fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
     let w = size.width as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
-    // Use the configured side, not "nearest edge".
-    let snapped = if conn
-        .prepare("SELECT value FROM app_config WHERE key = 'pulse_side'")
-        .and_then(|mut st| st.query_row([], |r| r.get::<_, String>(0)))
-        .unwrap_or_default()
-        == "left"
-    {
-        mon_left
-    } else {
-        mon_right - w
-    };
+    // Use the configured side, not "nearest edge". (config::load — the
+    // pulse_side field lives inside the JSON blob on the `config` row, not
+    // on its own key.)
+    let side = config::load(conn)
+        .map(|cfg| cfg.pulse_side)
+        .unwrap_or_else(|_| "right".into());
+    let snapped = if side == "left" { mon_left } else { mon_right - w };
     if (snapped - px).abs() > f64::EPSILON {
         let _ = win.set_position(LogicalPosition::new(snapped, py));
         tracing::debug!("pulse: auto-hide snapped panel flush to edge x={snapped}");
