@@ -282,21 +282,22 @@
   }
 
   /* ── Tail: token-monitor bubbleCommands arrowhead ────────────────
-     The SVG is 12×36px (neck 18, tail 12). It sits 2px INTO the card
-     (local x=12 lands at card x=+2), so the opaque fill covers the card's
-     1px border across the neck — the border line never crosses the tail;
-     the stroked outline path continues the border around the curves. The
-     tip at x=1 reaches 9px outside the card toward the panel.
+     The SVG is 12×36px (neck 18, tail 12). It sits flush AT the card
+     edge (local x=12 lands AT card x=0), so the opaque fill and the
+     border-stroked outline path make the card boundary appear to flow
+     around the arrow instead of ending at it — the tail and the card
+     read as one continuous silhouette. The tip at x=1 reaches 11px
+     outside the card toward the panel.
      "card-tail-right" flips horizontally for the other side. */
   .card-tail {
     position: absolute;
-    left: -10px;
+    left: -12px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -10px;
+    right: -12px;
     transform: translateY(-50%) scaleX(-1);
   }
 

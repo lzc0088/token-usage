@@ -73,7 +73,7 @@ const PEEK_WIN_H: f64 = 58.0;
 /// Delay before expanding after the cursor enters the handle (ms).
 const PEEK_REVEAL_MS: u64 = 140;
 /// Grace period after the cursor leaves before collapsing (ms).
-const PEEK_HIDE_MS: u64 = 320;
+const PEEK_HIDE_MS: u64 = 200;
 
 /// Peek state machine — tracks whether the panel is fully visible,
 /// collapsed behind the peek handle, or in a transition.
