@@ -931,7 +931,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                         // while x is at the edge handle, popping
                                         // a card nothing can keep alive → the
                                         // hide/reveal flicker loop).
-                                        let idx = if mx >= px && mx < px + w_c && my >= py && my < py + h_c {
+                                        let idx = if mx >= px
+                                            && mx < px + w_c
+                                            && my >= py
+                                            && my < py + h_c
+                                        {
                                             ring_index_at(
                                                 my - py,
                                                 dock.diameter,
@@ -1134,8 +1138,7 @@ const EDGE_DOCK_THRESH: f64 = 16.0;
 /// Pure form of the docked check (unit-testable): true when the panel's
 /// [x, x+w] span hugs either monitor edge within EDGE_DOCK_THRESH.
 fn x_is_docked(x: f64, w: f64, mon_left: f64, mon_right: f64) -> bool {
-    (x - mon_left).abs() <= EDGE_DOCK_THRESH
-        || (mon_right - (x + w)).abs() <= EDGE_DOCK_THRESH
+    (x - mon_left).abs() <= EDGE_DOCK_THRESH || (mon_right - (x + w)).abs() <= EDGE_DOCK_THRESH
 }
 
 /// True when the panel is edge-docked on its CURRENT monitor. Auto-hide
@@ -1184,7 +1187,11 @@ fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
     let side = config::load(conn)
         .map(|cfg| cfg.pulse_side)
         .unwrap_or_else(|_| "right".into());
-    let snapped = if side == "left" { mon_left } else { mon_right - w };
+    let snapped = if side == "left" {
+        mon_left
+    } else {
+        mon_right - w
+    };
     if (snapped - px).abs() > f64::EPSILON {
         let _ = win.set_position(LogicalPosition::new(snapped, py));
         tracing::debug!("pulse: auto-hide snapped panel flush to edge x={snapped}");
