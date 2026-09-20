@@ -68,6 +68,7 @@ fn window_behaviour_changed(prev: &Config, next: &Config) -> bool {
         || prev.pulse_size != next.pulse_size
         || prev.pulse_topmost != next.pulse_topmost
         || (prev.pulse_opacity - next.pulse_opacity).abs() > f64::EPSILON
+        || prev.pulse_display_mode != next.pulse_display_mode
         // Enabling/disabling vendors changes the ring count → the panel
         // window must re-size to the (possibly scrolling) dock height.
         || prev.quota_active_vendors != next.quota_active_vendors

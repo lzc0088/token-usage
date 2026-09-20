@@ -292,15 +292,15 @@
   }
 
   /* Currency unit (¥/$) renders smaller than the digits (em → scales with
-     the label font). No CSS margin — the glyph's natural side bearing
-     provides the ~1px optical gap (user-tuned 1px). */
+     the label font). A small margin-right separates the unit glyph from
+     the numeric value for visual clarity. */
   .pct-label .sub-unit {
     font-size: 0.73em;
-    margin-right: 0;
+    margin-right: 2px;
   }
 
   .pct-label .pct-sign {
-    margin-left: 0;
+    margin-left: 2px;
   }
 
   .usage-arc {

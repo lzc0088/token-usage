@@ -52,13 +52,13 @@
   const LABEL_H = 21;
   const ITEM_GAP = 14;
   const TITLE_BLOCK = 27;
-  // Fixed vertical padding (user-specified: padding-top 20px).
-  const PAD_V = 30;
+  // Fixed vertical padding (logical px) — matches Rust PAD_V (fixed, not scale-dependent).
+  const PAD_V = 36;
   // Panel height cap fallback — Rust sends the real cap (80% of the
   // current screen) in the payload; the fixed value only covers a stale
   // payload from before the field existed.
   const MAX_PANEL_H_FALLBACK = 520;
-  const PAD_FLUSH_INNER = 18;
+  const PAD_FLUSH_INNER = 14;
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
 
@@ -77,11 +77,11 @@
     Math.max(
       60,
       (data.max_panel_h ?? MAX_PANEL_H_FALLBACK) -
-        (PAD_V * 2 + TITLE_BLOCK) * layoutS
+        (PAD_V * 2 + TITLE_BLOCK * layoutS)
     )
   );
   let dockH = $derived(Math.min(dockNatural, dockMax));
-  let panelH = $derived((PAD_V * 2 + TITLE_BLOCK) * layoutS + dockH);
+  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK * layoutS + dockH);
 
   // Peek mode: the Rust poller shrinks the window to a narrow grip at the
   // screen edge. When peek=true the frontend renders only a translucent
@@ -248,8 +248,12 @@
   {#if peeking}
     <!-- Peek mode: narrow translucent grip at the screen edge. The
          Rust poller has already shrunk the window; we render only the
-         handle strip so the webview stays live and event-ready. -->
-    <div class="peek-grip" aria-label="hover to expand panel"></div>
+         handle strip so the webview stays live and event-ready. A thin
+         accent pill anchors to the panel-facing edge so the user knows
+         where to hover. -->
+    <div class="peek-grip" class:peek-grip-left={data.side === "left"} aria-label="hover to expand panel">
+      <span class="peek-pill"></span>
+    </div>
   {:else}
     <!-- Visual surface: bg + blur.  Docked edges use the concave-shoulder
          rail clip-path (token-monitor style); floating pills use border-radius. -->
@@ -432,9 +436,9 @@
   .vertical {
     flex-direction: column;
     align-items: center;
-    /* Vertical blocks scale with the ring preset (--s, mirrors Rust
-       layout_scale) — PAD_V and the title/dock gaps track the size. */
-    padding: calc(30px * var(--s, 1)) 16px;
+    /* Fixed vertical padding — does not scale with the ring preset so the
+       spacing feels consistent across small / medium / large. */
+    padding: 36px 16px;
     gap: calc(8px * var(--s, 1));
   }
 
@@ -448,24 +452,46 @@
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
      biased toward the edge (smaller padding on the fused side). */
   .pulse-panel.flush-right {
-    padding: calc(30px * var(--s, 1)) 10px calc(30px * var(--s, 1)) 18px;
+    padding: 36px 10px 36px 14px;
     margin-left: auto;
     margin-right: -1px;
   }
 
   .pulse-panel.flush-left {
-    padding: calc(30px * var(--s, 1)) 18px calc(30px * var(--s, 1)) 10px;
+    padding: 36px 14px 36px 10px;
     margin-left: -1px;
   }
 
   /* ── Peek grip: narrow translucent strip at the screen edge ────────
      Shown when the Rust poller collapses the panel to a narrow handle;
-     the webview stays live so the first hover after reveal is instant. */
+     the webview stays live so the first hover after reveal is instant.
+     A thin accent pill sits at the panel-facing edge so the user can
+     spot the grip (token-monitor style). */
   .peek-grip {
+    position: relative;
     width: 100%;
     height: 100%;
     background: var(--pulse-bg);
     border-radius: 0;
+    cursor: pointer;
+  }
+  .peek-pill {
+    position: absolute;
+    top: 50%;
+    right: 2px;
+    width: 2px;
+    height: 14px;
+    margin-top: -7px;
+    border-radius: 999px;
+    background: var(--pulse-accent, rgba(120, 160, 255, 0.75));
+    transition: transform 140ms ease;
+  }
+  .peek-grip-left .peek-pill {
+    right: auto;
+    left: 2px;
+  }
+  .peek-grip:hover .peek-pill {
+    transform: scaleY(1.3);
   }
 
   /* ── Ring dock ─────────────────────────────────────────────────────── */
@@ -496,7 +522,7 @@
   /* ── Panel title ────────────────────────────────────────────────────── */
 
   .panel-title {
-    /* Pinned block (× --s) so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 30
+    /* Pinned block (× --s) so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 33
        + 27, scaled) arrow math matches the rendered layout exactly. */
     height: calc(15px * var(--s, 1));
     line-height: calc(15px * var(--s, 1));

@@ -30,8 +30,8 @@ const LABEL_H: f64 = 21.0;
 const RING_GAP: f64 = 14.0;
 const TITLE_BLOCK: f64 = 27.0;
 
-/// Fixed vertical padding (user-specified: padding-top 30px).
-const PAD_V: f64 = 30.0;
+/// Fixed vertical padding (logical px) — mirrors PulseApp.svelte CSS (fixed 36px, not scale-dependent).
+const PAD_V: f64 = 36.0;
 
 /// Panel height cap: 80% of the current screen's height — with many vendors
 /// enabled the ring dock scrolls only past that (user-tuned "show as much
@@ -65,10 +65,6 @@ const CARD_GAP: f64 = -9.0;
 /// grip and the card hides it again. Modeled on token-monitor's
 /// edgeDock peek state machine.
 ///
-/// Disabled by default — the10px grip is too narrow to reliably re-expand,
-/// and the340ms hide delay fires on brief cursor excursions. Toggle via
-/// config when the grip UX is refined.
-const PEEK_ENABLED: bool = false;
 const PEEK_HANDLE_W: f64 = 10.0;
 /// Delay before expanding after the cursor enters the grip (ms).
 const PEEK_REVEAL_MS: u64 = 140;
@@ -111,6 +107,8 @@ struct DockCache {
     panel_w: f64,
     theme: String,
     opacity: f64,
+    /// Whether peek (auto-hide) mode is enabled from config.
+    peek_enabled: bool,
 }
 
 static DOCK_CACHE: std::sync::Mutex<Option<DockCache>> = std::sync::Mutex::new(None);
@@ -124,6 +122,7 @@ fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) 
         panel_w: d + PANEL_PAD * 2.0,
         theme: theme.to_string(),
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
+        peek_enabled: cfg.pulse_display_mode == "auto_hide",
     };
     *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
 }
@@ -160,6 +159,13 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     }
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
+        // Reset peek state when display mode is "always" — ensures the
+        // panel is fully expanded after switching from "auto_hide".
+        if cfg.pulse_display_mode != "auto_hide" {
+            if let Ok(mut st) = PEEK_STATE.lock() {
+                *st = (PeekState::Visible, None);
+            }
+        }
         position_pulse(app, conn);
         if let Some(h) = app.get_webview_window("pulse") {
             apply_floating_level(&h, cfg.pulse_topmost);
@@ -206,6 +212,7 @@ pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
         max_panel_h,
         peek: is_peeking(),
+        side: cfg.pulse_side.clone(),
     }
 }
 
@@ -354,17 +361,18 @@ fn layout_scale(d: f64) -> f64 {
 /// Dock height for n rings, capped so the panel never exceeds `max_panel_h`
 /// — the CSS dock scrolls when the natural height overflows.
 fn dock_height_capped(d: f64, n: usize, max_panel_h: f64) -> f64 {
-    let avail = (max_panel_h - (PAD_V * 2.0 + TITLE_BLOCK) * layout_scale(d)).max(60.0);
+    let avail = (max_panel_h - (PAD_V * 2.0 + TITLE_BLOCK * layout_scale(d))).max(60.0);
     dock_height(d, n).min(avail)
 }
 
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
-/// scaled vertical padding + title block + capped dock height.
+/// fixed vertical padding + scaled title block + capped dock height.
 fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> (f64, f64) {
     let d = ring_diameter(&cfg.pulse_size);
     (
         d + PANEL_PAD * 2.0,
-        (PAD_V * 2.0 + TITLE_BLOCK) * layout_scale(d)
+        PAD_V * 2.0
+            + TITLE_BLOCK * layout_scale(d)
             + dock_height_capped(d, ring_count, max_panel_h),
     )
 }
@@ -724,7 +732,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         emit_card_hide(&app);
                         hiding_since = Some(std::time::Instant::now());
                         // Transition to Hiding state (peek entry point).
-                        if PEEK_ENABLED {
+                        if dock.peek_enabled {
                             if let Ok(mut st) = PEEK_STATE.lock() {
                                 *st = (PeekState::Hiding, Some(std::time::Instant::now()));
                             }
@@ -737,7 +745,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         hiding_since = None;
                         last_inside = None;
                         // Collapse to narrow grip (peek Hidden state).
-                        if PEEK_ENABLED {
+                        if dock.peek_enabled {
                             if let Ok(mut st) = PEEK_STATE.lock() {
                                 *st = (PeekState::Hidden, None);
                             }
@@ -745,7 +753,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     }
                     _ => {}
                 }
-            } else if PEEK_ENABLED {
+            } else if dock.peek_enabled {
                 // Card not visible — handle peek state transitions.
                 let peek_state = PEEK_STATE
                     .lock()
@@ -975,6 +983,8 @@ pub struct PulseData {
     pub max_panel_h: f64,
     /// Panel is collapsed to a narrow peek grip at the screen edge.
     pub peek: bool,
+    /// Panel side: "left" | "right" — tells the peek grip which edge to anchor to.
+    pub side: String,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -1052,10 +1062,10 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
-        // height = 30*2 + 27 (title block) + 235 = 322.
+        // height = 36*2 + 27 (title block) + 235 = 334.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
-            assert!((h3 - 322.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 334.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0, MAX_PANEL_H);
@@ -1162,17 +1172,17 @@ mod tests {
             ..Default::default()
         };
         // Large, 3 rings: s=1.25 → dock = 3*(60+26.25) + 2*17.5 = 293.75,
-        // height = (60+27)*1.25 + 293.75 = 402.5.
+        // height = 72 + 33.75 + 293.75 = 399.5.
         let (_, h_l) = collapsed_size(&cfg_l, 3, MAX_PANEL_H);
-        assert!((h_l - 402.5).abs() < 0.01, "large n=3: {h_l}");
+        assert!((h_l - 399.5).abs() < 0.01, "large n=3: {h_l}");
         // Small, 3 rings: s=0.75 → dock = 3*(36+15.75) + 2*10.5 = 176.25,
-        // height = 87*0.75 + 176.25 = 241.5.
+        // height = 72 + 20.25 + 176.25 = 268.5.
         let (_, h_s) = collapsed_size(&cfg_s, 3, MAX_PANEL_H);
-        assert!((h_s - 241.5).abs() < 0.01, "small n=3: {h_s}");
+        assert!((h_s - 268.5).abs() < 0.01, "small n=3: {h_s}");
         // Ring pitch scales too (hover hit-test + card line stay aligned):
-        // large rail = 57*1.25 = 71.25, pitch = 60 + 43.75 = 103.75.
-        assert!((ring_center_y(60.0, 0) - (71.25 + 30.0)).abs() < f64::EPSILON);
-        assert!((ring_center_y(60.0, 1) - (71.25 + 103.75 + 30.0)).abs() < f64::EPSILON);
+        // large rail = 63*1.25 = 78.75, pitch = 60 + 43.75 = 103.75.
+        assert!((ring_center_y(60.0, 0) - (78.75 + 30.0)).abs() < f64::EPSILON);
+        assert!((ring_center_y(60.0, 1) - (78.75 + 103.75 + 30.0)).abs() < f64::EPSILON);
     }
 
     #[test]

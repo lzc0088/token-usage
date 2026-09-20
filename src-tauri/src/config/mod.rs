@@ -156,6 +156,10 @@ pub struct Config {
     /// Pulse panel floats above other apps (NSPanel floating level).
     #[serde(default = "default_true")]
     pub pulse_topmost: bool,
+    /// Pulse display mode: "always" (panel always visible) | "auto_hide"
+    /// (panel hides to a narrow grip when idle; cursor reveals it).
+    #[serde(default = "default_pulse_display_mode")]
+    pub pulse_display_mode: String,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -206,6 +210,7 @@ impl Default for Config {
             pulse_size: default_pulse_size(),
             pulse_opacity: default_pulse_opacity(),
             pulse_topmost: default_true(),
+            pulse_display_mode: default_pulse_display_mode(),
         }
     }
 }
@@ -284,6 +289,9 @@ fn default_pulse_size() -> String {
 }
 fn default_pulse_opacity() -> f64 {
     1.0
+}
+fn default_pulse_display_mode() -> String {
+    "always".into()
 }
 
 // Stable config keys.

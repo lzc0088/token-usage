@@ -388,7 +388,7 @@
     </div>
     {#if config.pulse_enabled}
     <div class="box-row">
-      <div class="lab">显示位置</div>
+      <div class="lab">屏幕边缘</div>
       <Select
         class="sel"
         style="min-width:150px"
@@ -398,6 +398,19 @@
           { value: "left", label: "左侧" },
         ]}
         onchange={(v) => onUpdate({ pulse_side: v as "left" | "right" })}
+      />
+    </div>
+    <div class="box-row">
+      <div class="lab">显示方式</div>
+      <Select
+        class="sel"
+        style="min-width:150px"
+        value={config.pulse_display_mode || "always"}
+        options={[
+          { value: "always", label: "始终显示" },
+          { value: "auto_hide", label: "自动隐藏" },
+        ]}
+        onchange={(v) => onUpdate({ pulse_display_mode: v as "always" | "auto_hide" })}
       />
     </div>
     <div class="box-row">

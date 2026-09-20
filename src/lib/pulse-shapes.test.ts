@@ -40,7 +40,7 @@ describe("railPath", () => {
 });
 
 describe("TAIL_PATH", () => {
-  it("spans the fixed local box with a smooth neck", () => {
+  it("spans the fixed local box with smooth S-curves", () => {
     const nums = coords(TAIL_PATH);
     const xs = nums.filter((_, i) => i % 2 === 0);
     const ys = nums.filter((_, i) => i % 2 === 1);
@@ -48,8 +48,8 @@ describe("TAIL_PATH", () => {
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...ys)).toBeLessThanOrEqual(TAIL_H);
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
-    // Broad neck: the tail meets the card edge 36px apart (y 1 ↔ 37).
-    expect(TAIL_PATH).toContain("M 14 1");
-    expect(TAIL_PATH.endsWith("14 37 Z")).toBe(true);
+    // Card edge at x=18 (neck top y=7, neck bottom y=33), tip at x=1, center y=20.
+    expect(TAIL_PATH).toContain("M 18 7");
+    expect(TAIL_PATH.endsWith("18 33 Z")).toBe(true);
   });
 });

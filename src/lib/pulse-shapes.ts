@@ -57,13 +57,12 @@ export function railPath(
 
 /** Detail-card tail: a broad-necked arrowhead pointing at the panel ring,
  *  as a FIXED-SIZE local path (no card measurement needed). Local box is
- *  14 × 38: the card edge sits at x = 14 (with a 2px overlap into the
- *  card so opaque-over-opaque fuses the junction), the tip at x = 1 (1px
- *  inside the window so the antialiased tip never clips), the neck is
- *  36px tall (±18) around the center line y = 19, and cubic curves carry
- *  the card edge out to the tip — mirroring token-monitor's
- *  bubbleCommands tail (tail 12, neck 18). */
-export const TAIL_W = 14;
-export const TAIL_H = 38;
+ *  18 × 40: the card edge sits at x = 18, the tip at x = 1 (1px inside the
+ *  window so antialiasing never clips). The center line is y = 20; the neck
+ *  spans 26px (y = 7 to y = 33). Wide bezier control points create a
+ *  pronounced outward bulge — the tail reads as a soft arrowhead, not a
+ *  sharp spike. */
+export const TAIL_W = 18;
+export const TAIL_H = 40;
 export const TAIL_PATH =
-  "M 14 1 C 14 11.8 8 17.5 1 19 C 8 20.5 14 26.2 14 37 Z";
+  "M 18 7 C 18 12 8 16 1 20 C 8 24 18 28 18 33 Z";

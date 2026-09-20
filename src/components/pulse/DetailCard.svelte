@@ -222,8 +222,8 @@
     position: relative;
     min-width: 242px;
     max-width: 297px;
-    /* top right bottom left — extra top/bottom breathes. */
-    padding: 18px 14px 16px 12px;
+    /* top right bottom left — generous breath, matches token-monitor card density. */
+    padding: 14px 16px 12px 14px;
     font-size: 9px;
     line-height: 1.45;
     color: var(--card-text);
@@ -252,19 +252,19 @@
   }
 
   /* ── Tail: broad-necked arrowhead (token-monitor style) ──────────
-     The SVG is 14×38px; the card edge sits at x=14 (2px overlap into the
+     The SVG is 18×40px; the card edge sits at x=18 (2px overlap into the
      card fuses the junction opaque-over-opaque), the tip at x≈0 outside
      the card.  "card-tail-right" flips horizontally so the tail points
      outward from the panel-facing edge. */
   .card-tail {
     position: absolute;
-    left: -12px;
+    left: -16px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -12px;
+    right: -16px;
     transform: translateY(-50%) scaleX(-1);
   }
 

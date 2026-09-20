@@ -320,6 +320,8 @@ export interface Config {
   pulse_opacity?: number;
   /** Pulse panel floats above other apps. */
   pulse_topmost?: boolean;
+  /** Pulse display mode: "always" (always visible) | "auto_hide" (peek on hover). */
+  pulse_display_mode?: "always" | "auto_hide";
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────

@@ -168,7 +168,7 @@
        short of the panel edge (Rust CARD_GAP = -9: tip gap = GAP - 1),
        at a FIXED distance regardless of card width. */
     justify-content: flex-start;
-    padding-left: 10px;
+    padding-left: 12px;
     animation: cardIn 0.16s ease-out;
   }
 
@@ -177,7 +177,7 @@
   .card-slot.card-left {
     justify-content: flex-end;
     padding-left: 0;
-    padding-right: 10px;
+    padding-right: 12px;
   }
 
   .card-slot.out {

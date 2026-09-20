@@ -48,6 +48,8 @@ export interface PulseData {
   max_panel_h?: number;
   /** Panel is collapsed to a narrow peek grip at the screen edge. */
   peek?: boolean;
+  /** Panel side: "left" | "right" — tells the peek grip which edge to anchor to. */
+  side?: string;
 }
 
 /** Card-show payload from Rust (ui/pulse.rs expand_pulse → "pulse:card"). */

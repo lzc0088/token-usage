@@ -111,9 +111,9 @@ describe("PulseApp", () => {
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
     expect(panel?.classList.contains("flush-right")).toBe(true);
     expect(target.querySelector(".panel-surface")).toBeTruthy();
-    // Height mirrors the Rust formula: 2×PAD_V(30) + TITLE(27) + dock.
-    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 239px.
-    expect(panel?.style.height).toBe("239px");
+    // Height mirrors the Rust formula: 2×PAD_V(36) + TITLE(27) + dock.
+    // SAMPLE = 2 medium rings → dock = 2×(48+21) + 14 = 152 → 251px.
+    expect(panel?.style.height).toBe("251px");
   });
 
   it("caps the dock at the payload's screen-relative max (80%)", async () => {
@@ -134,10 +134,10 @@ describe("PulseApp", () => {
     await flush();
 
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
-    // Panel height = max_panel_h (dock capped at 200 - 87 = 113).
+    // Panel height = max_panel_h (dock capped at 200 - 99 = 101).
     expect(panel?.style.height).toBe("200px");
     const dock = target.querySelector<HTMLElement>(".ring-dock");
-    expect(dock?.style.maxHeight).toBe("113px");
+    expect(dock?.style.maxHeight).toBe("101px");
   });
 
   it("scales typography and blocks with the size preset", async () => {
@@ -146,12 +146,12 @@ describe("PulseApp", () => {
     mount(PulseApp, { target });
 
     // Large: s = 60/48 = 1.25 → dock = 2×(60+26.25) + 17.5 = 190,
-    // height = 87×1.25 + 190 = 298.75.
+    // height = 72 + 33.75 + 190 = 295.75.
     emit("pulse:update", { ...SAMPLE, size: "large", ring_diameter: 60 });
     await flush();
 
     const panel = target.querySelector<HTMLElement>(".pulse-panel");
-    expect(panel?.style.height).toBe("298.75px");
+    expect(panel?.style.height).toBe("295.75px");
     // The --s scale var drives the CSS block metrics (padding/title/gaps).
     expect(panel?.getAttribute("style")).toContain("--s: 1.25");
   });
