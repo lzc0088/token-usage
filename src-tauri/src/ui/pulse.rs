@@ -814,12 +814,16 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
             let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
 
+            // A physically held button = the user is dragging the panel (the
+            // native titlebar-style drag keeps the button down). One query
+            // per tick drives everything button-gated below.
+            let button_down = any_mouse_button_down();
             // Peek is ARMED only while the panel is edge-docked AND the user
             // isn't holding the mouse (dragging): a floating panel suspends
             // auto-hide entirely, and a held button suspends it mid-drag so a
             // slow drag near the edge can't trip the linger and collapse the
             // panel under the cursor.
-            let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !any_mouse_button_down();
+            let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !button_down;
 
             // ── Auto-hide: panel hidden behind the peek handle. The reveal
             // trigger is the handle window itself (with hover grace) — only
@@ -931,7 +935,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     .unwrap_or(false)
             };
 
-            if dragging {
+            if dragging || button_down {
+                // Dragging (motion detected OR button held — the reliable
+                // signal, slow drags produce no per-tick motion): no detail
+                // card while the panel is being moved — hide one that was
+                // open, and don't let ring hovers open a new one.
                 if visible && hiding_since.is_none() {
                     emit_card_hide(&app);
                     hiding_since = Some(std::time::Instant::now());
