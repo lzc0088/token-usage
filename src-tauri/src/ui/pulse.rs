@@ -49,8 +49,11 @@ const PANEL_PAD: f64 = 16.0;
 const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
-/// Gap between the panel edge and the card window (logical px).
-const CARD_GAP: f64 = 10.0;
+/// Clearance between the panel edge and the card window (logical px).
+/// Negative = the window stops 10px short of the panel; the arrow
+/// protrudes ~12px from the card body, putting its tip ≈20px off the
+/// panel edge (user-specified spacing).
+const CARD_GAP: f64 = -10.0;
 
 /// Vertical offset of the ring rail inside the pulse window (pad + title).
 const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
@@ -125,6 +128,12 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         }
         if let Some(c) = app.get_webview_window("pulse-card") {
             apply_floating_level(&c, cfg.pulse_topmost);
+            // Ordered-in but parked off-screen: the webview stays live so
+            // the first hover shows instantly (hidden webviews get
+            // throttled by macOS). The window is empty + transparent here,
+            // so the brief on-screen moment is invisible.
+            let _ = c.show();
+            park_card(&c);
         }
         push_pulse_data(app, conn);
     } else {
@@ -345,6 +354,9 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
     let Some(vendor) = vendor else {
         return;
     };
+    // A fresh expand is hover activity — cancel any stale hide thread.
+    pulse_activity();
+
     // Hot path: dock layout comes from the cache (refreshed on every
     // quota/config push) — no DB access on the main thread per hover.
     let Some(dock) = dock_cache(app) else {
@@ -390,10 +402,9 @@ pub fn expand_pulse(app: &AppHandle, vendor: Option<String>) {
 static CARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Graceful-hide timings: linger before hiding after the last leave, then
-/// the fade window before the hard hide (frontend fades + hides itself;
-/// the Rust-side hide is only the safety net for a dead webview).
-const IDLE_MS: u64 = 220;
-const FADE_MS: u64 = 220;
+/// the fade window before the card is parked off-screen.
+const IDLE_MS: u64 = 160;
+const FADE_MS: u64 = 190;
 
 /// Pointer entered the panel/card window — cancels any pending card hide.
 pub fn pulse_activity() {
@@ -415,8 +426,11 @@ pub fn collapse_pulse(app: &AppHandle) {
 }
 
 /// Schedule the graceful hide: after `delay`, emit `pulse:card-hide` (the
-/// card window fades its content out and hides itself), then hard-hide the
-/// window FADE_MS later — unless the generation moved on (re-hover).
+/// card fades its content out), then PARK the window off-screen FADE_MS
+/// later — unless the generation moved on (re-hover). Parking (instead of
+/// hide) keeps the WKWebView live: a hidden window's web process gets
+/// throttled by macOS, delaying both the next show and the fade — that
+/// read as "hover is sluggish / needs a click".
 fn schedule_card_hide(app: &AppHandle, delay: u64) {
     use std::sync::atomic::Ordering;
     let gen = CARD_GEN.fetch_add(1, Ordering::Relaxed);
@@ -434,8 +448,26 @@ fn schedule_card_hide(app: &AppHandle, delay: u64) {
         if CARD_GEN.load(Ordering::Relaxed) != gen + 1 {
             return;
         }
-        let _ = card.hide();
+        park_card(&card);
     });
+}
+
+/// Move the card window off-screen (just beyond its monitor's bottom-right
+/// corner) instead of hiding it — the webview stays live and event-ready,
+/// and an off-screen window owns no interactable pixels. Show is then a
+/// pure position move back on-screen.
+fn park_card(card: &tauri::WebviewWindow) {
+    let (x, y) = match card.current_monitor() {
+        Ok(Some(mon)) => {
+            let scale = card.scale_factor().unwrap_or(1.0).max(1.0);
+            (
+                mon.position().x as f64 / scale + mon.size().width as f64 / scale + 100.0,
+                mon.position().y as f64 / scale + mon.size().height as f64 / scale + 100.0,
+            )
+        }
+        _ => (-4000.0, -4000.0),
+    };
+    let _ = card.set_position(LogicalPosition::new(x, y));
 }
 
 /// Position the pulse panel. Restores the saved (dragged) position when one

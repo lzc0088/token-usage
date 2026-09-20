@@ -192,8 +192,10 @@
     // between adjacent rings never flickers the card.
   }
 
-  // Panel-level title explaining the percentage mode.
-  let panelTitle = $derived("使用量");
+  // Panel-level title explaining the percentage mode — the rings report
+  // what is LEFT (usage-remaining mode; plan-less vendors show their
+  // balance/credits amount either way).
+  let panelTitle = $derived("剩余量");
 
   // Extra windows (week / MCP / …) as inner concentric arcs: all windows
   // sorted by usage, minus the most critical one (that's the main arc).
@@ -251,7 +253,7 @@
           isRunning={quota.is_running ?? false}
           isRefreshing={quota.is_refreshing ?? false}
           extraPcts={extraPcts(quota)}
-          showsRemaining={false}
+          showsRemaining={true}
           subUnit={ringSubLabel(quota)?.unit}
           subValue={ringSubLabel(quota)?.value}
           plain={quota.planless ?? false}

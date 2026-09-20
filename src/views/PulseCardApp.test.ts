@@ -142,7 +142,9 @@ describe("PulseCardApp", () => {
 
     await new Promise((r) => setTimeout(r, 170));
     expect(target.querySelector(".detail-card")).toBeFalsy();
-    expect(hideMock).toHaveBeenCalled();
+    // The WINDOW stays with Rust — it parks it off-screen after the fade;
+    // the frontend only clears the content.
+    expect(hideMock).not.toHaveBeenCalled();
   });
 
   it("a fresh pulse:card cancels a pending hide", async () => {

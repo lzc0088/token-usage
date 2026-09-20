@@ -1,7 +1,6 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import DetailCard from "../components/pulse/DetailCard.svelte";
   import type { PulseCardPayload, PulseData } from "../lib/pulse-types";
 
@@ -48,8 +47,9 @@
   });
 
   // Rust asks for a graceful hide (pointer left both pulse windows): fade
-  // out, then unmount and hide this window ourselves — Rust's scheduled
-  // hard-hide is only the safety net for a dead webview.
+  // the content out and clear it — Rust parks the WINDOW off-screen after
+  // the fade (parking keeps this webview live, so the next show is
+  // instantaneous).
   listen("pulse:card-hide", () => {
     if (!card) return;
     hiding = true;
@@ -58,7 +58,6 @@
       hideTimer = undefined;
       hiding = false;
       card = null;
-      getCurrentWindow().hide().catch(() => {});
     }, FADE_OUT_MS);
   });
 

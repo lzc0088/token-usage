@@ -108,9 +108,11 @@ describe("PulseApp", () => {
 
     const rings = target.querySelectorAll(".ring-container");
     expect(rings.length).toBe(2);
-    expect(target.querySelector(".panel-title")?.textContent).toContain("使用量");
+    expect(target.querySelector(".panel-title")?.textContent).toContain("剩余量");
     expect(target.querySelector(".ring-icon svg")).toBeTruthy();
     expect(invokeMock).not.toHaveBeenCalledWith("collapse_pulse");
+    // Remaining-amount mode: the label under a 73%-used ring shows 27%.
+    expect(target.querySelector(".pct-label")?.textContent).toContain("27");
   });
 
   it("hovers a ring → invokes pulse_activity + expand_pulse with the vendor", async () => {
