@@ -9,7 +9,15 @@
 //! window whose content re-anchors presents one stale web-process frame
 //! (the ghost/flash); pure moves are always clean.
 //!
-//! macOS only. Other platforms: no-op (the floating widget covers Windows/Linux).
+//! macOS + Windows. The peek/auto-hide mode (edge handle, reveal state
+//! machine) is macOS-only for now — on Windows a configured auto_hide
+//! falls back to always-show. Other platforms: no-op (the floating widget
+//! covers Linux).
+
+/// Platforms the pulse panel runs on.
+const PULSE_SUPPORTED: bool = cfg!(target_os = "macos") || cfg!(target_os = "windows");
+/// Platforms with the peek (auto-hide) state machine.
+const PEEK_SUPPORTED: bool = cfg!(target_os = "macos");
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
@@ -242,7 +250,7 @@ fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) 
         panel_w: d + PANEL_PAD * 2.0,
         theme: theme.to_string(),
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
-        peek_enabled: cfg.pulse_display_mode == "auto_hide",
+        peek_enabled: cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED,
     };
     *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
 }
@@ -277,13 +285,15 @@ fn ring_diameter(size: &str) -> f64 {
 
 /// Sync pulse panel visibility + position with config (startup + on change).
 pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
-    if std::env::consts::OS != "macos" {
+    if !PULSE_SUPPORTED {
         hide_pulse(app);
         return;
     }
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
-        let auto_hide = cfg.pulse_display_mode == "auto_hide";
+        // Peek/auto-hide is macOS-only: on Windows a configured auto_hide
+        // degrades to always-show (the panel simply stays up).
+        let auto_hide = cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED;
         position_pulse(app, conn);
         // Auto-hide only applies while edge-docked (the peek handle lives
         // ON the screen edge). A floating panel — dragged to a non-edge
@@ -736,7 +746,7 @@ fn ring_index_at(y: f64, d: f64, count: usize) -> Option<usize> {
 /// Thread-safe global cursor position (AppKit coords flipped to top-left
 /// logical using the primary screen height, mirroring tao's conversion).
 #[cfg(target_os = "macos")]
-fn global_mouse_topleft(primary_h: f64) -> Option<(f64, f64)> {
+fn global_mouse_topleft(primary_h: f64, _primary_scale: f64) -> Option<(f64, f64)> {
     use objc::{class, msg_send, sel, sel_impl};
     #[repr(C)]
     struct NSPoint {
@@ -749,9 +759,41 @@ fn global_mouse_topleft(primary_h: f64) -> Option<(f64, f64)> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn global_mouse_topleft(_primary_h: f64) -> Option<(f64, f64)> {
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn global_mouse_topleft(_primary_h: f64, _primary_scale: f64) -> Option<(f64, f64)> {
     None
+}
+
+/// Windows: GetCursorPos returns PHYSICAL px with a top-left origin (no
+/// flip needed) — divided by the PRIMARY monitor's scale to match the
+/// logical-space hit-testing the poller does (window physical / window
+/// scale). Exact on single-monitor and uniform-DPI setups; mixed-DPI
+/// secondary monitors degrade gracefully, same approximation class as the
+/// macOS primary-flip.
+#[cfg(target_os = "windows")]
+fn global_mouse_topleft(_primary_h: f64, primary_scale: f64) -> Option<(f64, f64)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut pt = POINT::default();
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let s = primary_scale.max(1.0);
+        Some((pt.x as f64 / s, pt.y as f64 / s))
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn any_mouse_button_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    // High bit = currently pressed (physical state, works outside our
+    // windows — the drag-hold signal, mirroring pressedMouseButtons).
+    (unsafe { GetAsyncKeyState(VK_LBUTTON) } as u32 & 0x8000) != 0
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn any_mouse_button_down() -> bool {
+    false
 }
 
 /// True while ANY mouse button is physically held, system-wide (not just in
@@ -792,6 +834,9 @@ pub fn ensure_hover_poller(app: &AppHandle) {
         let mut last_inside = None::<std::time::Instant>;
         let mut last_panel_pos = (0.0, 0.0);
         let mut primary_h = 0.0f64;
+        // Primary monitor scale — Windows converts GetCursorPos's physical
+        // px to the poller's logical space with it (macOS ignores it).
+        let mut primary_scale = 1.0f64;
         let mut tick: u32 = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
@@ -799,10 +844,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             if tick % PRIMARY_REFRESH == 0 {
                 if let Ok(Some(m)) = app.primary_monitor() {
                     let f = m.scale_factor();
+                    primary_scale = f;
                     primary_h = m.size().height as f64 / f;
                 }
             }
-            let Some((mx, my)) = global_mouse_topleft(primary_h) else {
+            let Some((mx, my)) = global_mouse_topleft(primary_h, primary_scale) else {
                 continue;
             };
 
@@ -1290,8 +1336,13 @@ fn apply_floating_level(win: &tauri::WebviewWindow, topmost: bool) {
     }
 }
 
+/// Non-macOS: Tauri's built-in topmost flag. Windows has no NSPanel-style
+/// level ladder — TOPMOST is the only layer above normal windows, which is
+/// what the macOS floating level approximates anyway.
 #[cfg(not(target_os = "macos"))]
-fn apply_floating_level(_win: &tauri::WebviewWindow, _topmost: bool) {}
+fn apply_floating_level(win: &tauri::WebviewWindow, topmost: bool) {
+    let _ = win.set_always_on_top(topmost);
+}
 
 /// Resolve the effective theme from config.
 fn resolved_theme(app: &AppHandle, cfg: &config::Config) -> String {

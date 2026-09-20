@@ -369,8 +369,8 @@
   </div>
   {/if}
 
-  <!-- ══ 额度悬浮面板（macOS 额度圆环 dock） ══ -->
-  {#if platform === "macos"}
+  <!-- ══ 额度悬浮面板（macOS/Windows 额度圆环 dock） ══ -->
+  {#if platform === "macos" || platform === "windows"}
   <div class="section-title">面板</div>
   <div class="section-box">
     <div class="box-row">
@@ -401,15 +401,20 @@
       />
     </div>
     <div class="box-row">
-      <div class="lab">显示方式</div>
+      <div class="lab">
+        显示方式
+        {#if platform === "windows"}<div class="hint">自动隐藏暂仅支持 macOS</div>{/if}
+      </div>
       <Select
         class="sel"
         style="min-width:150px"
-        value={config.pulse_display_mode || "always"}
-        options={[
-          { value: "always", label: "始终显示" },
-          { value: "auto_hide", label: "自动隐藏" },
-        ]}
+        value={platform === "windows" ? "always" : config.pulse_display_mode || "always"}
+        options={platform === "windows"
+          ? [{ value: "always", label: "始终显示" }]
+          : [
+              { value: "always", label: "始终显示" },
+              { value: "auto_hide", label: "自动隐藏" },
+            ]}
         onchange={(v) => onUpdate({ pulse_display_mode: v as "always" | "auto_hide" })}
       />
     </div>
