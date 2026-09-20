@@ -222,7 +222,9 @@
     position: relative;
     min-width: 242px;
     max-width: 297px;
-    padding: 14px 14px;
+    /* top right bottom left — extra top/bottom breathes; left trimmed
+       because .card-slot already pads 10px for the arrow room. */
+    padding: 18px 14px 16px 6px;
     font-size: 9px;
     line-height: 1.45;
     color: var(--card-text);
@@ -271,7 +273,7 @@
     position: relative; /* paints above the positioned surface layer */
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 10px;
   }
 
   /* ── Header ──────────────────────────────────────────────────── */
@@ -284,7 +286,7 @@
     display: flex;
     align-items: center; /* left/right regions share one horizontal midline */
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
   }
 
   .header-left {
@@ -334,10 +336,10 @@
     white-space: nowrap;
   }
 
-  /* Dashed divider closing the header — 7px above (margin) matches the
-     7px card-body gap below, keeping the spacing even on both sides. */
+  /* Dashed divider closing the header — margin-top matches the card-body
+     gap (10px) for even spacing above and below. */
   .header-divider {
-    margin-top: 7px;
+    margin-top: 10px;
     border-top: 1px dashed var(--card-border);
   }
 
@@ -345,13 +347,13 @@
   .window-bars {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 10px;
   }
 
   .window-section {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
   }
 
   /* Title column — fixed width comes inline (TITLE_W) as a layout
@@ -373,7 +375,7 @@
 
   .ws-track {
     flex: 1;
-    height: 5px;
+    height: 6px;
     border-radius: 3px;
     background: var(--card-track);
     overflow: hidden;
@@ -382,7 +384,7 @@
   .ws-fill {
     height: 100%;
     border-radius: 3px;
-    transition: width 0.35s ease;
+    transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .ws-pct {
@@ -418,15 +420,15 @@
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
   }
 
-  /* Currency unit (¥/$) smaller than the digits (user-tuned 7px). No CSS
-     margin — the glyph's natural side bearing provides the ~1px optical
-     gap; a margin on top of it double-spaced the pair. */
+  /* Currency unit (¥/$) smaller than the digits — 2px margin creates the
+     visible gap between symbol and number (e.g. ¥ 10.0). */
   .stat-amount .stat-unit {
     font-size: 7px;
-    margin-right: 0;
+    margin-right: 2px;
   }
 
+  /* Percent sign: 2px gap before the number (e.g. 10 %). */
   .ws-pct .pct-sign {
-    margin-left: 0;
+    margin-left: 2px;
   }
 </style>
