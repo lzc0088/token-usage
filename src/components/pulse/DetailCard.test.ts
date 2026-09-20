@@ -55,4 +55,57 @@ describe("DetailCard", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
+
+  it("shows balance rows ABOVE the plan section when both exist", () => {
+    const target = renderCard({
+      quota: {
+        ...QUOTA,
+        balance: {
+          amount: 12.34,
+          currency: "CNY",
+          today_consumption: 1.5,
+          month_consumption: 9.9,
+        },
+      },
+    });
+    const balanceRow = target.querySelector(".stat-row");
+    const bars = target.querySelector(".window-bars");
+    expect(balanceRow).toBeTruthy();
+    expect(bars).toBeTruthy();
+    // The first stat row (账户余额) must precede the progress-bar section.
+    expect(balanceRow?.textContent).toContain("账户余额");
+    expect(
+      balanceRow &&
+        bars &&
+        balanceRow.compareDocumentPosition(bars) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // Consumption rows render too.
+    expect(target.textContent).toContain("今日消费");
+    expect(target.textContent).toContain("月度消费");
+  });
+
+  it("keeps credits row first for planless vendors", () => {
+    const target = renderCard({
+      quota: {
+        vendor: "deepseek",
+        planless: true,
+        status: "ok",
+        windows: [{ label: "余额", used_pct: 0, total_value: 100, used_value: 40 }],
+        critical_pct: 0,
+        critical_label: "",
+        balance: { amount: 88.8, currency: "CNY" },
+      },
+    });
+    expect(target.querySelector(".window-bars")).toBeFalsy();
+    const firstRow = target.querySelector(".stat-row");
+    expect(firstRow?.textContent).toContain("剩余 Credits");
+    // Balance rows follow the credits row.
+    const labels = [...target.querySelectorAll(".stat-label")].map(
+      (el) => el.textContent
+    );
+    expect(labels.indexOf("剩余 Credits")).toBeLessThan(
+      labels.indexOf("账户余额")
+    );
+  });
 });

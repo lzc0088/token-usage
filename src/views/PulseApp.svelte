@@ -267,7 +267,10 @@
     --pulse-caution: #ffc226;
     --pulse-warning: #ff4f42;
     --pulse-exhausted: #d92027;
-    --pulse-bg: rgba(0, 0, 0, var(--pulse-alpha, 1));
+    /* rgb() / syntax (CSS Color Module Level 4): rgba() with a var() alpha
+       is unreliable in WKWebView and can silently fall back to opaque —
+       the "sometimes transparent, sometimes not" symptom. */
+    --pulse-bg: rgb(0 0 0 / var(--pulse-alpha, 1));
     --pulse-text: #f2ede3;
     --pulse-text-dim: #8a857b;
     --pulse-track: rgba(255, 255, 255, 0.12);
@@ -279,7 +282,7 @@
     --pulse-caution: #cc8800;
     --pulse-warning: #cc2200;
     --pulse-exhausted: #a81820;
-    --pulse-bg: rgba(240, 238, 234, var(--pulse-alpha, 1));
+    --pulse-bg: rgb(240 238 234 / var(--pulse-alpha, 1));
     --pulse-text: #1a1610;
     --pulse-text-dim: #7a756c;
     --pulse-track: rgba(0, 0, 0, 0.10);
@@ -383,7 +386,7 @@
     height: 15px;
     line-height: 15px;
     font-size: 10px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--pulse-text);
     letter-spacing: 0.03em;
     text-transform: uppercase;

@@ -105,8 +105,38 @@
       {/if}
     </div>
 
+    {#snippet balanceRows()}
+      <!-- Balance + consumption rows. Rendered ABOVE the plan section when
+           the vendor has both (user-specified ordering); for planless
+           vendors they follow the credits row. -->
+      {#if quota.balance}
+        {@const { unit, value } = splitBalance(
+          quota.balance.currency,
+          quota.balance.amount
+        )}
+        <div class="stat-row">
+          <span class="stat-label">账户余额</span>
+          <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{value}</span>
+        </div>
+        {#if quota.balance.today_consumption != null}
+          <div class="stat-row">
+            <span class="stat-label">今日消费</span>
+            <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.today_consumption.toFixed(2)}</span>
+          </div>
+        {/if}
+        {#if quota.balance.month_consumption != null}
+          <div class="stat-row">
+            <span class="stat-label">月度消费</span>
+            <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.month_consumption.toFixed(2)}</span>
+          </div>
+        {/if}
+      {/if}
+    {/snippet}
+
     {#if !quota.planless && quota.windows.length > 0}
-      <!-- Plan vendors — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
+      <!-- Plan vendors: balance/consumption rows first, then the plan
+           sections — 三行左对齐: 标题 · 进度条+百分比 · 剩余(居中) -->
+      {@render balanceRows()}
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-section">
@@ -140,30 +170,7 @@
           <span class="stat-amount">{fmtCredits(creditsWin.total_value! - creditsWin.used_value!)}</span>
         </div>
       {/if}
-    {/if}
-
-    <!-- Balance + consumption rows -->
-    {#if quota.balance}
-      {@const { unit, value } = splitBalance(
-        quota.balance.currency,
-        quota.balance.amount
-      )}
-      <div class="stat-row">
-        <span class="stat-label">账户余额</span>
-        <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{value}</span>
-      </div>
-      {#if quota.balance.today_consumption != null}
-        <div class="stat-row">
-          <span class="stat-label">今日消费</span>
-          <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.today_consumption.toFixed(2)}</span>
-        </div>
-      {/if}
-      {#if quota.balance.month_consumption != null}
-        <div class="stat-row">
-          <span class="stat-label">月度消费</span>
-          <span class="stat-amount">{#if unit}<span class="stat-unit">{unit}</span>{/if}{quota.balance.month_consumption.toFixed(2)}</span>
-        </div>
-      {/if}
+      {@render balanceRows()}
     {/if}
   </div>
 </div>
