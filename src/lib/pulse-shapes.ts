@@ -55,14 +55,15 @@ export function railPath(
   return toPath(side === "left" ? mirrorX(cmds, w) : cmds);
 }
 
-/** Detail-card tail: a broad-necked arrowhead pointing at the panel ring,
- *  as a FIXED-SIZE local path (no card measurement needed). Local box is
- *  18 × 40: the card edge sits at x = 18, the tip at x = 1 (1px inside the
- *  window so antialiasing never clips). The center line is y = 20; the neck
- *  spans 26px (y = 7 to y = 33). Wide bezier control points create a
- *  pronounced outward bulge — the tail reads as a soft arrowhead, not a
- *  sharp spike. */
-export const TAIL_W = 18;
-export const TAIL_H = 40;
+/** Detail-card tail — an EXACT port of token-monitor's bubbleCommands tail
+ *  (same control-point formula, same metrics: neck 18, tail 12). The local
+ *  box is 12 × 36 with the card edge at x = 12 and the tip at x = 1 (1px
+ *  inside so antialiasing never clips); the center line is y = 18. The
+ *  S-curve's first control point SUCKS UP TO the card edge (x = 12,
+ *  y = ±0.4·neck) before the second control (x = tail/2, y ∓ 1.5) sweeps
+ *  out to the tip — the curve leaves the edge vertically then bulges,
+ *  which is what gives token-monitor's arrow its pronounced curvature. */
+export const TAIL_W = 12;
+export const TAIL_H = 36;
 export const TAIL_PATH =
-  "M 18 7 C 18 12 8 16 1 20 C 8 24 18 28 18 33 Z";
+  "M 12 0 C 12 7.2 6 16.5 1 18 C 6 19.5 12 25.2 12 36 Z";

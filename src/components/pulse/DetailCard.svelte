@@ -270,20 +270,21 @@
     opacity: var(--card-alpha, 1);
   }
 
-  /* ── Tail: broad-necked arrowhead (token-monitor style) ──────────
-     The SVG is 18×40px; the card edge sits at x=18 (2px overlap into the
-     card fuses the junction opaque-over-opaque), the tip at x≈0 outside
-     the card.  "card-tail-right" flips horizontally so the tail points
+  /* ── Tail: token-monitor bubbleCommands arrowhead ────────────────
+     The SVG is 12×36px (neck 18, tail 12); the card edge sits at local
+     x=12 (2px overlap into the card fuses the junction opaque-over-
+     opaque), the tip at x=1 → 13px outside the card, pointing at the
+     panel.  "card-tail-right" flips horizontally so the tail points
      outward from the panel-facing edge. */
   .card-tail {
     position: absolute;
-    left: -16px;
+    left: -14px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -16px;
+    right: -14px;
     transform: translateY(-50%) scaleX(-1);
   }
 

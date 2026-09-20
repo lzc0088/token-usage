@@ -70,10 +70,7 @@ const CARD_GAP: f64 = -9.0;
 /// toggles present no stale re-anchored frame).
 const PEEK_WIN_W: f64 = 8.0;
 const PEEK_WIN_H: f64 = 58.0;
-/// Reveal trigger depth at the physical screen edge (logical px) — the
-/// pointer only needs to REACH the edge anywhere along the rail's height.
-const PEEK_TRIGGER_DEPTH: f64 = 3.0;
-/// Delay before expanding after the cursor enters the trigger (ms).
+/// Delay before expanding after the cursor enters the handle (ms).
 const PEEK_REVEAL_MS: u64 = 140;
 /// Grace period after the cursor leaves before collapsing (ms).
 const PEEK_HIDE_MS: u64 = 320;
@@ -764,9 +761,8 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
 
             // ── Auto-hide: panel hidden behind the peek handle. The reveal
-            // trigger is the handle window itself (with grace) OR a thin
-            // strip at the screen edge spanning the rail's height — the
-            // pointer only needs to REACH the edge (token-monitor edgeDock).
+            // trigger is the handle window itself (with hover grace) — only
+            // a deliberate move ONTO the visible handle reveals the panel.
             if !ring.is_visible().unwrap_or(false) {
                 if visible {
                     park_card(&card);
@@ -775,7 +771,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     hiding_since = None;
                 }
                 if dock.peek_enabled {
-                    let in_peek = app
+                    // Reveal trigger: the peek handle window ONLY (graced) —
+                    // not the whole screen edge, so sweeping the cursor to
+                    // the edge (scrollbars, hot corners) never pops the panel.
+                    let in_trigger = app
                         .get_webview_window("pulse-peek")
                         .and_then(|p| {
                             let s = p.scale_factor().unwrap_or(1.0).max(1.0);
@@ -790,22 +789,6 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                 && my < qy + PEEK_WIN_H + HOVER_GRACE
                         })
                         .unwrap_or(false);
-                    let near_panel_edge = ring
-                        .current_monitor()
-                        .ok()
-                        .flatten()
-                        .map(|mon| {
-                            let s = mon.scale_factor();
-                            let ml = mon.position().x as f64 / s;
-                            let mr = ml + mon.size().width as f64 / s;
-                            if px + w_c / 2.0 < (ml + mr) / 2.0 {
-                                mx <= px + PEEK_TRIGGER_DEPTH
-                            } else {
-                                mx >= px + w_c - PEEK_TRIGGER_DEPTH
-                            }
-                        })
-                        .unwrap_or(false);
-                    let in_trigger = in_peek || (near_panel_edge && my >= py && my < py + h_c);
                     match peek_state() {
                         (PeekState::Hidden, _) if in_trigger => {
                             tracing::debug!("peek: cursor on trigger → Revealing");

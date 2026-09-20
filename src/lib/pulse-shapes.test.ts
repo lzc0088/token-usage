@@ -40,7 +40,7 @@ describe("railPath", () => {
 });
 
 describe("TAIL_PATH", () => {
-  it("spans the fixed local box with smooth S-curves", () => {
+  it("ports token-monitor's bubbleCommands tail with its edge-hugging S-curve", () => {
     const nums = coords(TAIL_PATH);
     const xs = nums.filter((_, i) => i % 2 === 0);
     const ys = nums.filter((_, i) => i % 2 === 1);
@@ -48,8 +48,13 @@ describe("TAIL_PATH", () => {
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...ys)).toBeLessThanOrEqual(TAIL_H);
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
-    // Card edge at x=18 (neck top y=7, neck bottom y=33), tip at x=1, center y=20.
-    expect(TAIL_PATH).toContain("M 18 7");
-    expect(TAIL_PATH.endsWith("18 33 Z")).toBe(true);
+    // Neck anchors on the card edge (x = TAIL_W) at both ends, tip at x = 1.
+    expect(TAIL_PATH).toContain(`M ${TAIL_W} 0`);
+    expect(TAIL_PATH.endsWith(`${TAIL_W} ${TAIL_H} Z`)).toBe(true);
+    // The FIRST control point of each curve sits ON the card edge
+    // (x = TAIL_W, y = 0.4·neck from the end) — the curve departs
+    // vertically before the mid control (x = TAIL_W/2) sweeps to the tip.
+    expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 6 16.5 1 18`);
+    expect(TAIL_PATH).toContain(`C 6 19.5 ${TAIL_W} 25.2`);
   });
 });
