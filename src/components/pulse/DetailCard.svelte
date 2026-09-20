@@ -134,6 +134,7 @@
         stroke="var(--card-border)"
         stroke-width="1"
         stroke-linecap="round"
+        stroke-miterlimit="20"
         pointer-events="none"
       />
     </svg>
@@ -283,23 +284,25 @@
 
   /* ── Tail: token-monitor bubbleCommands arrowhead, drawn deep ─────
      The SVG is 18×36px. The neck endpoints (local x=TAIL_W, y=0/36) land
-     on the card's 1px border line — and the curve leaves them VERTICALLY
-     (first control (TAIL_W, 7.2) shares the same x), the same direction
-     the border runs. Tangent continuity is what makes the border appear
-     to BEND INTO the tail curve instead of meeting it at a jogged corner:
-     one flowing outline, no "two stitched parts" read. The opaque fill
-     overlaps the border strip across the neck so no transparent gap opens
-     at the junction; the tip at x=1 reaches 16px outside the card toward
-     the panel. "card-tail-right" flips horizontally for the other side. */
+     on the card's 1px border line (its center, x=0.5) — and the curve
+     leaves them VERTICALLY (first control (TAIL_W, 7.2) shares the same
+     x), the same direction the border runs. Tangent continuity is what
+     makes the border appear to BEND INTO the tail curve instead of
+     meeting it at a jogged corner: one flowing outline, no "two stitched
+     parts" read. The outline path carries stroke-miterlimit="20" — the
+     tip's ~21° vertex exceeds SVG's default miterlimit of 4, which
+     silently bevels (blunts) the point. The tip at x=1 reaches 16.5px
+     outside the card toward the panel. "card-tail-right" flips
+     horizontally for the other side. */
   .card-tail {
     position: absolute;
-    left: -18px;
+    left: -18.5px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -18px;
+    right: -18.5px;
     transform: translateY(-50%) scaleX(-1);
   }
 
