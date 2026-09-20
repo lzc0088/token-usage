@@ -54,13 +54,13 @@ const PANEL_PAD: f64 = 16.0;
 const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
-/// Card window offset from the panel edge (logical px). The card body
-/// hugs the window's panel-facing edge (slot padding 12) and the tail tip
-/// extends 9px past the card border, so the tip lands 1px ONTO the panel
-/// surface (CARD_GAP − 3): card, arrow and panel read as one connected
+/// Card window offset from the panel edge (logical px). The tail is drawn
+/// 16px deep with its neck 2px into the card and the slot padding is 12px,
+/// so the tip lands at exactly CARD_GAP past the panel edge — +2 → 2px
+/// ONTO the panel surface: card, arrow and panel read as one connected
 /// shape with no visible gap at either end of the tail. Deterministic
 /// regardless of card width.
-const CARD_GAP: f64 = 4.0;
+const CARD_GAP: f64 = 2.0;
 
 /// ── Peek mode (auto-hidden panel) ──────────────────────────────────────
 /// Modeled on token-monitor's edgeDock: the peek handle is its OWN tiny
@@ -664,6 +664,15 @@ fn emit_card_hide(app: &AppHandle) {
 const POLL_MS: u64 = 33;
 /// Linger after the pointer leaves both windows before hiding the card.
 const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
+/// Linger before the PANEL itself collapses in peek mode — deliberately
+/// longer than the card linger: the panel vanishing under a cursor the
+/// user is still moving reads as "hiding for no reason".
+const PEEK_LINGER: std::time::Duration = std::time::Duration::from_millis(300);
+/// Proximity keep-alive (logical px): a cursor within this distance of the
+/// panel rect still counts as "near" for peek purposes — operating beside
+/// the docked panel (scrollbars, edge-adjacent UI) must not collapse it
+/// while the user works there.
+const PEEK_PROX: f64 = 36.0;
 /// Fade window between the hide signal and parking the window off-screen.
 const HOVER_FADE: std::time::Duration = std::time::Duration::from_millis(190);
 /// Grace margin around both windows that still counts as "inside".
@@ -918,6 +927,13 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                 && mx < px + w_c + HOVER_GRACE
                 && my >= py - HOVER_GRACE
                 && my < py + h_c + HOVER_GRACE;
+            // Wider proximity halo — peek keep-alive only (card hover still
+            // uses the tight in_panel): working beside the docked panel
+            // keeps it on screen; only a real departure collapses it.
+            let near_panel = mx >= px - PEEK_PROX
+                && mx < px + w_c + PEEK_PROX
+                && my >= py - PEEK_PROX
+                && my < py + h_c + PEEK_PROX;
             let ring_idx = if in_panel && !dragging {
                 ring_index_at(my - py, dock.diameter, dock.vendors.len())
             } else {
@@ -975,8 +991,15 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     (None, true) => {
                         emit_card_hide(&app);
                         hiding_since = Some(std::time::Instant::now());
-                        // Transition to Hiding state (peek entry point).
-                        if peek_armed {
+                        // Transition to Hiding state (peek entry point) —
+                        // on the LONGER peek linger, and only once the
+                        // cursor is beyond the proximity halo.
+                        if peek_armed
+                            && !near_panel
+                            && last_inside
+                                .map(|t| t.elapsed() >= PEEK_LINGER)
+                                .unwrap_or(true)
+                        {
                             set_peek_state(PeekState::Hiding, Some(std::time::Instant::now()));
                         }
                     }
@@ -999,17 +1022,18 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         }
                     }
                 }
-            } else if peek_armed && !in_panel {
+            } else if peek_armed && !near_panel {
                 // Auto-hide drives the PANEL directly, not just the card: a
                 // revealed panel whose pointer has left (no card open either)
                 // must also collapse — previously only the card-hide path set
                 // Hiding, so a cardless reveal floated forever (or looped
-                // against the edge handle). Guarded by !in_panel so hovering
-                // the panel's title/padding keeps it alive.
+                // against the edge handle). Guarded by !near_panel so working
+                // beside the panel keeps it alive; the linger is the longer
+                // PEEK_LINGER so a still-moving cursor never sees it snap.
                 match peek_state() {
                     (PeekState::Visible, _) => {
                         let lingered = last_inside
-                            .map(|t| t.elapsed() >= HOVER_LINGER)
+                            .map(|t| t.elapsed() >= PEEK_LINGER)
                             .unwrap_or(true);
                         if lingered {
                             set_peek_state(PeekState::Hiding, Some(std::time::Instant::now()));

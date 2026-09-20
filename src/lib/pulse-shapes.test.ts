@@ -54,8 +54,8 @@ describe("TAIL_PATH", () => {
     // The FIRST control point of each curve sits ON the card edge
     // (x = TAIL_W, y = 0.4·neck from the end) — the curve departs
     // vertically before the mid control (x = TAIL_W/2) sweeps to the tip.
-    expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 6 16.5 1 18`);
-    expect(TAIL_PATH).toContain(`C 6 19.5 ${TAIL_W} 25.2`);
+    expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 ${TAIL_W / 2} 16.5 1 18`);
+    expect(TAIL_PATH).toContain(`C ${TAIL_W / 2} 19.5 ${TAIL_W} 25.2`);
   });
 
   it("TAIL_OUTLINE is the tail without the card-edge closing segment", () => {
