@@ -830,6 +830,12 @@ pub fn run() {
                                 cfg.theme = theme.to_string();
                             });
                         });
+                        // Live theme push — same contract as settings.rs
+                        // set_config: notify listening frontends AND push
+                        // the pulse payload directly (both pulse windows +
+                        // the dock cache follow immediately, no round-trip).
+                        let _ = app.emit("config:changed", ());
+                        crate::ui::pulse::push_pulse_data(app, c);
                         false
                     }
                     _ => false,
