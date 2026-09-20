@@ -264,6 +264,10 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             // Auto-hide starts collapsed: panel hidden, peek handle shown.
             // Pure visibility toggles — the window is never resized here.
             if auto_hide {
+                // The peek handle sits flush at the SCREEN edge, so the panel
+                // must be edge-docked too — otherwise the reveal shows the
+                // panel away from the cursor and it collapses in a loop.
+                snap_pulse_to_edge(conn, &h);
                 let _ = h.hide();
             } else {
                 let _ = h.show();
@@ -940,6 +944,42 @@ fn redock_x(x: f64, w: f64, mon_left: f64, mon_right: f64) -> f64 {
 fn rect_on_any_monitor(x: f64, y: f64, w: f64, h: f64, mons: &[(f64, f64, f64, f64)]) -> bool {
     mons.iter()
         .any(|&(ml, mt, mr, mb)| x < mr && x + w > ml && y < mb && y + h > mt)
+}
+
+/// Snap the panel flush to its nearest screen edge (vertical position
+/// unchanged), persisting the new x. Auto-hide needs this: the peek handle
+/// lives ON the screen edge, so a floating panel would reveal away from
+/// the cursor and collapse again in a ~560ms loop. Mirrors token-monitor,
+/// whose edgeDock rail is always edge-flush.
+fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
+    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
+        win.current_monitor(),
+        win.outer_position(),
+        win.outer_size(),
+    ) else {
+        return;
+    };
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let px = pos.x as f64 / scale;
+    let py = pos.y as f64 / scale;
+    let w = size.width as f64 / scale;
+    let mon_left = mon.position().x as f64 / scale;
+    let mon_right = mon_left + mon.size().width as f64 / scale;
+    // Nearest edge by panel center — unconditional (a mid-screen floating
+    // panel must move; redock_x's 26px threshold would leave it detached).
+    let snapped = if px + w / 2.0 < (mon_left + mon_right) / 2.0 {
+        mon_left
+    } else {
+        mon_right - w
+    };
+    if (snapped - px).abs() > f64::EPSILON {
+        let _ = win.set_position(LogicalPosition::new(snapped, py));
+        tracing::debug!("pulse: auto-hide snapped panel flush to edge x={snapped}");
+    }
+    // Persist the flushed x either way so the 1s position poller and the
+    // restore path agree (the panel is about to be hidden, which skips
+    // persisting).
+    save_pos(conn, snapped.round() as i32, py.round() as i32);
 }
 
 fn position_pulse(app: &AppHandle, conn: &Connection) {

@@ -67,3 +67,10 @@ export const TAIL_W = 12;
 export const TAIL_H = 36;
 export const TAIL_PATH =
   "M 12 0 C 12 7.2 6 16.5 1 18 C 6 19.5 12 25.2 12 36 Z";
+
+/** Outline variant of the tail: the same two curves WITHOUT the closing
+ *  segment along the card edge (no Z) — stroking it draws the arrow's
+ *  silhouette in the card's border color while the neck stays open, so the
+ *  border appears to flow around the tail rather than cut through it.
+ *  Same open-path convention as token-monitor's railCommands(outline). */
+export const TAIL_OUTLINE = "M 12 0 C 12 7.2 6 16.5 1 18 C 6 19.5 12 25.2 12 36";

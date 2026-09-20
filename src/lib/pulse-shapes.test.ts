@@ -1,6 +1,6 @@
 // railPath / TAIL_PATH — silhouette geometry contracts.
 import { describe, expect, it } from "vitest";
-import { TAIL_H, TAIL_PATH, TAIL_W, railPath } from "./pulse-shapes";
+import { TAIL_H, TAIL_OUTLINE, TAIL_PATH, TAIL_W, railPath } from "./pulse-shapes";
 
 function coords(d: string): number[] {
   return [...d.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => parseFloat(m[0]));
@@ -56,5 +56,12 @@ describe("TAIL_PATH", () => {
     // vertically before the mid control (x = TAIL_W/2) sweeps to the tip.
     expect(TAIL_PATH).toContain(`C ${TAIL_W} 7.2 6 16.5 1 18`);
     expect(TAIL_PATH).toContain(`C 6 19.5 ${TAIL_W} 25.2`);
+  });
+
+  it("TAIL_OUTLINE is the tail without the card-edge closing segment", () => {
+    // Same curves, NO Z and no closing line back up the card edge — the
+    // stroke never draws along the fused junction.
+    expect(TAIL_OUTLINE).toBe(TAIL_PATH.slice(0, -2));
+    expect(TAIL_OUTLINE).not.toContain("Z");
   });
 });

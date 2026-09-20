@@ -8,7 +8,7 @@
   } from "../../lib/quota-format";
   import { vendorIconMarkup, vendorDisplayName } from "../../lib/vendorIcons";
   import { vendorColor } from "../../lib/pulse-colors";
-  import { TAIL_W, TAIL_H, TAIL_PATH } from "../../lib/pulse-shapes";
+  import { TAIL_W, TAIL_H, TAIL_PATH, TAIL_OUTLINE } from "../../lib/pulse-shapes";
 
   interface PulseWindow {
     label: string;
@@ -112,9 +112,12 @@
        overlap with the body never double-stacks translucency, and the
        card border can't show through the junction (no dividing line). -->
   <div class="card-surface" aria-hidden="true">
-    <!-- Tail: broad-necked arrowhead (token-monitor style) protruding from
-         the card's panel-facing edge, positioned at --arrow-y (the hovered
-         ring's center). Smooth cubic curves blend into the card edge. -->
+    <!-- Tail: token-monitor bubbleCommands arrowhead protruding from the
+         card's panel-facing edge, centered on --arrow-y (the hovered ring).
+         ONE silhouette with the card: the fill overlaps 2px INTO the card,
+         covering the border line across the neck; the open outline path
+         strokes the tail's curves in the SAME border color, so the border
+         visually flows around the tail instead of cutting through it. -->
     <svg
       class="card-tail"
       class:card-tail-right={cardSide === "right"}
@@ -125,6 +128,14 @@
       aria-hidden="true"
     >
       <path d={TAIL_PATH} fill="var(--card-solid)" pointer-events="none" />
+      <path
+        d={TAIL_OUTLINE}
+        fill="none"
+        stroke="var(--card-border)"
+        stroke-width="1"
+        stroke-linecap="round"
+        pointer-events="none"
+      />
     </svg>
   </div>
 
@@ -271,20 +282,21 @@
   }
 
   /* ── Tail: token-monitor bubbleCommands arrowhead ────────────────
-     The SVG is 12×36px (neck 18, tail 12); the card edge sits at local
-     x=12 (2px overlap into the card fuses the junction opaque-over-
-     opaque), the tip at x=1 → 13px outside the card, pointing at the
-     panel.  "card-tail-right" flips horizontally so the tail points
-     outward from the panel-facing edge. */
+     The SVG is 12×36px (neck 18, tail 12). It sits 2px INTO the card
+     (local x=12 lands at card x=+2), so the opaque fill covers the card's
+     1px border across the neck — the border line never crosses the tail;
+     the stroked outline path continues the border around the curves. The
+     tip at x=1 reaches 9px outside the card toward the panel.
+     "card-tail-right" flips horizontally for the other side. */
   .card-tail {
     position: absolute;
-    left: -14px;
+    left: -10px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -14px;
+    right: -10px;
     transform: translateY(-50%) scaleX(-1);
   }
 
