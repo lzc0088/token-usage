@@ -369,26 +369,26 @@
   </div>
   {/if}
 
-  <!-- ══ Pulse 浮动面板（macOS 额度圆环 dock） ══ -->
+  <!-- ══ 额度悬浮面板（macOS 额度圆环 dock） ══ -->
   {#if platform === "macos"}
-  <div class="section-title">Pulse</div>
+  <div class="section-title">面板</div>
   <div class="section-box">
     <div class="box-row">
-      <div class="lab">Pulse 浮动面板<div class="hint">屏幕边缘显示各账户额度圆环</div></div>
+      <div class="lab">额度悬浮面板<div class="hint">屏幕边缘显示各账户额度圆环</div></div>
       <div class="tg-placeholder">
         <button
           class="tg"
           class:on={!!config.pulse_enabled}
           role="switch"
           aria-checked={!!config.pulse_enabled}
-          aria-label="Pulse"
+          aria-label="额度悬浮面板"
           onclick={() => onUpdate({ pulse_enabled: !config.pulse_enabled })}
         ></button>
       </div>
     </div>
     {#if config.pulse_enabled}
     <div class="box-row">
-      <div class="lab">停靠侧</div>
+      <div class="lab">显示位置</div>
       <Select
         class="sel"
         style="min-width:150px"
@@ -401,7 +401,7 @@
       />
     </div>
     <div class="box-row">
-      <div class="lab">尺寸</div>
+      <div class="lab">面板尺寸</div>
       <Select
         class="sel"
         style="min-width:150px"
