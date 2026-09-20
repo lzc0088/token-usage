@@ -85,6 +85,36 @@ describe("DetailCard", () => {
     expect(target.textContent).toContain("月度消费");
   });
 
+  it("renders title+bar+pct on one line with the reset centered below", () => {
+    const target = renderCard({
+      quota: {
+        ...QUOTA,
+        windows: [
+          {
+            label: "5h · sonnet",
+            used_pct: 42,
+            resets_at: "2027-01-01T00:00:00Z",
+            total_value: 100,
+            used_value: 58,
+          },
+        ],
+      },
+    });
+    // Title, track, pct share ONE row, in order.
+    const row = target.querySelector(".ws-bar-row");
+    expect(row).toBeTruthy();
+    const kids = row ? [...row.children] : [];
+    expect(kids[0]?.classList.contains("ws-title")).toBe(true);
+    expect(kids[1]?.classList.contains("ws-track")).toBe(true);
+    expect(kids[2]?.classList.contains("ws-pct")).toBe(true);
+    // The reset line sits below the bar row, centered.
+    const reset = target.querySelector(".ws-reset");
+    expect(reset).toBeTruthy();
+    expect(reset?.textContent).toContain("重置");
+    // The old three-line layout (ws-value with 剩余) is gone.
+    expect(target.querySelector(".ws-value")).toBeFalsy();
+  });
+
   it("splits the header into left/right regions closed by a dashed divider", () => {
     const target = renderCard();
     const left = target.querySelector(".header-left");

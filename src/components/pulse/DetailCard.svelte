@@ -148,8 +148,9 @@
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-section">
-            <div class="ws-title">{windowLabel(win.label)}</div>
+            <!-- One line: 套餐名称 · 进度条 · 百分比 -->
             <div class="ws-bar-row">
+              <div class="ws-title">{windowLabel(win.label)}</div>
               <div class="ws-track">
                 <div
                   class="ws-fill"
@@ -158,14 +159,10 @@
               </div>
               <span class="ws-pct">{win.used_pct.toFixed(2)}<span class="pct-sign">%</span></span>
             </div>
-            <div class="ws-value">
-              {#if win.total_value != null && win.used_value != null}
-                <span>剩余 {fmtCredits(win.total_value - win.used_value)}</span>
-              {/if}
-              {#if win.resets_at}
-                <span>{formatReset(win.resets_at, nowMs)}</span>
-              {/if}
-            </div>
+            <!-- Reset countdown below the bar, centered. -->
+            {#if win.resets_at}
+              <div class="ws-reset">{formatReset(win.resets_at, nowMs)}</div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -338,6 +335,8 @@
   .ws-title {
     font-size: 9px;
     font-weight: 500;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .ws-bar-row {
@@ -369,12 +368,9 @@
     flex-shrink: 0;
   }
 
-  /* Reset/remaining line — centered. */
-  .ws-value {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
+  /* Reset countdown — below the bar row, centered under it. */
+  .ws-reset {
+    text-align: center;
     font-size: 9px;
     font-weight: 500;
   }
