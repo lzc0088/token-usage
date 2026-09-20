@@ -26,13 +26,14 @@ function renderCard(props: Record<string, unknown> = {}): HTMLElement {
 }
 
 describe("DetailCard", () => {
-  it("renders the surface layer containing the fused arrow", () => {
+  it("renders the surface layer containing the fused tail", () => {
     const target = renderCard();
     const surface = target.querySelector(".card-surface");
     expect(surface).toBeTruthy();
-    // The arrow lives INSIDE the surface layer — same compositing layer,
-    // no dividing line at the junction.
-    expect(surface?.querySelector(".card-arrow")).toBeTruthy();
+    // The broad-necked tail (SVG) lives INSIDE the surface layer — same
+    // compositing layer, no dividing line at the junction.
+    expect(surface?.querySelector(".card-tail")).toBeTruthy();
+    expect(surface?.querySelector(".card-tail path")).toBeTruthy();
     expect(target.querySelector(".card-body")).toBeTruthy();
   });
 

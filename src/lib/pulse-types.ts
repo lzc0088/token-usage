@@ -46,6 +46,8 @@ export interface PulseData {
   /** Panel height cap (logical px) = 80% of the current screen, computed
    *  by Rust so the window size and the CSS dock cap agree exactly. */
   max_panel_h?: number;
+  /** Panel is collapsed to a narrow peek grip at the screen edge. */
+  peek?: boolean;
 }
 
 /** Card-show payload from Rust (ui/pulse.rs expand_pulse → "pulse:card"). */

@@ -8,6 +8,7 @@
   } from "../../lib/quota-format";
   import { vendorIconMarkup, vendorDisplayName } from "../../lib/vendorIcons";
   import { vendorColor } from "../../lib/pulse-colors";
+  import { TAIL_W, TAIL_H, TAIL_PATH } from "../../lib/pulse-shapes";
 
   interface PulseWindow {
     label: string;
@@ -97,9 +98,20 @@
        overlap with the body never double-stacks translucency, and the
        card border can't show through the junction (no dividing line). -->
   <div class="card-surface" aria-hidden="true">
-    <!-- Arrow: large triangle protruding from the card's panel-facing
-         edge, positioned at --arrow-y (the hovered ring's line). -->
-    <div class="card-arrow"></div>
+    <!-- Tail: broad-necked arrowhead (token-monitor style) protruding from
+         the card's panel-facing edge, positioned at --arrow-y (the hovered
+         ring's center). Smooth cubic curves blend into the card edge. -->
+    <svg
+      class="card-tail"
+      class:card-tail-right={cardSide === "right"}
+      style:top="var(--arrow-y, 50%)"
+      width={TAIL_W}
+      height={TAIL_H}
+      viewBox="0 0 {TAIL_W} {TAIL_H}"
+      aria-hidden="true"
+    >
+      <path d={TAIL_PATH} fill="var(--card-solid)" pointer-events="none" />
+    </svg>
   </div>
 
   <div class="card-body">
@@ -238,26 +250,21 @@
     opacity: var(--card-alpha, 1);
   }
 
-  /* ── Arrow: large triangle on the card edge, pointing at the ring ──
-     14px wide with a 2px overlap INTO the card — opaque-over-opaque
-     covers the border at the junction so the tail reads as part of the
-     body (no dividing line), at every opacity. */
-  .card-arrow {
+  /* ── Tail: broad-necked arrowhead (token-monitor style) ──────────
+     The SVG is 14×38px; the card edge sits at x=14 (2px overlap into the
+     card fuses the junction opaque-over-opaque), the tip at x≈0 outside
+     the card.  "card-tail-right" flips horizontally so the tail points
+     outward from the panel-facing edge. */
+  .card-tail {
     position: absolute;
-    top: var(--arrow-y, 50%);
     left: -12px;
     transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    border-top: 12px solid transparent;
-    border-bottom: 12px solid transparent;
-    border-right: 14px solid var(--card-solid);
+    overflow: visible;
   }
-  .detail-card.card-right .card-arrow {
+  .card-tail.card-tail-right {
     left: auto;
     right: -12px;
-    border-right: none;
-    border-left: 14px solid var(--card-solid);
+    transform: translateY(-50%) scaleX(-1);
   }
 
   .card-body {

@@ -5,6 +5,7 @@
   import { PhysicalPosition } from "@tauri-apps/api/dpi";
   import QuotaRing from "../components/pulse/QuotaRing.svelte";
   import { fmtCredits, splitBalance } from "../lib/quota-format";
+  import { railPath } from "../lib/pulse-shapes";
   import type { PulseData, PulseQuota } from "../lib/pulse-types";
 
   // Ring panel window. The detail card lives in its OWN window
@@ -82,6 +83,11 @@
   let dockH = $derived(Math.min(dockNatural, dockMax));
   let panelH = $derived((PAD_V * 2 + TITLE_BLOCK) * layoutS + dockH);
 
+  // Peek mode: the Rust poller shrinks the window to a narrow grip at the
+  // screen edge. When peek=true the frontend renders only a translucent
+  // handle strip — the full panel content is hidden.
+  let peeking = $derived(data.peek ?? false);
+
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
 
@@ -91,6 +97,18 @@
       : PAD_FLOAT * 2
   );
   let panelW = $derived(data.ring_diameter + padH);
+
+  // Concave-shoulder rail silhouette (token-monitor style) — used for
+  // clip-path and outline stroke when the panel is docked to a screen edge.
+  const SHOULDER = 26;
+  const RAIL_RADIUS = 20;
+  let railClip = $derived(
+    flushSide ? railPath(panelW, panelH, flushSide, SHOULDER, RAIL_RADIUS) : ""
+  );
+  // Clip-path needs a CLOSED shape — Z draws a straight line along the
+  // screen edge from the path's end back to its start, which is exactly
+  // the flat edge we want the fill to cover.
+  let railClipClosed = $derived(railClip ? `${railClip} Z` : "");
 
   // ── Drag + berth fusion ─────────────────────────────────────────────
   // The panel is dragged with the native titlebar-style drag (startDragging),
@@ -226,41 +244,86 @@
   class:flush-left={flushSide === "left"}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; --s: {layoutS}; width:{panelW}px; height:{panelH}px"
 >
-  <!-- Visual surface: bg + blur + radius. -->
-  <div class="panel-surface" aria-hidden="true"></div>
+  {#if peeking}
+    <!-- Peek mode: narrow translucent grip at the screen edge. The
+         Rust poller has already shrunk the window; we render only the
+         handle strip so the webview stays live and event-ready. -->
+    <div class="peek-grip" aria-label="hover to expand panel"></div>
+  {:else}
+    <!-- Visual surface: bg + blur.  Docked edges use the concave-shoulder
+         rail clip-path (token-monitor style); floating pills use border-radius. -->
+    <!-- Hidden SVG: defines the <clipPath> for docked panel edges. -->
+    {#if flushSide && railClip}
+      <svg
+        class="rail-defs"
+        width="0"
+        height="0"
+        aria-hidden="true"
+      >
+        <defs>
+          <clipPath id="rail-clip" clipPathUnits="userSpaceOnUse">
+            <path d={railClipClosed} />
+          </clipPath>
+        </defs>
+      </svg>
+    {/if}
 
-  <!-- Panel title (mode indicator) -->
-  <div class="panel-title">{panelTitle}</div>
-
-  <!-- Ring rail -->
-  <div class="rail-with-tooltip" role="group">
-    <div class="ring-dock" style="max-height: {dockMax}px">
-      {#each data.quotas as quota, index (quota.vendor)}
-        <QuotaRing
-          vendor={quota.vendor}
-          pct={quota.critical_pct}
-          label={quota.critical_label}
-          diameter={data.ring_diameter}
-          colorIndex={index}
-          isRunning={quota.is_running ?? false}
-          isRefreshing={quota.is_refreshing ?? false}
-          extraPcts={extraPcts(quota)}
-          showsRemaining={true}
-          subUnit={ringSubLabel(quota)?.unit}
-          subValue={ringSubLabel(quota)?.value}
-          plain={quota.planless ?? false}
-        />
-      {/each}
-      {#if data.quotas.length === 0}
-        <div
-          class="empty-ring"
-          style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
+    <div class="panel-surface" aria-hidden="true">
+      {#if flushSide && railClip}
+        <!-- Outline traces the interior (concave shoulders + rounded
+             corners); the screen edge is left open for a clean docked look. -->
+        <svg
+          class="rail-outline"
+          viewBox="0 0 {panelW} {panelH}"
+          width={panelW}
+          height={panelH}
+          aria-hidden="true"
         >
-          <span class="empty-icon">📊</span>
-        </div>
+          <path
+            d={railClip}
+            fill="none"
+            stroke="var(--rail-stroke, rgba(255,255,255,0.15))"
+            stroke-width="1"
+            vector-effect="non-scaling-stroke"
+            pointer-events="none"
+          />
+        </svg>
       {/if}
     </div>
-  </div>
+
+    <!-- Panel title (mode indicator) -->
+    <div class="panel-title">{panelTitle}</div>
+
+    <!-- Ring rail -->
+    <div class="rail-with-tooltip" role="group">
+      <div class="ring-dock" style="max-height: {dockMax}px">
+        {#each data.quotas as quota, index (quota.vendor)}
+          <QuotaRing
+            vendor={quota.vendor}
+            pct={quota.critical_pct}
+            label={quota.critical_label}
+            diameter={data.ring_diameter}
+            colorIndex={index}
+            isRunning={quota.is_running ?? false}
+            isRefreshing={quota.is_refreshing ?? false}
+            extraPcts={extraPcts(quota)}
+            showsRemaining={true}
+            subUnit={ringSubLabel(quota)?.unit}
+            subValue={ringSubLabel(quota)?.value}
+            plain={quota.planless ?? false}
+          />
+        {/each}
+        {#if data.quotas.length === 0}
+          <div
+            class="empty-ring"
+            style="width:{data.ring_diameter}px;height:{data.ring_diameter}px"
+          >
+            <span class="empty-icon">📊</span>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -327,16 +390,33 @@
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     pointer-events: none;
-    transition: border-radius 0.3s ease;
   }
 
-  /* Fused berths: rounded on the screen-interior side, flat on the edge. */
-  .pulse-panel.flush-right .panel-surface {
-    border-radius: 50px 0 0 50px;
-  }
-
+  /* Rail silhouette — clip-path replaces border-radius for docked edges;
+     the concave-shoulder S-curve grows out of the screen border. */
+  .pulse-panel.flush-right .panel-surface,
   .pulse-panel.flush-left .panel-surface {
-    border-radius: 0 50px 50px 0;
+    border-radius: 0;
+    clip-path: url(#rail-clip);
+  }
+
+  /* Hidden SVG holding the <clipPath> definition — zero-size, no visual. */
+  .rail-defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .rail-outline {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* Light theme: darker outline. */
+  .pulse-panel.light .rail-outline {
+    --rail-stroke: rgba(0, 0, 0, 0.1);
   }
 
   /* Content rides above the surface layer. */
@@ -368,6 +448,16 @@
   .pulse-panel.flush-left {
     padding: calc(30px * var(--s, 1)) 18px calc(30px * var(--s, 1)) 10px;
     margin-left: -1px;
+  }
+
+  /* ── Peek grip: narrow translucent strip at the screen edge ────────
+     Shown when the Rust poller collapses the panel to a narrow handle;
+     the webview stays live so the first hover after reveal is instant. */
+  .peek-grip {
+    width: 100%;
+    height: 100%;
+    background: var(--pulse-bg);
+    border-radius: 0;
   }
 
   /* ── Ring dock ─────────────────────────────────────────────────────── */
