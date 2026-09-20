@@ -105,4 +105,20 @@ describe("QuotaRing", () => {
     expect(icon).toBeTruthy();
     expect(icon?.style.width).toBe("19px");
   });
+
+  it("scales the label metrics with the ring preset", () => {
+    // Large (d=60, s=1.25): 11px line × 1.25 = 13.75px font/line, 12.5px
+    // top margin — typography tracks the size setting (Rust layout_scale).
+    const target = renderRing({ diameter: 60 });
+    const label = target.querySelector<HTMLElement>(".pct-label");
+    expect(label?.style.fontSize).toBe("13.75px");
+    expect(label?.style.lineHeight).toBe("13.75px");
+    expect(label?.style.height).toBe("13.75px");
+    expect(label?.style.marginTop).toBe("12.5px");
+    // Small (d=36, s=0.75): 8.25px.
+    const small = renderRing({ diameter: 36 });
+    expect(
+      small.querySelector<HTMLElement>(".pct-label")?.style.fontSize
+    ).toBe("8.25px");
+  });
 });

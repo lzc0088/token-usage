@@ -139,4 +139,20 @@ describe("PulseApp", () => {
     const dock = target.querySelector<HTMLElement>(".ring-dock");
     expect(dock?.style.maxHeight).toBe("113px");
   });
+
+  it("scales typography and blocks with the size preset", async () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mount(PulseApp, { target });
+
+    // Large: s = 60/48 = 1.25 → dock = 2×(60+26.25) + 17.5 = 190,
+    // height = 87×1.25 + 190 = 298.75.
+    emit("pulse:update", { ...SAMPLE, size: "large", ring_diameter: 60 });
+    await flush();
+
+    const panel = target.querySelector<HTMLElement>(".pulse-panel");
+    expect(panel?.style.height).toBe("298.75px");
+    // The --s scale var drives the CSS block metrics (padding/title/gaps).
+    expect(panel?.getAttribute("style")).toContain("--s: 1.25");
+  });
 });

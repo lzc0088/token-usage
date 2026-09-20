@@ -39,6 +39,10 @@
 
   let displayName = $derived(vendorDisplayName(vendor));
 
+  // Label metrics scale with the ring preset (mirrors Rust layout_scale =
+  // d / 48): LABEL_H × s = 11px line + 10px top margin, font tracks too.
+  let labelS = $derived(diameter / 48);
+
   // ── Ring geometry ──────────────────────────────────────────────────────
 
   let strokeWidth = $derived(Math.max(3, diameter * 0.10));
@@ -265,8 +269,12 @@
   >
 
   <!-- ── Label under the ring: credits/balance for plan-less vendors
-         (smaller currency unit), otherwise the usage percentage. ───────── -->
-  <span class="pct-label">
+         (smaller currency unit), otherwise the usage percentage. Metrics
+         scale with the ring preset (inline — layout contract). ───────── -->
+  <span
+    class="pct-label"
+    style="margin-top:{10 * labelS}px;height:{11 * labelS}px;line-height:{11 * labelS}px;font-size:{11 * labelS}px"
+  >
     {#if subValue}
       {#if subUnit}<span class="sub-unit">{subUnit}</span>{/if}{subValue}
     {:else}{Math.round(displayPct)}<span class="pct-sign">%</span>
@@ -307,14 +315,10 @@
     display: block;
   }
 
-  /* Percentage under the ring — fixed 21px block (11px line + 10px margin)
-     so the panel height math (Rust LABEL_H = 21) stays in sync. Solid text
-     color (near-black on light theme) per user preference. */
+  /* Percentage under the ring — metrics come inline (labelS-scaled) so
+     the panel height math (Rust LABEL_H = 21 × s) stays in sync. Solid
+     text color (near-black on light theme) per user preference. */
   .pct-label {
-    margin-top: 10px;
-    height: 11px;
-    line-height: 11px;
-    font-size: 11px;
     font-weight: 600;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
     color: var(--pulse-text);
@@ -324,11 +328,11 @@
     user-select: none;
   }
 
-  /* Currency unit (¥/$) renders smaller than the digits. No CSS margin —
-     the glyph's natural side bearing provides the ~1px optical gap; a
-     margin on top of it double-spaced the pair (user-tuned 1px). */
+  /* Currency unit (¥/$) renders smaller than the digits (em → scales with
+     the label font). No CSS margin — the glyph's natural side bearing
+     provides the ~1px optical gap (user-tuned 1px). */
   .pct-label .sub-unit {
-    font-size: 8px;
+    font-size: 0.73em;
     margin-right: 0;
   }
 

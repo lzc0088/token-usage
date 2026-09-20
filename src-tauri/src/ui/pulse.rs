@@ -299,25 +299,37 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
 }
 
 /// Dock height for n rings (ring + pct label per item, item gaps between).
+/// Label height and gaps scale with the ring preset (layout_scale).
 fn dock_height(d: f64, n: usize) -> f64 {
+    let s = layout_scale(d);
     let n = n.max(1) as f64;
-    n * (d + LABEL_H) + (n - 1.0) * RING_GAP
+    n * (d + LABEL_H * s) + (n - 1.0) * RING_GAP * s
+}
+
+/// Layout scale for a ring diameter: typography and vertical blocks
+/// (padding, title, label line, gaps) track the ring size preset (d/48 →
+/// 0.75 / 1 / 1.25) so the panel reads as one proportioned unit at every
+/// size — fixed-metric fonts clipped at the small preset. The frontend
+/// derives the SAME factor from `ring_diameter` (PulseApp / QuotaRing).
+fn layout_scale(d: f64) -> f64 {
+    d / RING_MEDIUM
 }
 
 /// Dock height for n rings, capped so the panel never exceeds `max_panel_h`
 /// — the CSS dock scrolls when the natural height overflows.
 fn dock_height_capped(d: f64, n: usize, max_panel_h: f64) -> f64 {
-    let avail = (max_panel_h - PAD_V * 2.0 - TITLE_BLOCK).max(60.0);
+    let avail = (max_panel_h - (PAD_V * 2.0 + TITLE_BLOCK) * layout_scale(d)).max(60.0);
     dock_height(d, n).min(avail)
 }
 
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
-/// vertical padding + title block + capped dock height.
+/// scaled vertical padding + title block + capped dock height.
 fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> (f64, f64) {
     let d = ring_diameter(&cfg.pulse_size);
     (
         d + PANEL_PAD * 2.0,
-        PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, ring_count, max_panel_h),
+        (PAD_V * 2.0 + TITLE_BLOCK) * layout_scale(d)
+            + dock_height_capped(d, ring_count, max_panel_h),
     )
 }
 
@@ -339,9 +351,10 @@ fn panel_max_h(win: &tauri::WebviewWindow) -> f64 {
 }
 
 /// Ring center Y inside the pulse window (logical px from the window top),
-/// mirroring the frontend ring pitch (ring + LABEL_H + RING_GAP per item).
+/// mirroring the frontend ring pitch (ring + scaled label + scaled gap).
 fn ring_center_y(d: f64, index: usize) -> f64 {
-    RAIL_TOP + index as f64 * (d + LABEL_H + RING_GAP) + d / 2.0
+    let s = layout_scale(d);
+    RAIL_TOP * s + index as f64 * (d + (LABEL_H + RING_GAP) * s) + d / 2.0
 }
 
 /// Card window origin X for a panel at `px` of width `w`. Flush-right →
@@ -487,11 +500,12 @@ static POLLER_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// circle band counts (crossing the label/gap zones between rings must not
 /// flip cards).
 fn ring_index_at(y: f64, d: f64, count: usize) -> Option<usize> {
-    if y < RAIL_TOP {
+    let rail = RAIL_TOP * layout_scale(d);
+    if y < rail {
         return None;
     }
-    let rel = y - RAIL_TOP;
-    let pitch = d + LABEL_H + RING_GAP;
+    let rel = y - rail;
+    let pitch = d + (LABEL_H + RING_GAP) * layout_scale(d);
     let idx = (rel / pitch).floor() as usize;
     if idx >= count {
         return None;
@@ -647,6 +661,21 @@ pub fn ensure_hover_poller(app: &AppHandle) {
 
 /// Position the pulse panel. Restores the saved (dragged) position when one
 /// exists; otherwise docks to the configured screen edge, vertically centered.
+/// Re-dock a restored x for the CURRENT width: a size change alters the
+/// panel width, so a position that hugged an edge drifts by |Δwidth|
+/// (or overflows past it after growth). Within REDOCK_THRESH of an edge →
+/// snap flush with the new width; floating positions pass through.
+fn redock_x(x: f64, w: f64, mon_left: f64, mon_right: f64) -> f64 {
+    const REDOCK_THRESH: f64 = 26.0;
+    if (mon_right - (x + w)).abs() <= REDOCK_THRESH {
+        return mon_right - w;
+    }
+    if (x - mon_left).abs() <= REDOCK_THRESH {
+        return mon_left;
+    }
+    x
+}
+
 fn position_pulse(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -657,9 +686,17 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
 
     let _ = win.set_size(LogicalSize::new(w.max(60.0), h.max(60.0)));
 
-    // Try to restore saved position first.
+    // Try to restore saved position first — re-docked for the new width
+    // (an edge-hugging panel must stay fused after a size change).
     if let Some((sx, sy)) = load_pos(conn) {
-        let _ = win.set_position(LogicalPosition::new(sx, sy));
+        let mut x = sx;
+        if let Ok(Some(mon)) = win.current_monitor() {
+            let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
+            let mon_left = mon.position().x as f64 / sf;
+            let mon_right = mon_left + mon.size().width as f64 / sf;
+            x = redock_x(x, w, mon_left, mon_right);
+        }
+        let _ = win.set_position(LogicalPosition::new(x, sy));
         return;
     }
 
@@ -939,6 +976,45 @@ mod tests {
         let d = 48.0;
         assert!((ring_center_y(d, 0) - (RAIL_TOP + 24.0)).abs() < f64::EPSILON);
         assert!((ring_center_y(d, 2) - (RAIL_TOP + 2.0 * 83.0 + 24.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn layout_scales_with_ring_preset() {
+        // Typography + vertical blocks scale by d/48 (0.75 / 1 / 1.25) so
+        // fonts track the size setting instead of clipping at small.
+        let cfg_s = config::Config {
+            pulse_size: "small".into(),
+            ..Default::default()
+        };
+        let cfg_l = config::Config {
+            pulse_size: "large".into(),
+            ..Default::default()
+        };
+        // Large, 3 rings: s=1.25 → dock = 3*(60+26.25) + 2*17.5 = 293.75,
+        // height = (60+27)*1.25 + 293.75 = 402.5.
+        let (_, h_l) = collapsed_size(&cfg_l, 3, MAX_PANEL_H);
+        assert!((h_l - 402.5).abs() < 0.01, "large n=3: {h_l}");
+        // Small, 3 rings: s=0.75 → dock = 3*(36+15.75) + 2*10.5 = 176.25,
+        // height = 87*0.75 + 176.25 = 241.5.
+        let (_, h_s) = collapsed_size(&cfg_s, 3, MAX_PANEL_H);
+        assert!((h_s - 241.5).abs() < 0.01, "small n=3: {h_s}");
+        // Ring pitch scales too (hover hit-test + card line stay aligned):
+        // large rail = 57*1.25 = 71.25, pitch = 60 + 43.75 = 103.75.
+        assert!((ring_center_y(60.0, 0) - (71.25 + 30.0)).abs() < f64::EPSILON);
+        assert!((ring_center_y(60.0, 1) - (71.25 + 103.75 + 30.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn redock_x_resnaps_edge_positions_after_size_change() {
+        // Saved flush-right (mon_right 1512, old w 80 → x 1432); new w 68
+        // leaves a 12px drift → re-snapped flush with the NEW width.
+        assert!((redock_x(1432.0, 68.0, 0.0, 1512.0) - (1512.0 - 68.0)).abs() < f64::EPSILON);
+        // Growth overflows past the edge (negative gap) → pulled back in.
+        assert!((redock_x(1420.0, 92.0, 0.0, 1512.0) - (1512.0 - 92.0)).abs() < f64::EPSILON);
+        // Flush-left drift re-snaps to the left edge.
+        assert!((redock_x(10.0, 68.0, 0.0, 1512.0) - 0.0).abs() < f64::EPSILON);
+        // Floating panels are untouched.
+        assert!((redock_x(700.0, 68.0, 0.0, 1512.0) - 700.0).abs() < f64::EPSILON);
     }
 
     #[test]

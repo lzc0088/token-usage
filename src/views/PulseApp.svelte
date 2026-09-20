@@ -61,19 +61,26 @@
   const PAD_FLUSH_EDGE = 10;
   const PAD_FLOAT = 16;
 
+  // Layout scale — typography + vertical blocks track the ring preset
+  // (mirrors Rust layout_scale = d / 48: 0.75 / 1 / 1.25), so fonts grow
+  // and shrink with the size setting instead of clipping at small.
+  let layoutS = $derived(data.ring_diameter / 48);
+
   let ringCount = $derived(Math.max(data.quotas.length, 1));
   let dockNatural = $derived(
-    ringCount * (data.ring_diameter + LABEL_H) + (ringCount - 1) * ITEM_GAP
+    ringCount * (data.ring_diameter + LABEL_H * layoutS) +
+      (ringCount - 1) * ITEM_GAP * layoutS
   );
   // Dock height capped by the screen-relative max (scrolls when overflow).
   let dockMax = $derived(
     Math.max(
       60,
-      (data.max_panel_h ?? MAX_PANEL_H_FALLBACK) - PAD_V * 2 - TITLE_BLOCK
+      (data.max_panel_h ?? MAX_PANEL_H_FALLBACK) -
+        (PAD_V * 2 + TITLE_BLOCK) * layoutS
     )
   );
   let dockH = $derived(Math.min(dockNatural, dockMax));
-  let panelH = $derived(PAD_V * 2 + TITLE_BLOCK + dockH);
+  let panelH = $derived((PAD_V * 2 + TITLE_BLOCK) * layoutS + dockH);
 
   // Which screen edge the panel is fused to (null = floating pill).
   let flushSide = $state<"left" | "right" | null>(null);
@@ -217,7 +224,7 @@
   class:light={data.theme !== "dark"}
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
-  style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; width:{panelW}px; height:{panelH}px"
+  style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; --s: {layoutS}; width:{panelW}px; height:{panelH}px"
 >
   <!-- Visual surface: bg + blur + radius. -->
   <div class="panel-surface" aria-hidden="true"></div>
@@ -343,20 +350,22 @@
   .vertical {
     flex-direction: column;
     align-items: center;
-    padding: 30px 16px;
-    gap: 8px;
+    /* Vertical blocks scale with the ring preset (--s, mirrors Rust
+       layout_scale) — PAD_V and the title/dock gaps track the size. */
+    padding: calc(30px * var(--s, 1)) 16px;
+    gap: calc(8px * var(--s, 1));
   }
 
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
      biased toward the edge (smaller padding on the fused side). */
   .pulse-panel.flush-right {
-    padding: 30px 10px 30px 18px;
+    padding: calc(30px * var(--s, 1)) 10px calc(30px * var(--s, 1)) 18px;
     margin-left: auto;
     margin-right: -1px;
   }
 
   .pulse-panel.flush-left {
-    padding: 30px 18px 30px 10px;
+    padding: calc(30px * var(--s, 1)) 18px calc(30px * var(--s, 1)) 10px;
     margin-left: -1px;
   }
 
@@ -370,7 +379,7 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: 14px;
+    gap: calc(14px * var(--s, 1));
     /* Scroll when the vendor count would exceed the panel height cap. */
     overflow-y: auto;
     scrollbar-width: thin;
@@ -388,16 +397,16 @@
   /* ── Panel title ────────────────────────────────────────────────────── */
 
   .panel-title {
-    /* Pinned so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 30 + 27) arrow
-       math matches the rendered layout exactly. */
-    height: 15px;
-    line-height: 15px;
-    font-size: 10px;
+    /* Pinned block (× --s) so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 30
+       + 27, scaled) arrow math matches the rendered layout exactly. */
+    height: calc(15px * var(--s, 1));
+    line-height: calc(15px * var(--s, 1));
+    font-size: calc(10px * var(--s, 1));
     font-weight: 600;
     color: var(--pulse-text);
     letter-spacing: 0.03em;
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-bottom: calc(4px * var(--s, 1));
     align-self: center;
     text-align: center;
     font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
