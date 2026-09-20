@@ -222,9 +222,8 @@
     position: relative;
     min-width: 242px;
     max-width: 297px;
-    /* top right bottom left — extra top/bottom breathes; left trimmed
-       because .card-slot already pads 10px for the arrow room. */
-    padding: 18px 14px 16px 6px;
+    /* top right bottom left — extra top/bottom breathes. */
+    padding: 18px 14px 16px 12px;
     font-size: 9px;
     line-height: 1.45;
     color: var(--card-text);

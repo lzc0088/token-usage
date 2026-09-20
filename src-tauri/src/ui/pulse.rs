@@ -64,6 +64,11 @@ const CARD_GAP: f64 = -9.0;
 /// the cursor entering the grip triggers a reveal, and leaving both the
 /// grip and the card hides it again. Modeled on token-monitor's
 /// edgeDock peek state machine.
+///
+/// Disabled by default — the10px grip is too narrow to reliably re-expand,
+/// and the340ms hide delay fires on brief cursor excursions. Toggle via
+/// config when the grip UX is refined.
+const PEEK_ENABLED: bool = false;
 const PEEK_HANDLE_W: f64 = 10.0;
 /// Delay before expanding after the cursor enters the grip (ms).
 const PEEK_REVEAL_MS: u64 = 140;
@@ -719,8 +724,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         emit_card_hide(&app);
                         hiding_since = Some(std::time::Instant::now());
                         // Transition to Hiding state (peek entry point).
-                        if let Ok(mut st) = PEEK_STATE.lock() {
-                            *st = (PeekState::Hiding, Some(std::time::Instant::now()));
+                        if PEEK_ENABLED {
+                            if let Ok(mut st) = PEEK_STATE.lock() {
+                                *st = (PeekState::Hiding, Some(std::time::Instant::now()));
+                            }
                         }
                     }
                     (Some(t), _) if t.elapsed() >= HOVER_FADE => {
@@ -730,13 +737,15 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         hiding_since = None;
                         last_inside = None;
                         // Collapse to narrow grip (peek Hidden state).
-                        if let Ok(mut st) = PEEK_STATE.lock() {
-                            *st = (PeekState::Hidden, None);
+                        if PEEK_ENABLED {
+                            if let Ok(mut st) = PEEK_STATE.lock() {
+                                *st = (PeekState::Hidden, None);
+                            }
                         }
                     }
                     _ => {}
                 }
-            } else {
+            } else if PEEK_ENABLED {
                 // Card not visible — handle peek state transitions.
                 let peek_state = PEEK_STATE
                     .lock()
