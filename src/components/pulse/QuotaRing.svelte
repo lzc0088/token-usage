@@ -88,11 +88,7 @@
 
   let usedPct = $derived(Math.min(100, Math.max(0, pct)));
   let displayPct = $derived(showsRemaining ? 100 - usedPct : usedPct);
-  let offset = $derived(2 * Math.PI * radius * (1 - displayPct / 100));
   let arcColor = $derived(ringColor(usedPct));
-
-  // Unique filter ID per vendor.
-  let filterId = $derived(`halo-${vendor}`);
 
   function ringColor(pct: number): string {
     if (pct >= 100) return "var(--pulse-exhausted)";
@@ -144,26 +140,9 @@
     width={diameter}
     height={diameter}
   >
-    <defs>
-      <!-- Halo glow: blur the arc and let the center disc mask it out. -->
-      <filter
-        id={filterId}
-        x="-50%"
-        y="-50%"
-        width="200%"
-        height="200%"
-      >
-        <feGaussianBlur
-          in="SourceGraphic"
-          stdDeviation="{Math.max(2, diameter * 0.07)}"
-          result="blur"
-        />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-    </defs>
+    <!-- No halo glow: the blurred arc smeared color across the ring's
+         interior, reading as a colored disc background on high-usage
+         vendors (GLM / StepFun). Only the arc strokes carry color. -->
 
     <!-- ── Background track — always visible (plain vendors keep the ring
          outline, just without progress arcs). ─────────────────────────── -->
@@ -179,22 +158,6 @@
     <!-- ── Progress arcs — hidden for plan-less vendors. One concentric
          arc per window (5h outer, week/MCP/… inner), thinning inward. ── -->
     {#if !plain}
-      <!-- ── Halo glow (wider blurred arc around the MAIN arc only) ──── -->
-      <circle
-        cx={diameter / 2}
-        cy={diameter / 2}
-        r={radius}
-        fill="none"
-        stroke={arcColor}
-        stroke-width={strokeWidth * 2}
-        stroke-linecap="round"
-        stroke-dasharray={2 * Math.PI * radius}
-        stroke-dashoffset={offset}
-        transform="rotate(-90 {diameter / 2} {diameter / 2})"
-        opacity="0.15"
-        filter="url(#{filterId})"
-      />
-
       {#each arcSpecs as spec, i (i)}
         {#if !spec.isMain}
           <!-- Per-layer track: keeps every layer visible even at 0% usage

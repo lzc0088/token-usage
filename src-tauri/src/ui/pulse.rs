@@ -368,6 +368,17 @@ fn card_window_x(px: f64, w: f64, flush_right: bool) -> f64 {
     }
 }
 
+/// Which side of the panel has more room for the fixed-size card window.
+/// A panel near an edge (but not fused) has < CARD_WIN_W of room on that
+/// side — opening the card there would straddle the screen border
+/// invisibly, so the card opens into the roomier side instead ("哪边距离
+/// 显示在哪边"). Ties (dead center) stay right.
+fn card_on_left_side(px: f64, panel_w: f64, mon_left: f64, mon_right: f64) -> bool {
+    let room_left = px - mon_left;
+    let room_right = mon_right - (px + panel_w);
+    room_left > room_right
+}
+
 /// Card window origin Y — the window CENTER aligns with the hovered ring's
 /// screen Y (the card centers itself in the window, so the arrow lands on
 /// the same line). Clamped on screen.
@@ -394,10 +405,13 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
         let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
-        let mon_right = mon.position().x as f64 / scale + mon.size().width as f64 / scale;
+        let mon_left = mon.position().x as f64 / scale;
+        let mon_right = mon_left + mon.size().width as f64 / scale;
         let mon_top = mon.position().y as f64 / scale;
         let mon_bottom = mon.position().y as f64 / scale + mon.size().height as f64 / scale;
-        card_on_left = mon_right - (px + dock.panel_w) <= 8.0;
+        // Card opens into the side with more room (flush-right panels have
+        // ~0 right-room → left; floating near-edge panels follow distance).
+        card_on_left = card_on_left_side(px, dock.panel_w, mon_left, mon_right);
         let x = card_window_x(px, dock.panel_w, card_on_left);
         let y = card_window_y(
             py + ring_center_y(dock.diameter, index),
@@ -906,6 +920,22 @@ mod tests {
         let (_, h0) = collapsed_size(&cfg, 0, MAX_PANEL_H);
         let (_, h1) = collapsed_size(&cfg, 1, MAX_PANEL_H);
         assert_eq!(h0, h1);
+    }
+
+    #[test]
+    fn card_side_opens_into_the_roomier_side() {
+        // Flush-right (no room right) → card LEFT.
+        assert!(card_on_left_side(1444.0, 68.0, 0.0, 1512.0));
+        // Flush-left (no room left) → card RIGHT.
+        assert!(!card_on_left_side(0.0, 68.0, 0.0, 1512.0));
+        // Floating right-of-center: more room on the left → card LEFT
+        // (previously a near-edge panel with <340px of room still opened
+        // the card right, straddling off-screen invisibly).
+        assert!(card_on_left_side(1100.0, 68.0, 0.0, 1512.0));
+        // Floating left-of-center → card RIGHT.
+        assert!(!card_on_left_side(300.0, 68.0, 0.0, 1512.0));
+        // Dead center: equal rooms → right (ties don't flip).
+        assert!(!card_on_left_side(722.0, 68.0, 0.0, 1512.0));
     }
 
     #[test]

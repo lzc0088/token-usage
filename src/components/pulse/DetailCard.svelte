@@ -287,8 +287,8 @@
   }
 
   .vendor-icon {
-    width: 12px;
-    height: 12px;
+    width: 13px;
+    height: 13px;
     flex-shrink: 0;
     color: var(--card-text); /* follows the theme: light icon on dark card */
   }
@@ -298,7 +298,7 @@
   }
 
   .vendor-name {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
