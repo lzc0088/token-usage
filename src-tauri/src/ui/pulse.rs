@@ -54,13 +54,12 @@ const PANEL_PAD: f64 = 16.0;
 const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
-/// Card window offset from the panel edge (logical px). The tail is drawn
-/// 16px deep with its neck 2px into the card and the slot padding is 12px,
-/// so the tip lands at exactly CARD_GAP past the panel edge — +2 → 2px
-/// ONTO the panel surface: card, arrow and panel read as one connected
-/// shape with no visible gap at either end of the tail. Deterministic
-/// regardless of card width.
-const CARD_GAP: f64 = 2.0;
+/// Card window offset from the panel edge (logical px). The tail is 18px
+/// deep (tip 14px outside the card) and the slot padding is 12px, so the
+/// tip lands at CARD_GAP + 2 past the panel edge — −2 → the tip stops
+/// EXACTLY at the panel edge (0px onto it), pointing at the ring's panel
+/// without stabbing into it. Deterministic regardless of card width.
+const CARD_GAP: f64 = -2.0;
 
 /// ── Peek mode (auto-hidden panel) ──────────────────────────────────────
 /// Modeled on token-monitor's edgeDock: the peek handle is its OWN tiny

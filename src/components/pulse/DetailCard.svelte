@@ -282,22 +282,22 @@
   }
 
   /* ── Tail: token-monitor bubbleCommands arrowhead, drawn deep ─────
-     The SVG is 16×36px (neck 18, tail 16). The neck overlaps 2px INTO
-     the card (local x=TAIL_W lands at card x=+2), so the opaque fill
+     The SVG is 18×36px (neck 18, tail 18). The neck overlaps 3px INTO
+     the card (local x=TAIL_W lands at card x=+3), so the opaque fill
      covers the card's 1px border strip across the whole neck — no
      hairline seam is possible — and the border-stroked outline path
      flows around the curves. Card + tail read as one continuous
-     silhouette; the tip at x=1 reaches 12px outside the card toward
+     silhouette; the tip at x=1 reaches 14px outside the card toward
      the panel. "card-tail-right" flips horizontally for the other side. */
   .card-tail {
     position: absolute;
-    left: -14px;
+    left: -16px;
     transform: translateY(-50%);
     overflow: visible;
   }
   .card-tail.card-tail-right {
     left: auto;
-    right: -14px;
+    right: -16px;
     transform: translateY(-50%) scaleX(-1);
   }
 

@@ -56,21 +56,21 @@ export function railPath(
 }
 
 /** Detail-card tail — token-monitor's bubbleCommands tail, drawn DEEPER
- *  (user-tuned): same control-point formula with tail = 16 instead of 12.
- *  The local box is 16 × 36 with the card edge at x = 16 and the tip at
+ *  (user-tuned): same control-point formula with tail = 18 instead of 12.
+ *  The local box is 18 × 36 with the card edge at x = 18 and the tip at
  *  x = 1 (1px inside so antialiasing never clips); the center line is
  *  y = 18. The S-curve's first control point SUCKS UP TO the card edge
- *  (x = 16, y = ±0.4·neck) before the second control (x = tail/2, y ∓ 1.5)
+ *  (x = 18, y = ±0.4·neck) before the second control (x = tail/2, y ∓ 1.5)
  *  sweeps out to the tip — the curve leaves the edge vertically then
  *  bulges, which is what gives the arrow its pronounced curvature. */
-export const TAIL_W = 16;
+export const TAIL_W = 18;
 export const TAIL_H = 36;
 export const TAIL_PATH =
-  "M 16 0 C 16 7.2 8 16.5 1 18 C 8 19.5 16 25.2 16 36 Z";
+  "M 18 0 C 18 7.2 9 16.5 1 18 C 9 19.5 18 25.2 18 36 Z";
 
 /** Outline variant of the tail: the same two curves WITHOUT the closing
  *  segment along the card edge (no Z) — stroking it draws the arrow's
  *  silhouette in the card's border color while the neck stays open, so the
  *  border appears to flow around the tail rather than cut through it.
  *  Same open-path convention as token-monitor's railCommands(outline). */
-export const TAIL_OUTLINE = "M 16 0 C 16 7.2 8 16.5 1 18 C 8 19.5 16 25.2 16 36";
+export const TAIL_OUTLINE = "M 18 0 C 18 7.2 9 16.5 1 18 C 9 19.5 18 25.2 18 36";
