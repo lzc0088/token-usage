@@ -438,7 +438,7 @@
     align-items: center;
     /* Fixed vertical padding — does not scale with the ring preset so the
        spacing feels consistent across small / medium / large. */
-    padding: 36px 16px;
+    padding: 36px 16px 44px 16px;
     gap: calc(8px * var(--s, 1));
   }
 
@@ -452,13 +452,13 @@
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
      biased toward the edge (smaller padding on the fused side). */
   .pulse-panel.flush-right {
-    padding: 36px 10px 36px 14px;
+    padding: 36px 10px 44px 14px;
     margin-left: auto;
     margin-right: -1px;
   }
 
   .pulse-panel.flush-left {
-    padding: 36px 14px 36px 10px;
+    padding: 36px 14px 44px 10px;
     margin-left: -1px;
   }
 

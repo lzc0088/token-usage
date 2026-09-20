@@ -30,8 +30,10 @@ const LABEL_H: f64 = 21.0;
 const RING_GAP: f64 = 14.0;
 const TITLE_BLOCK: f64 = 27.0;
 
-/// Fixed vertical padding (logical px) — mirrors PulseApp.svelte CSS (fixed 36px, not scale-dependent).
+/// Fixed vertical padding (logical px) — mirrors PulseApp.svelte CSS (fixed, not scale-dependent).
 const PAD_V: f64 = 36.0;
+/// Bottom padding is slightly larger for visual breathing room.
+const PAD_V_BOT: f64 = 44.0;
 
 /// Panel height cap: 80% of the current screen's height — with many vendors
 /// enabled the ring dock scrolls only past that (user-tuned "show as much
@@ -159,9 +161,15 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     }
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
-        // Reset peek state when display mode is "always" — ensures the
-        // panel is fully expanded after switching from "auto_hide".
-        if cfg.pulse_display_mode != "auto_hide" {
+        // Initialize peek state based on display mode.
+        if cfg.pulse_display_mode == "auto_hide" {
+            // Start collapsed — the panel will be positioned at full size
+            // then shrunk to a grip at the screen edge by park_card below.
+            if let Ok(mut st) = PEEK_STATE.lock() {
+                *st = (PeekState::Hidden, None);
+            }
+        } else {
+            // Fully expanded.
             if let Ok(mut st) = PEEK_STATE.lock() {
                 *st = (PeekState::Visible, None);
             }
@@ -173,10 +181,6 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         }
         if let Some(c) = app.get_webview_window("pulse-card") {
             apply_floating_level(&c, cfg.pulse_topmost);
-            // Ordered-in but parked off-screen: the webview stays live so
-            // the first hover shows instantly (hidden webviews get
-            // throttled by macOS). The window is empty + transparent here,
-            // so the brief on-screen moment is invisible.
             let _ = c.show();
             park_card(&c);
         }
@@ -361,7 +365,7 @@ fn layout_scale(d: f64) -> f64 {
 /// Dock height for n rings, capped so the panel never exceeds `max_panel_h`
 /// — the CSS dock scrolls when the natural height overflows.
 fn dock_height_capped(d: f64, n: usize, max_panel_h: f64) -> f64 {
-    let avail = (max_panel_h - (PAD_V * 2.0 + TITLE_BLOCK * layout_scale(d))).max(60.0);
+    let avail = (max_panel_h - (PAD_V + PAD_V_BOT + TITLE_BLOCK * layout_scale(d))).max(60.0);
     dock_height(d, n).min(avail)
 }
 
@@ -371,7 +375,7 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> 
     let d = ring_diameter(&cfg.pulse_size);
     (
         d + PANEL_PAD * 2.0,
-        PAD_V * 2.0
+        PAD_V + PAD_V_BOT
             + TITLE_BLOCK * layout_scale(d)
             + dock_height_capped(d, ring_count, max_panel_h),
     )
@@ -478,15 +482,16 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
     card_on_left
 }
 
-/// Move the card window off-screen (just beyond its monitor's bottom-right
-/// corner) instead of hiding it — the webview stays live and event-ready,
-/// and an off-screen window owns no interactable pixels. Show is then a
-/// pure position move back on-screen.
+/// Move the card window off-screen instead of hiding it — the webview stays
+/// live and event-ready, and an off-screen window owns no interactable pixels.
+/// Show is then a pure position move back on-screen.
 ///
-/// When peek mode is active, also shrinks the pulse window to a narrow
-/// grip at the screen edge so the user can trigger a reveal by hovering.
+/// When peek mode is active, also shrinks the pulse window to a narrow grip
+/// and positions it at the screen edge so the cursor can hover over it to
+/// trigger a reveal.
 fn park_card(card: &tauri::WebviewWindow) {
-    let (x, y) = match card.current_monitor() {
+    // Park the card off-screen.
+    let (cx, cy) = match card.current_monitor() {
         Ok(Some(mon)) => {
             let scale = card.scale_factor().unwrap_or(1.0).max(1.0);
             (
@@ -496,15 +501,41 @@ fn park_card(card: &tauri::WebviewWindow) {
         }
         _ => (-4000.0, -4000.0),
     };
-    let _ = card.set_position(LogicalPosition::new(x, y));
+    let _ = card.set_position(LogicalPosition::new(cx, cy));
 
-    // Shrink the pulse window to a narrow grip when peek mode is active.
+    // Peek mode: shrink the pulse window to a narrow grip at the screen edge.
     if is_peeking() {
         if let Some(ring) = card.app_handle().get_webview_window("pulse") {
-            if let Ok(size) = ring.outer_size() {
+            if let (Ok(size), Ok(Some(mon))) = (ring.outer_size(), ring.current_monitor()) {
                 let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
                 let handle_px = (PEEK_HANDLE_W * scale).round() as u32;
                 let _ = ring.set_size(PhysicalSize::new(handle_px.max(1), size.height));
+
+                // Position at the screen edge (not off-screen) so the cursor
+                // can hit-test the grip. Read the window's current position
+                // to determine which edge it's on.
+                if let Ok(pos) = ring.outer_position() {
+                    let wx = pos.x as f64 / scale;
+                    let wy = pos.y as f64 / scale;
+                    let mon_left = mon.position().x as f64 / scale;
+                    let mon_right = mon_left + mon.size().width as f64 / scale;
+                    let mon_h = mon.size().height as f64 / scale;
+                    let my = mon.position().y as f64 / scale;
+                    let edge_x = if wx + size.width as f64 / scale / 2.0 < (mon_left + mon_right) / 2.0 {
+                        mon_left
+                    } else {
+                        mon_right - handle_px as f64 / scale
+                    };
+                    let center_y = wy + size.height as f64 / scale / 2.0;
+                    let gy = (center_y - handle_px as f64 / scale / 2.0)
+                        .max(my + 4.0)
+                        .min(my + mon_h - handle_px as f64 / scale - 4.0);
+                    let _ = ring.set_position(LogicalPosition::new(
+                        (edge_x * scale).round() as i32,
+                        (gy * scale).round() as i32,
+                    ));
+                }
+
                 // Push updated data (peek=true) to the frontend so it
                 // renders the narrow grip instead of the full panel.
                 let app = card.app_handle();
@@ -774,7 +805,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                 let d = dock.diameter;
                                 let n = dock.vendors.len().max(1);
                                 let fw = d + PANEL_PAD * 2.0;
-                                let fh = (PAD_V * 2.0 + TITLE_BLOCK) * layout_scale(d)
+                                let fh = (PAD_V + PAD_V_BOT + TITLE_BLOCK) * layout_scale(d)
                                     + dock_height_capped(d, n, max_h);
                                 let _ = ring.set_size(LogicalSize::new(fw, fh));
                                 // Emit card-show for the ring under cursor.
@@ -1055,17 +1086,17 @@ mod tests {
         for n in [1usize, 3, 5] {
             let (w, h) = collapsed_size(&cfg, n, MAX_PANEL_H);
             assert_eq!(w, d + PANEL_PAD * 2.0);
-            let expect_h = PAD_V * 2.0 + TITLE_BLOCK + dock_height_capped(d, n, MAX_PANEL_H);
+            let expect_h = PAD_V + PAD_V_BOT + TITLE_BLOCK + dock_height_capped(d, n, MAX_PANEL_H);
             assert!(
                 (h - expect_h).abs() < f64::EPSILON,
                 "n={n}: {h} != {expect_h}"
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
-        // height = 36*2 + 27 (title block) + 235 = 334.
+        // height = 36 + 44 + 27 (title block) + 235 = 342.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
-            assert!((h3 - 334.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!((h3 - 342.0).abs() < 0.01, "medium n=3: {h3}");
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0, MAX_PANEL_H);
@@ -1172,13 +1203,13 @@ mod tests {
             ..Default::default()
         };
         // Large, 3 rings: s=1.25 → dock = 3*(60+26.25) + 2*17.5 = 293.75,
-        // height = 72 + 33.75 + 293.75 = 399.5.
+        // height = 36 + 44 + 33.75 + 293.75 = 407.5.
         let (_, h_l) = collapsed_size(&cfg_l, 3, MAX_PANEL_H);
-        assert!((h_l - 399.5).abs() < 0.01, "large n=3: {h_l}");
+        assert!((h_l - 407.5).abs() < 0.01, "large n=3: {h_l}");
         // Small, 3 rings: s=0.75 → dock = 3*(36+15.75) + 2*10.5 = 176.25,
-        // height = 72 + 20.25 + 176.25 = 268.5.
+        // height = 36 + 44 + 20.25 + 176.25 = 276.5.
         let (_, h_s) = collapsed_size(&cfg_s, 3, MAX_PANEL_H);
-        assert!((h_s - 268.5).abs() < 0.01, "small n=3: {h_s}");
+        assert!((h_s - 276.5).abs() < 0.01, "small n=3: {h_s}");
         // Ring pitch scales too (hover hit-test + card line stay aligned):
         // large rail = 63*1.25 = 78.75, pitch = 60 + 43.75 = 103.75.
         assert!((ring_center_y(60.0, 0) - (78.75 + 30.0)).abs() < f64::EPSILON);
@@ -1223,7 +1254,7 @@ mod tests {
         assert_eq!(w, d + PANEL_PAD * 2.0);
         // A tiny screen still leaves the 60px minimum dock (never negative).
         let (_, h_tiny) = collapsed_size(&cfg, 20, 100.0);
-        assert!((h_tiny - (PAD_V * 2.0 + TITLE_BLOCK + 60.0)).abs() < f64::EPSILON);
+        assert!((h_tiny - (PAD_V + PAD_V_BOT + TITLE_BLOCK + 60.0)).abs() < f64::EPSILON);
     }
 
     #[test]
