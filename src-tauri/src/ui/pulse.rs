@@ -137,14 +137,39 @@ fn position_peek(app: &AppHandle) {
 }
 
 /// Show the full panel, retire the peek handle (reveal transition end).
-fn reveal_pulse(app: &AppHandle) {
-    if let Some(ring) = app.get_webview_window("pulse") {
-        let _ = ring.show();
+/// Returns true only when the panel is CONFIRMED visible: the show() call
+/// from the poller thread travels the event-loop proxy asynchronously, so
+/// the peek handle must not be retired on an unverified show — a failed or
+/// raced show would otherwise dead-lock (no handle, no panel, no retry).
+/// On false the poller stays in Revealing and retries while the cursor
+/// still targets the edge; the handle never disappears on a bad reveal.
+fn reveal_pulse(app: &AppHandle) -> bool {
+    let Some(ring) = app.get_webview_window("pulse") else {
+        return false;
+    };
+    let shown = match ring.show() {
+        Ok(()) => ring.is_visible().unwrap_or(false),
+        Err(e) => {
+            tracing::warn!("peek reveal: ring show failed: {e}");
+            false
+        }
+    };
+    if !shown {
+        // is_visible() is ordered after show() through the same event
+        // queue, so this is a REAL failure, not a race — log the geometry
+        // to identify why (off-screen / zero size / closed window).
+        tracing::warn!(
+            pos = ?ring.outer_position().ok(),
+            size = ?ring.outer_size().ok(),
+            "peek reveal: ring not visible after show"
+        );
+        return false;
     }
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.hide();
     }
     set_peek_state(PeekState::Visible, None);
+    true
 }
 
 /// Hide the panel, surface the peek handle at the edge (collapse end).
@@ -783,6 +808,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     let in_trigger = in_peek || (near_panel_edge && my >= py && my < py + h_c);
                     match peek_state() {
                         (PeekState::Hidden, _) if in_trigger => {
+                            tracing::debug!("peek: cursor on trigger → Revealing");
                             set_peek_state(PeekState::Revealing, Some(std::time::Instant::now()));
                         }
                         (PeekState::Revealing, Some(t)) => {
@@ -790,15 +816,28 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                 if t.elapsed() >= std::time::Duration::from_millis(PEEK_REVEAL_MS) {
                                     // Pure visibility toggle — the window kept
                                     // its full size while hidden, so no resize
-                                    // (and no ghost frame) on reveal.
-                                    reveal_pulse(&app);
-                                    // Open the hovered ring's card right away.
-                                    let idx =
-                                        ring_index_at(my - py, dock.diameter, dock.vendors.len());
-                                    if let Some(idx) = idx {
-                                        card_on_left = show_card_for(&app, &dock, idx);
-                                        visible = true;
-                                        shown = dock.vendors.get(idx).cloned();
+                                    // (and no ghost frame) on reveal. VERIFIED:
+                                    // on failure the handle stays visible and
+                                    // Revealing retries after another dwell.
+                                    if reveal_pulse(&app) {
+                                        // Open the hovered ring's card right away.
+                                        let idx = ring_index_at(
+                                            my - py,
+                                            dock.diameter,
+                                            dock.vendors.len(),
+                                        );
+                                        if let Some(idx) = idx {
+                                            card_on_left = show_card_for(&app, &dock, idx);
+                                            visible = true;
+                                            shown = dock.vendors.get(idx).cloned();
+                                        }
+                                    } else {
+                                        // Reset the dwell so the retry lands in
+                                        // PEEK_REVEAL_MS (not every 33ms tick).
+                                        set_peek_state(
+                                            PeekState::Revealing,
+                                            Some(std::time::Instant::now()),
+                                        );
                                     }
                                 }
                             } else {
