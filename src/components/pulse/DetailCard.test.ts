@@ -181,4 +181,16 @@ describe("DetailCard", () => {
       labels.indexOf("账户余额")
     );
   });
+
+  it("shows refresh time below the vendor name when refreshed_at is present", () => {
+    const target = renderCard({
+      quota: {
+        ...QUOTA,
+        refreshed_at: new Date(Date.now() - 5 * 60_000).toISOString(), // 5 min ago
+      },
+    });
+    const label = target.querySelector(".refresh-label");
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain("分钟前刷新");
+  });
 });

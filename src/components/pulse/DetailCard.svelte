@@ -36,6 +36,7 @@
     critical_label: string;
     balance?: PulseBalance;
     expires_at?: string;
+    refreshed_at?: string;
   }
 
   interface Props {
@@ -71,6 +72,19 @@
       (w) => w.total_value != null && w.used_value != null
     ) ?? null
   );
+
+  // "N分钟前刷新" — shown below the vendor name when we have a timestamp.
+  function refreshLabel(ts?: string): string {
+    if (!ts) return "";
+    const ms = Date.now() - new Date(ts).getTime();
+    const mins = Math.floor(ms / 60_000);
+    if (mins < 1) return "刚刚刷新";
+    if (mins < 60) return `${mins}分钟前刷新`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}小时前刷新`;
+    const days = Math.floor(hrs / 24);
+    return `${days}天前刷新`;
+  }
 
   // Fixed column widths (px) — every row's title/bar/pct boxes start at
   // the same x, so multi-window vendors (e.g. GLM 5h/周/月/MCP) read as
@@ -123,7 +137,12 @@
       <div class="header-row">
         <div class="header-left">
           <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
-          <span class="vendor-name">{vendorDisplayName(quota.vendor)}</span>
+          <div class="header-left-text">
+            <span class="vendor-name">{vendorDisplayName(quota.vendor)}</span>
+            {#if quota.refreshed_at}
+              <span class="refresh-label">{refreshLabel(quota.refreshed_at)}</span>
+            {/if}
+          </div>
         </div>
         {#if quota.plan || quota.expires_at}
           <div class="header-right">
@@ -295,6 +314,13 @@
     min-width: 0;
   }
 
+  .header-left-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+    min-width: 0;
+  }
+
   .header-right {
     display: flex;
     flex-direction: column; /* plan badge over expiry, two lines */
@@ -316,6 +342,15 @@
   .vendor-name {
     font-size: 11px;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .refresh-label {
+    font-size: 8px;
+    font-weight: 400;
+    opacity: 0.55;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

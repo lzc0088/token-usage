@@ -34,6 +34,8 @@ export interface PulseQuota {
   second_label?: string;
   is_running?: boolean;
   is_refreshing?: boolean;
+  /** Server timestamp (RFC3339) when the data was fetched. */
+  refreshed_at?: string;
 }
 
 export interface PulseData {

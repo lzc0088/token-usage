@@ -326,6 +326,7 @@ fn load_quotas(conn: &Connection) -> Vec<PulseQuota> {
                         second_label: second.map(|w| w.label.clone()),
                         is_running: false,
                         is_refreshing: false,
+                        refreshed_at: q.refreshed_at.clone(),
                     });
                 }
             }
@@ -1042,6 +1043,9 @@ pub struct PulseQuota {
     pub is_running: bool,
     /// Whether Pulse is currently fetching a fresh reading.
     pub is_refreshing: bool,
+    /// Server timestamp (RFC3339) when the data was fetched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refreshed_at: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone)]

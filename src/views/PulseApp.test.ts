@@ -55,6 +55,7 @@ const SAMPLE = {
       second_label: "week",
       is_running: false,
       is_refreshing: false,
+      refreshed_at: "2026-09-20T08:30:00Z",
     },
     {
       vendor: "codex",
