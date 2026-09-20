@@ -11,7 +11,9 @@
 //! WidgetCenter to refresh the timelines.
 
 use serde::Serialize;
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
@@ -79,6 +81,7 @@ pub struct TrendPoint {
 /// `<exe>/../../Helpers/<name>` (the .app layout: Contents/MacOS/exe →
 /// Contents/Helpers/name). Returns None when the helper isn't shipped —
 /// callers skip quietly (non-macOS builds, `tauri dev` runs).
+#[cfg(target_os = "macos")]
 fn helper_path(env_var: &str, name: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(env_var) {
         let path = PathBuf::from(path);
@@ -90,10 +93,12 @@ fn helper_path(env_var: &str, name: &str) -> Option<PathBuf> {
     helper.is_file().then_some(helper)
 }
 
+#[cfg(target_os = "macos")]
 fn publisher_path() -> Option<PathBuf> {
     helper_path("TOKEN_USAGE_WIDGET_PUBLISHER", "token-usage-widget-publish")
 }
 
+#[cfg(target_os = "macos")]
 fn reloader_path() -> Option<PathBuf> {
     helper_path("TOKEN_USAGE_WIDGET_RELOADER", "token-usage-widget-reload")
 }

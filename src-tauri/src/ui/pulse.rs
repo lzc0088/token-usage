@@ -788,7 +788,8 @@ fn any_mouse_button_down() -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
     // High bit = currently pressed (physical state, works outside our
     // windows — the drag-hold signal, mirroring pressedMouseButtons).
-    (unsafe { GetAsyncKeyState(VK_LBUTTON) } as u32 & 0x8000) != 0
+    // windows-0.61 takes a plain i32 vkey, not the VIRTUAL_KEY newtype.
+    (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u32 & 0x8000) != 0
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
