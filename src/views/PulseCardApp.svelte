@@ -80,6 +80,14 @@
     card ? data.quotas.find((q) => q.vendor === card!.vendor) ?? null : null
   );
 
+  // Dock-order index of the open card's vendor — drives the per-vendor
+  // hue shared by the panel ring and this card's bars.
+  let colorIndex = $derived(
+    card
+      ? Math.max(0, data.quotas.findIndex((q) => q.vendor === card!.vendor))
+      : 0
+  );
+
   // Card measurement — center it so its arrow sits on the window's
   // vertical midline (which Rust aligned with the hovered ring). The
   // estimate keeps the placement sane even when ResizeObserver never
@@ -120,6 +128,7 @@
         dark={data.theme === "dark"}
         pulseAlpha={data.opacity ?? 1}
         arrowY={arrowY}
+        colorIndex={colorIndex}
       />
     </div>
   {/if}

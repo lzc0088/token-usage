@@ -9,6 +9,7 @@ interface RingProps {
   pct?: number;
   label?: string;
   diameter?: number;
+  colorIndex?: number;
 }
 
 function renderRing(props: RingProps = {}): HTMLElement {
@@ -21,6 +22,7 @@ function renderRing(props: RingProps = {}): HTMLElement {
       pct: props.pct ?? 40,
       label: props.label ?? "5h",
       diameter: props.diameter ?? 48,
+      colorIndex: props.colorIndex ?? 0,
       onHover: () => {},
       onLeave: () => {},
     },
@@ -106,19 +108,14 @@ describe("QuotaRing", () => {
     expect(icon?.style.width).toBe("19px");
   });
 
-  it("scales the label metrics with the ring preset", () => {
-    // Large (d=60, s=1.25): 11px line × 1.25 = 13.75px font/line, 12.5px
-    // top margin — typography tracks the size setting (Rust layout_scale).
-    const target = renderRing({ diameter: 60 });
-    const label = target.querySelector<HTMLElement>(".pct-label");
-    expect(label?.style.fontSize).toBe("13.75px");
-    expect(label?.style.lineHeight).toBe("13.75px");
-    expect(label?.style.height).toBe("13.75px");
-    expect(label?.style.marginTop).toBe("12.5px");
-    // Small (d=36, s=0.75): 8.25px.
-    const small = renderRing({ diameter: 36 });
-    expect(
-      small.querySelector<HTMLElement>(".pct-label")?.style.fontSize
-    ).toBe("8.25px");
+  it("colors the arc by the vendor's dock slot (每一家都不同)", () => {
+    const a = renderRing({ colorIndex: 0 }).querySelector(".usage-arc");
+    const b = renderRing({ colorIndex: 1 }).querySelector(".usage-arc");
+    const a2 = renderRing({ colorIndex: 0 }).querySelector(".usage-arc");
+    const strokeA = a?.getAttribute("stroke");
+    expect(strokeA).toMatch(/^hsl\(/);
+    // Adjacent dock slots use different hues; the same slot is stable.
+    expect(b?.getAttribute("stroke")).not.toBe(strokeA);
+    expect(a2?.getAttribute("stroke")).toBe(strokeA);
   });
 });

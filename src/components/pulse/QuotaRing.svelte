@@ -1,5 +1,6 @@
 <script lang="ts">
   import { vendorDisplayName, vendorIconMarkup } from "../../lib/vendorIcons";
+  import { vendorColor } from "../../lib/pulse-colors";
 
   interface Props {
     vendor: string;
@@ -13,6 +14,8 @@
     /** Additional windows (week / MCP / …) rendered as inner concentric arcs. */
     extraPcts?: number[];
     showsRemaining?: boolean;
+    /** Dock-order index — drives the per-vendor hue (每一家都不同). */
+    colorIndex?: number;
     /** Plan-less vendors: currency unit + amount shown under the ring
      *  instead of a percentage (unit renders smaller, e.g. ¥). */
     subUnit?: string;
@@ -32,6 +35,7 @@
     isRefreshing = false,
     extraPcts,
     showsRemaining = false,
+    colorIndex = 0,
     subUnit,
     subValue,
     plain = false,
@@ -88,14 +92,10 @@
 
   let usedPct = $derived(Math.min(100, Math.max(0, pct)));
   let displayPct = $derived(showsRemaining ? 100 - usedPct : usedPct);
-  let arcColor = $derived(ringColor(usedPct));
-
-  function ringColor(pct: number): string {
-    if (pct >= 100) return "var(--pulse-exhausted)";
-    if (pct >= 75) return "var(--pulse-warning)";
-    if (pct >= 50) return "var(--pulse-caution)";
-    return "var(--pulse-good)";
-  }
+  // Per-vendor hue from the dock order (golden-angle spread) — every
+  // account reads as a distinct color; the remaining arc length conveys
+  // severity, so the color is free to identify the vendor.
+  let arcColor = $derived(vendorColor(colorIndex));
 
   // ── Busy / refresh arc animation ────────────────────────────────────────
 

@@ -7,6 +7,7 @@
     splitBalance,
   } from "../../lib/quota-format";
   import { vendorIconMarkup, vendorDisplayName } from "../../lib/vendorIcons";
+  import { vendorColor } from "../../lib/pulse-colors";
 
   interface PulseWindow {
     label: string;
@@ -45,6 +46,8 @@
     pulseAlpha?: number;
     /** Arrow's line offset from the card top (px) — points at the ring. */
     arrowY?: number;
+    /** Dock-order index — same per-vendor hue as the panel ring. */
+    colorIndex?: number;
   }
 
   const {
@@ -53,8 +56,13 @@
     dark = false,
     pulseAlpha = 1,
     arrowY,
+    colorIndex = 0,
   }: Props = $props();
   const nowMs = Date.now();
+
+  // Bar color = the vendor's ring hue (theme-aware lightness) — the card
+  // is that ring's expansion, so they share one color identity.
+  let barColor = $derived(vendorColor(colorIndex, dark));
 
   // First window reporting absolute credits (plan-less vendors).
   let creditsWin = $derived(
@@ -63,19 +71,18 @@
     ) ?? null
   );
 
-  // Bar color thresholds, theme-aware.
-  function barColor(pct: number): string {
-    if (pct >= 80) return dark ? "#ff4f42" : "#cc2200";
-    if (pct >= 50) return dark ? "#ffc226" : "#cc8800";
-    return dark ? "#00e68a" : "#00b36b";
-  }
-
   // Fixed column widths (px) — every row's title/bar/pct boxes start at
   // the same x, so multi-window vendors (e.g. GLM 5h/周/月/MCP) read as
   // aligned columns. 54px fits the longest zh label ("MCP 每月") and
   // "5h · sonnet". Inline (not class CSS) — it is a layout contract.
   const TITLE_W = 54;
   const PCT_W = 44;
+
+  // Remaining pct for a window (clamped) — the card mirrors the ring's
+  // 剩余量 mode: the bar fill AND the number both show what is LEFT.
+  function remainPct(used: number): number {
+    return Math.min(100, Math.max(0, 100 - used));
+  }
 </script>
 
 <div
@@ -155,16 +162,17 @@
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-section">
-            <!-- One line: 套餐名称 · 进度条 · 百分比 (fixed column widths) -->
+            <!-- One line: 套餐名称 · 进度条 · 百分比 (fixed column widths);
+                 fill + number show the REMAINING share, mirroring the ring. -->
             <div class="ws-bar-row">
               <div class="ws-title" style="width:{TITLE_W}px">{windowLabel(win.label)}</div>
               <div class="ws-track">
                 <div
                   class="ws-fill"
-                  style="width:{Math.min(100, win.used_pct)}%;background:{barColor(win.used_pct)}"
+                  style="width:{remainPct(win.used_pct)}%;background:{barColor}"
                 ></div>
               </div>
-              <span class="ws-pct" style="width:{PCT_W}px">{win.used_pct.toFixed(2)}<span class="pct-sign">%</span></span>
+              <span class="ws-pct" style="width:{PCT_W}px">{remainPct(win.used_pct).toFixed(2)}<span class="pct-sign">%</span></span>
             </div>
             <!-- Reset countdown below the bar, centered. -->
             {#if win.resets_at}

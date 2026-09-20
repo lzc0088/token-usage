@@ -107,6 +107,11 @@ describe("DetailCard", () => {
     expect(kids[0]?.classList.contains("ws-title")).toBe(true);
     expect(kids[1]?.classList.contains("ws-track")).toBe(true);
     expect(kids[2]?.classList.contains("ws-pct")).toBe(true);
+    // REMAINING mode — the card mirrors the ring: 42% used → 58.00% left,
+    // and the bar fill width carries the remaining share too.
+    expect(kids[2]?.textContent).toContain("58.00");
+    const fill = row?.querySelector<HTMLElement>(".ws-fill");
+    expect(fill?.getAttribute("style")).toContain("width: 58%");
     // The reset line sits below the bar row, centered.
     const reset = target.querySelector(".ws-reset");
     expect(reset).toBeTruthy();

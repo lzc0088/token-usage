@@ -235,12 +235,13 @@
   <!-- Ring rail -->
   <div class="rail-with-tooltip" role="group">
     <div class="ring-dock" style="max-height: {dockMax}px">
-      {#each data.quotas as quota (quota.vendor)}
+      {#each data.quotas as quota, index (quota.vendor)}
         <QuotaRing
           vendor={quota.vendor}
           pct={quota.critical_pct}
           label={quota.critical_label}
           diameter={data.ring_diameter}
+          colorIndex={index}
           isRunning={quota.is_running ?? false}
           isRefreshing={quota.is_refreshing ?? false}
           extraPcts={extraPcts(quota)}
