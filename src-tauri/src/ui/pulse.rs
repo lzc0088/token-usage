@@ -125,9 +125,7 @@ fn position_peek(app: &AppHandle) {
         return;
     };
     let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
-    let px = pos.x as f64 / scale;
     let py = pos.y as f64 / scale;
-    let panel_w = size.width as f64 / scale;
     let panel_h = size.height as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
