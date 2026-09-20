@@ -55,11 +55,12 @@ const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
 /// Card window offset from the panel edge (logical px). The card body
-/// hugs the window's panel-facing edge (slot padding 13 = arrow room), so
-/// the arrow tip lands at CARD_GAP − 1 relative to the panel edge —
-/// −9 → the tip stops 10px SHORT of the edge (user-tuned −10px),
-/// deterministic regardless of card width.
-const CARD_GAP: f64 = -9.0;
+/// hugs the window's panel-facing edge (slot padding 12 = arrow room) and
+/// the tail extends 11px, so the arrow tip lands at CARD_GAP − 1 relative
+/// to the panel edge — +2 → the tip reaches 1px PAST the edge, visually
+/// touching the ring's panel so card+arrow read as one connected shape.
+/// Deterministic regardless of card width.
+const CARD_GAP: f64 = 2.0;
 
 /// ── Peek mode (auto-hidden panel) ──────────────────────────────────────
 /// Modeled on token-monitor's edgeDock: the peek handle is its OWN tiny
@@ -72,8 +73,10 @@ const PEEK_WIN_W: f64 = 8.0;
 const PEEK_WIN_H: f64 = 58.0;
 /// Delay before expanding after the cursor enters the handle (ms).
 const PEEK_REVEAL_MS: u64 = 140;
-/// Grace period after the cursor leaves before collapsing (ms).
-const PEEK_HIDE_MS: u64 = 200;
+/// Grace period after the cursor leaves before collapsing (ms). Runs
+/// concurrently with the card fade — collapse_parks the card itself — so
+/// the panel drops at linger(150) + this, not after the fade window too.
+const PEEK_HIDE_MS: u64 = 120;
 
 /// Peek state machine — tracks whether the panel is fully visible,
 /// collapsed behind the peek handle, or in a transition.
@@ -889,6 +892,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             } else if let Some(idx) = ring_idx {
                 hiding_since = None;
                 last_inside = Some(std::time::Instant::now());
+                // Re-entry cancels a pending peek collapse.
+                if peek_state().0 == PeekState::Hiding {
+                    set_peek_state(PeekState::Visible, None);
+                }
                 let vendor = dock.vendors.get(idx).cloned();
                 if vendor.is_some() && (vendor != shown || !visible) {
                     card_on_left = show_card_for(&app, &dock, idx);
@@ -898,6 +905,9 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             } else if on_card {
                 hiding_since = None;
                 last_inside = Some(std::time::Instant::now());
+                if peek_state().0 == PeekState::Hiding {
+                    set_peek_state(PeekState::Visible, None);
+                }
             } else if visible {
                 let lingered = last_inside
                     .map(|t| t.elapsed() >= HOVER_LINGER)
@@ -919,6 +929,16 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         last_inside = None;
                     }
                     _ => {}
+                }
+                // Peek collapse does NOT wait for the card fade window —
+                // collapse_pulse parks the card itself, so the panel can
+                // drop the moment PEEK_HIDE_MS elapses (snappier hide).
+                if dock.peek_enabled {
+                    if let (PeekState::Hiding, Some(t)) = peek_state() {
+                        if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) {
+                            collapse_pulse(&app);
+                        }
+                    }
                 }
             } else if dock.peek_enabled {
                 // Card hidden, panel still up: finish the peek collapse once
