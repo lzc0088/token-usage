@@ -97,15 +97,25 @@ fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
     *PEEK_STATE.lock().unwrap_or_else(|e| e.into_inner()) = (st, t);
 }
 
-/// Place the peek handle window at the screen edge, vertically centered on
-/// the panel's current rail (the panel keeps its full size + position even
-/// while hidden, so its rect doubles as the reveal-trigger bounds).
+/// Place the peek handle window at the configured screen edge, vertically
+/// centered on the panel's rail. The handle's edge always matches
+/// `cfg.pulse_side` — it does not follow the panel's current x position
+/// (the panel may have been dragged away from the edge, but the handle must
+/// stay glued to the configured edge so users always know where to find it).
 fn position_peek(app: &AppHandle) {
     let (Some(peek), Some(ring)) = (
         app.get_webview_window("pulse-peek"),
         app.get_webview_window("pulse"),
     ) else {
         return;
+    };
+    // Read config for pulse_side (left/right).
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let cfg = match state.db.lock() {
+        Ok(c) => config::load(&c).unwrap_or_default(),
+        Err(_) => return,
     };
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         peek.current_monitor(),
@@ -117,20 +127,25 @@ fn position_peek(app: &AppHandle) {
     let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
     let px = pos.x as f64 / scale;
     let py = pos.y as f64 / scale;
-    let w = size.width as f64 / scale;
-    let h = size.height as f64 / scale;
+    let panel_w = size.width as f64 / scale;
+    let panel_h = size.height as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
-    // Same edge the panel itself hugs (center-of-panel heuristic).
-    let x = if px + w / 2.0 < (mon_left + mon_right) / 2.0 {
+    let mon_top = mon.position().y as f64 / scale;
+    let mon_bottom = mon_top + mon.size().height as f64 / scale;
+    // Handle x = configured edge (left edge → mon_left; right edge → mon_right - handle_w).
+    let x = if cfg.pulse_side == "left" {
         mon_left
     } else {
         mon_right - PEEK_WIN_W
     };
-    let y = (py + (h - PEEK_WIN_H) / 2.0)
-        .max(mon.position().y as f64 / scale + 4.0)
-        .min(mon.position().y as f64 / scale + mon.size().height as f64 / scale - PEEK_WIN_H - 4.0);
-    let _ = peek.set_position(LogicalPosition::new(x, y));
+    // Vertical center of the panel's rail (not the whole window — the rail
+    // starts at RAIL_TOP below the title block).
+    let rail_top = (PAD_V + TITLE_BLOCK) * layout_scale(ring_diameter(&cfg.pulse_size));
+    let handle_y = (py + rail_top + (panel_h - rail_top - PAD_V_BOT) / 2.0 - PEEK_WIN_H / 2.0)
+        .max(mon_top + 4.0)
+        .min(mon_bottom - PEEK_WIN_H - 4.0);
+    let _ = peek.set_position(LogicalPosition::new(x, handle_y));
 }
 
 /// Show the full panel, retire the peek handle (reveal transition end).
@@ -946,10 +961,11 @@ fn rect_on_any_monitor(x: f64, y: f64, w: f64, h: f64, mons: &[(f64, f64, f64, f
         .any(|&(ml, mt, mr, mb)| x < mr && x + w > ml && y < mb && y + h > mt)
 }
 
-/// Snap the panel flush to its nearest screen edge (vertical position
-/// unchanged), persisting the new x. Auto-hide needs this: the peek handle
-/// lives ON the screen edge, so a floating panel would reveal away from
-/// the cursor and collapse again in a ~560ms loop. Mirrors token-monitor,
+/// Snap the panel flush to the edge configured by `cfg.pulse_side`
+/// (vertical position unchanged), persisting the new x. Auto-hide needs
+/// this: the peek handle lives ON the configured screen edge, so the panel
+/// must also be edge-docked — otherwise the reveal shows the panel away from
+/// the cursor and it collapses again in a ~560ms loop. Mirrors token-monitor,
 /// whose edgeDock rail is always edge-flush.
 fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
@@ -965,9 +981,13 @@ fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
     let w = size.width as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
-    // Nearest edge by panel center — unconditional (a mid-screen floating
-    // panel must move; redock_x's 26px threshold would leave it detached).
-    let snapped = if px + w / 2.0 < (mon_left + mon_right) / 2.0 {
+    // Use the configured side, not "nearest edge".
+    let snapped = if conn
+        .prepare("SELECT value FROM app_config WHERE key = 'pulse_side'")
+        .and_then(|mut st| st.query_row([], |r| r.get::<_, String>(0)))
+        .unwrap_or_default()
+        == "left"
+    {
         mon_left
     } else {
         mon_right - w
