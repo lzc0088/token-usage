@@ -136,9 +136,13 @@ fn dock_cache(app: &AppHandle) -> Option<DockCache> {
         return Some(c);
     }
     let state = app.try_state::<AppState>()?;
-    let conn = state.db.lock().ok()?;
-    let cfg = config::load(&conn).ok()?;
-    let quotas = load_quotas(&conn);
+    // Resolve under the lock, apply after releasing: resolved_theme queries
+    // the window (main thread); holding the DB guard across it deadlocks
+    // against a main-thread holder waiting for this lock (set_config).
+    let (cfg, quotas) = {
+        let conn = state.db.lock().ok()?;
+        (config::load(&conn).ok()?, load_quotas(&conn))
+    };
     let theme = resolved_theme(app, &cfg);
     refresh_dock_cache(&cfg, &theme, &quotas);
     DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -182,7 +186,10 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         if let Some(c) = app.get_webview_window("pulse-card") {
             apply_floating_level(&c, cfg.pulse_topmost);
             let _ = c.show();
-            park_card(&c);
+            // Grip push is NOT needed here: the trailing push_pulse_data below
+            // runs with THIS caller's DB guard (set_config / lib.rs setup hold
+            // it) — park_card itself must never lock the DB (self-deadlock).
+            let _shrunk = park_card(&c);
         }
         // Cursor-driven hover (see ensure_hover_poller) — one poller ever.
         ensure_hover_poller(app);
@@ -243,6 +250,19 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     {
         let _ = w.emit("pulse:update", &payload);
     }
+}
+
+/// Push quota data from the hover-poller thread, which owns no DB guard —
+/// take the mutex just for the call. Safe: the poller thread holds no other
+/// locks across it, and main-thread holders (set_config / lib.rs setup)
+/// release without waiting on this thread.
+fn push_pulse_data_polled(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    if let Ok(conn) = state.db.lock() {
+        push_pulse_data(app, &conn);
+    };
 }
 
 /// Load vendor quotas from the quota_cache table, filtered AND ordered by
@@ -376,7 +396,8 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> 
     let d = ring_diameter(&cfg.pulse_size);
     (
         d + PANEL_PAD * 2.0,
-        PAD_V + PAD_V_BOT
+        PAD_V
+            + PAD_V_BOT
             + TITLE_BLOCK * layout_scale(d)
             + dock_height_capped(d, ring_count, max_panel_h),
     )
@@ -489,8 +510,12 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
 ///
 /// When peek mode is active, also shrinks the pulse window to a narrow grip
 /// and positions it at the screen edge so the cursor can hover over it to
-/// trigger a reveal.
-fn park_card(card: &tauri::WebviewWindow) {
+/// trigger a reveal. Returns `true` when the grip shrink was applied — the
+/// caller must then push a fresh pulse:update (peek=true) so the frontend
+/// renders the grip. The push is deliberately OUTSIDE this function:
+/// sync_pulse reaches here with the DB mutex already held (set_config /
+/// lib.rs setup), and re-locking it here self-deadlocks the main thread.
+fn park_card(card: &tauri::WebviewWindow) -> bool {
     // Park the card off-screen.
     let (cx, cy) = match card.current_monitor() {
         Ok(Some(mon)) => {
@@ -505,6 +530,7 @@ fn park_card(card: &tauri::WebviewWindow) {
     let _ = card.set_position(LogicalPosition::new(cx, cy));
 
     // Peek mode: shrink the pulse window to a narrow grip at the screen edge.
+    let mut shrunk = false;
     if is_peeking() {
         if let Some(ring) = card.app_handle().get_webview_window("pulse") {
             if let (Ok(size), Ok(Some(mon))) = (ring.outer_size(), ring.current_monitor()) {
@@ -522,11 +548,12 @@ fn park_card(card: &tauri::WebviewWindow) {
                     let mon_right = mon_left + mon.size().width as f64 / scale;
                     let mon_h = mon.size().height as f64 / scale;
                     let my = mon.position().y as f64 / scale;
-                    let edge_x = if wx + size.width as f64 / scale / 2.0 < (mon_left + mon_right) / 2.0 {
-                        mon_left
-                    } else {
-                        mon_right - handle_px as f64 / scale
-                    };
+                    let edge_x =
+                        if wx + size.width as f64 / scale / 2.0 < (mon_left + mon_right) / 2.0 {
+                            mon_left
+                        } else {
+                            mon_right - handle_px as f64 / scale
+                        };
                     let center_y = wy + size.height as f64 / scale / 2.0;
                     let gy = (center_y - handle_px as f64 / scale / 2.0)
                         .max(my + 4.0)
@@ -536,19 +563,11 @@ fn park_card(card: &tauri::WebviewWindow) {
                         (gy * scale).round() as i32,
                     ));
                 }
-
-                // Push updated data (peek=true) to the frontend so it
-                // renders the narrow grip instead of the full panel.
-                let app = card.app_handle();
-                let state = app.try_state::<AppState>();
-                if let Some(state) = state {
-                    if let Ok(conn) = state.db.lock() {
-                        push_pulse_data(app, &conn);
-                    }
-                }
+                shrunk = true;
             }
         }
     }
+    shrunk
 }
 
 /// Ask the card webview to fade its content out (graceful-hide step one).
@@ -771,7 +790,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         }
                     }
                     (Some(t), _) if t.elapsed() >= HOVER_FADE => {
-                        park_card(&card);
+                        let shrunk = park_card(&card);
                         visible = false;
                         shown = None;
                         hiding_since = None;
@@ -781,6 +800,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                             if let Ok(mut st) = PEEK_STATE.lock() {
                                 *st = (PeekState::Hidden, None);
                             }
+                        }
+                        // Render the grip (peek=true) — poller owns no DB guard.
+                        if shrunk {
+                            push_pulse_data_polled(&app);
                         }
                     }
                     _ => {}
@@ -819,12 +842,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                     *st = (PeekState::Visible, None);
                                 }
                                 // Push full-size data to frontend.
-                                let state = app.try_state::<AppState>();
-                                if let Some(state) = state {
-                                    if let Ok(conn) = state.db.lock() {
-                                        push_pulse_data(&app, &conn);
-                                    }
-                                }
+                                push_pulse_data_polled(&app);
                             }
                         } else {
                             // Cursor left during reveal — cancel.
@@ -833,16 +851,19 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                             }
                         }
                     }
-                    (PeekState::Hiding, Some(t)) => {
-                        if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) {
-                            park_card(&card);
-                            visible = false;
-                            shown = None;
-                            hiding_since = None;
-                            last_inside = None;
-                            if let Ok(mut st) = PEEK_STATE.lock() {
-                                *st = (PeekState::Hidden, None);
-                            }
+                    (PeekState::Hiding, Some(t))
+                        if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) =>
+                    {
+                        let shrunk = park_card(&card);
+                        visible = false;
+                        shown = None;
+                        hiding_since = None;
+                        last_inside = None;
+                        if let Ok(mut st) = PEEK_STATE.lock() {
+                            *st = (PeekState::Hidden, None);
+                        }
+                        if shrunk {
+                            push_pulse_data_polled(&app);
                         }
                     }
                     _ => {}
