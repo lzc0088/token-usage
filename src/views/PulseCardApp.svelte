@@ -91,8 +91,9 @@
   // card's own coordinates.
   let arrowY = $derived(Math.max(12, CARD_WIN_H / 2 - cardTop));
 
-  // This window is part of the hover area — the pointer resting on the
-  // card (reading it) must keep it alive.
+  // The visible card is part of the hover area — the pointer resting on
+  // it (reading the details) keeps it alive. The transparent window
+  // margins report nothing (see template note).
   function onCardEnter() {
     invoke("pulse_activity").catch(() => {});
   }
@@ -101,18 +102,19 @@
   }
 </script>
 
-<div
-  class="pulse-card-root"
-  class:dark={data.theme === "dark"}
-  role="presentation"
-  onmouseenter={onCardEnter}
-  onmouseleave={onCardLeave}
->
+<div class="pulse-card-root" class:dark={data.theme === "dark"}>
   {#if quota}
+    <!-- Hover tracking lives on the VISIBLE card only: the window's
+         transparent margins must stay inert, otherwise they form an
+         invisible 340×480 hover surface that keeps the card alive (and
+         moves the hide trigger) far beyond the panel's edge. -->
     <div
       class="card-slot"
       class:out={hiding}
       style="top: {cardTop}px"
+      role="presentation"
+      onmouseenter={onCardEnter}
+      onmouseleave={onCardLeave}
       bind:clientHeight={cardH}
     >
       <DetailCard

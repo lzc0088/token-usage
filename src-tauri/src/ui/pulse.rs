@@ -392,7 +392,7 @@ static CARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 /// Graceful-hide timings: linger before hiding after the last leave, then
 /// the fade window before the hard hide (frontend fades + hides itself;
 /// the Rust-side hide is only the safety net for a dead webview).
-const IDLE_MS: u64 = 180;
+const IDLE_MS: u64 = 220;
 const FADE_MS: u64 = 220;
 
 /// Pointer entered the panel/card window — cancels any pending card hide.
@@ -401,10 +401,10 @@ pub fn pulse_activity() {
     CARD_GEN.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Pointer left a pulse window — hide the card after IDLE_MS unless new
-/// activity (either window) bumps the generation. Crossing from the panel
-/// to the card passes through the small gap between the two windows; the
-/// idle window covers it.
+/// Pointer left the panel (or the visible card) — hide the card after
+/// IDLE_MS unless new activity bumps the generation. Crossing from the
+/// panel to the card traverses the card window's inert transparent
+/// margin (~20px); the idle window covers that transit.
 pub fn pulse_idle(app: &AppHandle) {
     schedule_card_hide(app, IDLE_MS);
 }
