@@ -406,12 +406,16 @@ pub fn get_pulse_data(app: AppHandle) -> Result<crate::ui::pulse::PulseData, Str
     Ok(crate::ui::pulse::build_pulse_data(&app, &conn))
 }
 
-/// Persist the pulse panel position after a frontend drag.
+/// Persist the pulse panel position after a frontend drag. Also flips
+/// `pulse_side` when the drag docked the panel at the OTHER edge — the
+/// setting drives the peek handle and collapse snap, so without this a
+/// cross-edge drag gets yanked back to the old side on the next collapse.
 #[tauri::command]
 pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     let state = app.state::<crate::state::AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::ui::pulse::save_pos(&conn, x, y);
+    crate::ui::pulse::sync_side_if_docked(&app, &conn);
     Ok(())
 }
 

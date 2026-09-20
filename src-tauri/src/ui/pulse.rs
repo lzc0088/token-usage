@@ -1305,6 +1305,49 @@ pub fn persist_pulse_pos(app: &AppHandle) {
         return;
     }
     save_pos(&conn, wx, wy);
+    // 1s safety net for the side flip (the drag-end command is the primary
+    // path — see set_pulse_position).
+    sync_side_if_docked(app, &conn);
+}
+
+/// Keep `pulse_side` in sync with where the panel is actually docked: a
+/// drag from one edge to the other flips the setting, so everything keyed
+/// on it (peek handle placement, collapse snap target, settings UI) stays
+/// consistent and the panel is never yanked back to the old edge. Only
+/// fires when flush (≤2px); floating positions never touch it.
+pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) {
+    let Some(win) = app.get_webview_window("pulse") else {
+        return;
+    };
+    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
+        win.current_monitor(),
+        win.outer_position(),
+        win.outer_size(),
+    ) else {
+        return;
+    };
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let x = pos.x as f64 / scale;
+    let w = size.width as f64 / scale;
+    let mon_left = mon.position().x as f64 / scale;
+    let mon_right = mon_left + mon.size().width as f64 / scale;
+    let docked = if (x - mon_left).abs() <= 2.0 {
+        "left"
+    } else if (mon_right - (x + w)).abs() <= 2.0 {
+        "right"
+    } else {
+        return; // floating — the setting is untouched
+    };
+    let mut cfg = config::load(conn).unwrap_or_default();
+    if cfg.pulse_side == docked {
+        return;
+    }
+    cfg.pulse_side = docked.into();
+    if let Err(e) = config::save(conn, &cfg) {
+        tracing::warn!("pulse: flip pulse_side → {docked} failed: {e}");
+    } else {
+        tracing::info!("pulse: panel docked {docked} → pulse_side updated");
+    }
 }
 
 /// Read the persisted window position.
