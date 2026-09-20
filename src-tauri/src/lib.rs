@@ -719,6 +719,7 @@ pub fn run() {
             commands::window_cmd::expand_floating,
             commands::window_cmd::collapse_floating,
             commands::window_cmd::get_pulse_data,
+            commands::window_cmd::report_card_height,
             commands::window_cmd::dismiss_pulse,
             commands::window_cmd::set_pulse_position,
             commands::exchange::get_exchange_rate,

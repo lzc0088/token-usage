@@ -86,6 +86,15 @@
   // fires (known WKWebView flakiness); the real height refines it.
   let cardH = $state(0);
   let cardTop = $derived(Math.max(0, (CARD_WIN_H - (cardH || EST_CARD_H)) / 2));
+
+  // Report the measured height so the Rust hover poller can hit-test the
+  // VISIBLE card — the window is larger than the card, and keeping it
+  // alive over its transparent margins made the hide feel sluggish.
+  $effect(() => {
+    if (card && cardH > 0) {
+      invoke("report_card_height", { height: cardH }).catch(() => {});
+    }
+  });
   // Arrow line inside the card: the window's midline, translated into the
   // card's own coordinates.
   let arrowY = $derived(Math.max(12, CARD_WIN_H / 2 - cardTop));

@@ -388,6 +388,14 @@ pub fn get_floating_data(app: AppHandle) -> Result<crate::ui::floating::Floating
 
 // ── Pulse floating panel commands ─────────────────────────────────────────
 
+/// Card webview reports its measured content height — the Rust hover
+/// poller hit-tests the VISIBLE card (not the whole, larger window).
+#[tauri::command]
+pub fn report_card_height(height: f64) -> Result<(), String> {
+    crate::ui::pulse::report_card_height(height);
+    Ok(())
+}
+
 /// Initial (or re-) fetch of the pulse panel payload. The frontend calls this
 /// on mount so a webview reload / HMR never leaves the panel empty waiting
 /// for the next `pulse:update` push (quota refreshes can be minutes apart).

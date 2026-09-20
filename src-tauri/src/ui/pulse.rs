@@ -49,11 +49,12 @@ const PANEL_PAD: f64 = 16.0;
 const CARD_WIN_W: f64 = 340.0;
 const CARD_WIN_H: f64 = 480.0;
 
-/// Overlap of the card window onto the panel (logical px). The card body
+/// Card window offset from the panel edge (logical px). The card body
 /// hugs the window's panel-facing edge (slot padding 13 = arrow room), so
-/// the arrow tip lands ~8px off the panel edge — snug, deterministic
-/// regardless of card width (the frontend anchors, never centers).
-const CARD_GAP: f64 = 9.0;
+/// the arrow tip lands at CARD_GAP − 1 relative to the panel edge —
+/// −9 → the tip stops 10px SHORT of the edge (user-tuned −10px),
+/// deterministic regardless of card width.
+const CARD_GAP: f64 = -9.0;
 
 /// Vertical offset of the ring rail inside the pulse window (pad + title).
 const RAIL_TOP: f64 = PAD_V + TITLE_BLOCK;
@@ -342,12 +343,12 @@ fn card_window_y(ring_center_y_screen: f64, mon_top: f64, mon_bottom: f64) -> f6
 /// Show the detail card for a vendor: position the card window beside the
 /// hovered ring (pure move) and notify its webview. Shared by the hover
 /// poller. Returns the window rect so the poller can hit-test keep-alive.
-fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) {
+fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
     let (Some(ring), Some(card)) = (
         app.get_webview_window("pulse"),
         app.get_webview_window("pulse-card"),
     ) else {
-        return;
+        return false;
     };
     let vendor = dock.vendors.get(index).cloned().unwrap_or_default();
     let mut card_on_left = false;
@@ -378,6 +379,7 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) {
             "opacity": dock.opacity,
         }),
     );
+    card_on_left
 }
 
 /// Move the card window off-screen (just beyond its monitor's bottom-right
@@ -418,8 +420,39 @@ const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
 const HOVER_FADE: std::time::Duration = std::time::Duration::from_millis(190);
 /// Grace margin around both windows that still counts as "inside".
 const HOVER_GRACE: f64 = 12.0;
-/// Keep-alive inset of the card window (transparent margins don't count).
-const CARD_KEEP_INSET: f64 = 24.0;
+/// Card height reported by the card webview (measured content height, with
+/// an estimate fallback) — the poller hit-tests the VISIBLE card, never
+/// the whole (larger) window.
+static CARD_H_REPORT: std::sync::Mutex<f64> = std::sync::Mutex::new(250.0);
+
+/// Frontend (PulseCardApp) reports its measured card height here.
+pub fn report_card_height(height: f64) {
+    let h = height.clamp(60.0, CARD_WIN_H - 16.0);
+    *CARD_H_REPORT.lock().unwrap_or_else(|e| e.into_inner()) = h;
+}
+
+/// Keep-alive hit-rect of the VISIBLE card, window-relative: the window is
+/// larger than the card it hosts, and only the card's own rect keeps it
+/// alive — x spans the max card width anchored to the panel-facing side
+/// (slot padding 13), y spans the vertically-centered measured height.
+fn card_keepalive_rect(card_on_left: bool, card_h: f64) -> ((f64, f64), (f64, f64)) {
+    const CARD_MAX_W: f64 = 297.0;
+    const SLOT_PAD: f64 = 13.0;
+    let slack = 6.0;
+    let x = if card_on_left {
+        (
+            CARD_WIN_W - SLOT_PAD - CARD_MAX_W - slack,
+            CARD_WIN_W - SLOT_PAD + slack,
+        )
+    } else {
+        (SLOT_PAD - slack, SLOT_PAD + CARD_MAX_W + slack)
+    };
+    let y = (
+        (CARD_WIN_H - card_h) / 2.0 - 8.0,
+        (CARD_WIN_H + card_h) / 2.0 + 8.0,
+    );
+    (x, y)
+}
 /// Primary-monitor height cache refresh cadence (ticks).
 const PRIMARY_REFRESH: u32 = 90;
 
@@ -476,6 +509,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
     std::thread::spawn(move || {
         let mut visible = false;
         let mut shown: Option<String> = None;
+        let mut card_on_left = false;
         let mut hiding_since: Option<std::time::Instant> = None;
         let mut last_inside = None::<std::time::Instant>;
         let mut last_panel_pos = (0.0, 0.0);
@@ -537,12 +571,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let on_card = visible && {
                 let cpos = card.outer_position().ok();
                 let cscale = card.scale_factor().unwrap_or(1.0).max(1.0);
+                let card_h = *CARD_H_REPORT.lock().unwrap_or_else(|e| e.into_inner());
+                let (kx, ky) = card_keepalive_rect(card_on_left, card_h);
                 cpos.map(|p| (p.x as f64 / cscale, p.y as f64 / cscale))
                     .map(|(cx, cy)| {
-                        mx >= cx + CARD_KEEP_INSET
-                            && mx < cx + CARD_WIN_W - CARD_KEEP_INSET
-                            && my >= cy + CARD_KEEP_INSET
-                            && my < cy + CARD_WIN_H - CARD_KEEP_INSET
+                        mx >= cx + kx.0 && mx < cx + kx.1 && my >= cy + ky.0 && my < cy + ky.1
                     })
                     .unwrap_or(false)
             };
@@ -557,7 +590,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                 last_inside = Some(std::time::Instant::now());
                 let vendor = dock.vendors.get(idx).cloned();
                 if vendor.is_some() && (vendor != shown || !visible) {
-                    show_card_for(&app, &dock, idx);
+                    card_on_left = show_card_for(&app, &dock, idx);
                     visible = true;
                     shown = vendor;
                 }
@@ -832,6 +865,25 @@ mod tests {
         assert!(
             (card_window_y(960.0, 0.0, 982.0) - (982.0 - CARD_WIN_H - 4.0)).abs() < f64::EPSILON
         );
+    }
+
+    #[test]
+    fn card_keepalive_rect_matches_the_visible_card_only() {
+        let ((x0, x1), (y0, y1)) = card_keepalive_rect(true, 250.0);
+        // Card hugs the window's right edge (cardOnLeft): the left part of
+        // the window is inert.
+        assert!(x1 > CARD_WIN_W - 20.0, "right-anchored: {x1}");
+        assert!(x0 > 0.0 && x0 < x1);
+        // Centered vertically per the reported height (480 → ±125, ±8).
+        assert!((y0 - 107.0).abs() < f64::EPSILON);
+        assert!((y1 - 373.0).abs() < f64::EPSILON);
+        // The window mid is inside; the top/bottom margins are not.
+        assert!(y0 < CARD_WIN_H / 2.0 && y1 > CARD_WIN_H / 2.0);
+        assert!(y0 > 0.0);
+
+        // Mirrored anchoring for the card-on-right side.
+        let ((rx0, _), _) = card_keepalive_rect(false, 250.0);
+        assert!(rx0 < 20.0, "left-anchored: {rx0}");
     }
 
     #[test]
