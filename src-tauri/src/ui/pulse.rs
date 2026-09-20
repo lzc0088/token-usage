@@ -949,6 +949,16 @@ fn redock_x(x: f64, w: f64, mon_left: f64, mon_right: f64) -> f64 {
     x
 }
 
+/// True when the panel rect [x, x+w] × [y, y+h] overlaps ANY monitor rect
+/// (logical px, (left, top, right, bottom)). A saved position that lands on
+/// no display (stale value from a disconnected monitor, or corrupt data
+/// like the old peek implementation's off-screen x=5100) must be discarded
+/// so the panel re-docks fresh instead of rendering somewhere invisible.
+fn rect_on_any_monitor(x: f64, y: f64, w: f64, h: f64, mons: &[(f64, f64, f64, f64)]) -> bool {
+    mons.iter()
+        .any(|&(ml, mt, mr, mb)| x < mr && x + w > ml && y < mb && y + h > mt)
+}
+
 fn position_pulse(app: &AppHandle, conn: &Connection) {
     let Some(win) = app.get_webview_window("pulse") else {
         return;
@@ -959,18 +969,43 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
 
     let _ = win.set_size(LogicalSize::new(w.max(60.0), h.max(60.0)));
 
-    // Try to restore saved position first — re-docked for the new width
-    // (an edge-hugging panel must stay fused after a size change).
-    if let Some((sx, sy)) = load_pos(conn) {
-        let mut x = sx;
-        if let Ok(Some(mon)) = win.current_monitor() {
+    // Monitor rects in logical px, for the saved-position sanity check.
+    let mon_rects: Vec<(f64, f64, f64, f64)> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|mon| {
             let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
-            let mon_left = mon.position().x as f64 / sf;
-            let mon_right = mon_left + mon.size().width as f64 / sf;
-            x = redock_x(x, w, mon_left, mon_right);
+            let ml = mon.position().x as f64 / sf;
+            let mt = mon.position().y as f64 / sf;
+            (
+                ml,
+                mt,
+                ml + mon.size().width as f64 / sf,
+                mt + mon.size().height as f64 / sf,
+            )
+        })
+        .collect();
+
+    // Try to restore saved position first — re-docked for the new width
+    // (an edge-hugging panel must stay fused after a size change). A saved
+    // position off every monitor is discarded (fresh dock below).
+    if let Some((sx, sy)) = load_pos(conn) {
+        if !rect_on_any_monitor(sx, sy, w, h, &mon_rects) {
+            tracing::warn!(
+                "pulse: saved position ({sx},{sy}) is off every monitor; re-docking fresh"
+            );
+        } else {
+            let mut x = sx;
+            if let Ok(Some(mon)) = win.current_monitor() {
+                let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
+                let mon_left = mon.position().x as f64 / sf;
+                let mon_right = mon_left + mon.size().width as f64 / sf;
+                x = redock_x(x, w, mon_left, mon_right);
+            }
+            let _ = win.set_position(LogicalPosition::new(x, sy));
+            return;
         }
-        let _ = win.set_position(LogicalPosition::new(x, sy));
-        return;
     }
 
     // Fresh dock: configured edge ("left" | "right"), vertically centered.
@@ -1152,6 +1187,26 @@ pub struct PulseBalance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_pos_off_every_monitor_is_rejected() {
+        // (left, top, right, bottom) monitor rects, logical px. A single
+        // 1512×982 primary at the origin.
+        let mons = [(0.0, 0.0, 1512.0, 982.0)];
+        // Panel on the primary (flush-right) → accepted.
+        assert!(rect_on_any_monitor(1432.0, 300.0, 80.0, 259.0, &mons));
+        // Corrupt saved pos (x=5100 — the old peek implementation's stale
+        // off-screen value) → rejected → fresh dock instead.
+        assert!(!rect_on_any_monitor(5100.0, 1256.0, 80.0, 259.0, &mons));
+        // Multi-monitor: a panel on a secondary display is still accepted.
+        let dual = [(0.0, 0.0, 1512.0, 982.0), (1512.0, 0.0, 4072.0, 1117.0)];
+        assert!(rect_on_any_monitor(2000.0, 400.0, 80.0, 259.0, &dual));
+        // Barely overlapping (1px sliver on the primary) → accepted — the
+        // redock snap can pull an edge-hugging panel back flush.
+        assert!(rect_on_any_monitor(1511.0, 300.0, 80.0, 259.0, &mons));
+        // Fully below the screen → rejected.
+        assert!(!rect_on_any_monitor(100.0, 2000.0, 80.0, 259.0, &mons));
+    }
 
     #[test]
     fn ring_diameter_presets() {
