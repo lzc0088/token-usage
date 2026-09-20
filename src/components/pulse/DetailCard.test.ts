@@ -115,6 +115,25 @@ describe("DetailCard", () => {
     expect(target.querySelector(".ws-value")).toBeFalsy();
   });
 
+  it("fixes the title/pct widths so columns align across rows", () => {
+    const target = renderCard({
+      quota: {
+        ...QUOTA,
+        windows: [
+          { label: "5h", used_pct: 42 },
+          { label: "MCP 月", used_pct: 10 },
+          { label: "周", used_pct: 88 },
+        ],
+      },
+    });
+    // Identical fixed boxes for every row → title/bar/pct columns align
+    // (inline widths — a layout contract, assertable without a layout engine).
+    const titles = [...target.querySelectorAll<HTMLElement>(".ws-title")];
+    expect(titles.map((t) => t.style.width)).toEqual(["54px", "54px", "54px"]);
+    const pcts = [...target.querySelectorAll<HTMLElement>(".ws-pct")];
+    expect(pcts.map((p) => p.style.width)).toEqual(["44px", "44px", "44px"]);
+  });
+
   it("splits the header into left/right regions closed by a dashed divider", () => {
     const target = renderCard();
     const left = target.querySelector(".header-left");

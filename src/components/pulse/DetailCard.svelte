@@ -69,6 +69,13 @@
     if (pct >= 50) return dark ? "#ffc226" : "#cc8800";
     return dark ? "#00e68a" : "#00b36b";
   }
+
+  // Fixed column widths (px) — every row's title/bar/pct boxes start at
+  // the same x, so multi-window vendors (e.g. GLM 5h/周/月/MCP) read as
+  // aligned columns. 54px fits the longest zh label ("MCP 每月") and
+  // "5h · sonnet". Inline (not class CSS) — it is a layout contract.
+  const TITLE_W = 54;
+  const PCT_W = 44;
 </script>
 
 <div
@@ -148,16 +155,16 @@
       <div class="window-bars">
         {#each quota.windows as win}
           <div class="window-section">
-            <!-- One line: 套餐名称 · 进度条 · 百分比 -->
+            <!-- One line: 套餐名称 · 进度条 · 百分比 (fixed column widths) -->
             <div class="ws-bar-row">
-              <div class="ws-title">{windowLabel(win.label)}</div>
+              <div class="ws-title" style="width:{TITLE_W}px">{windowLabel(win.label)}</div>
               <div class="ws-track">
                 <div
                   class="ws-fill"
                   style="width:{Math.min(100, win.used_pct)}%;background:{barColor(win.used_pct)}"
                 ></div>
               </div>
-              <span class="ws-pct">{win.used_pct.toFixed(2)}<span class="pct-sign">%</span></span>
+              <span class="ws-pct" style="width:{PCT_W}px">{win.used_pct.toFixed(2)}<span class="pct-sign">%</span></span>
             </div>
             <!-- Reset countdown below the bar, centered. -->
             {#if win.resets_at}
@@ -332,11 +339,15 @@
     gap: 2px;
   }
 
+  /* Title column — fixed width comes inline (TITLE_W) as a layout
+     contract; the class handles typography + overflow. */
   .ws-title {
     font-size: 9px;
     font-weight: 500;
     flex-shrink: 0;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .ws-bar-row {
@@ -362,7 +373,6 @@
   .ws-pct {
     font-size: 9px;
     font-weight: 600;
-    width: 44px;
     text-align: right;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
     flex-shrink: 0;
