@@ -285,14 +285,18 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     if cfg.pulse_enabled {
         let auto_hide = cfg.pulse_display_mode == "auto_hide";
         position_pulse(app, conn);
+        // Auto-hide only applies while edge-docked (the peek handle lives
+        // ON the screen edge). A floating panel — dragged to a non-edge
+        // spot and persisted — stays visible like "always".
+        let peek_armed = auto_hide
+            && app
+                .get_webview_window("pulse")
+                .map(|h| panel_at_edge(&h))
+                .unwrap_or(false);
         if let Some(h) = app.get_webview_window("pulse") {
             apply_floating_level(&h, cfg.pulse_topmost);
-            // Auto-hide starts collapsed: panel hidden, peek handle shown.
             // Pure visibility toggles — the window is never resized here.
-            if auto_hide {
-                // The peek handle sits flush at the SCREEN edge, so the panel
-                // must be edge-docked too — otherwise the reveal shows the
-                // panel away from the cursor and it collapses in a loop.
+            if peek_armed {
                 snap_pulse_to_edge(conn, &h);
                 let _ = h.hide();
             } else {
@@ -308,7 +312,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         }
         if let Some(p) = app.get_webview_window("pulse-peek") {
             apply_floating_level(&p, cfg.pulse_topmost);
-            if auto_hide {
+            if peek_armed {
                 position_peek(app, conn);
                 let _ = p.show();
             } else {
@@ -316,7 +320,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             }
         }
         set_peek_state(
-            if auto_hide {
+            if peek_armed {
                 PeekState::Hidden
             } else {
                 PeekState::Visible
@@ -790,6 +794,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
             let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
 
+            // Peek is ARMED only while the panel is edge-docked: dragged to
+            // a floating spot, auto-hide is suspended (panel behaves like
+            // "always"); dragging back within EDGE_DOCK_THRESH re-arms it.
+            let peek_armed = dock.peek_enabled && panel_at_edge(&ring);
+
             // ── Auto-hide: panel hidden behind the peek handle. The reveal
             // trigger is the handle window itself (with hover grace) — only
             // a deliberate move ONTO the visible handle reveals the panel.
@@ -937,7 +946,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         emit_card_hide(&app);
                         hiding_since = Some(std::time::Instant::now());
                         // Transition to Hiding state (peek entry point).
-                        if dock.peek_enabled {
+                        if peek_armed {
                             set_peek_state(PeekState::Hiding, Some(std::time::Instant::now()));
                         }
                     }
@@ -953,14 +962,14 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                 // Peek collapse does NOT wait for the card fade window —
                 // collapse_pulse parks the card itself, so the panel can
                 // drop the moment PEEK_HIDE_MS elapses (snappier hide).
-                if dock.peek_enabled {
+                if peek_armed {
                     if let (PeekState::Hiding, Some(t)) = peek_state() {
                         if t.elapsed() >= std::time::Duration::from_millis(PEEK_HIDE_MS) {
                             collapse_pulse(&app);
                         }
                     }
                 }
-            } else if dock.peek_enabled && !in_panel {
+            } else if peek_armed && !in_panel {
                 // Auto-hide drives the PANEL directly, not just the card: a
                 // revealed panel whose pointer has left (no card open either)
                 // must also collapse — previously only the card-hide path set
@@ -1016,6 +1025,37 @@ fn redock_x(x: f64, w: f64, mon_left: f64, mon_right: f64) -> f64 {
 fn rect_on_any_monitor(x: f64, y: f64, w: f64, h: f64, mons: &[(f64, f64, f64, f64)]) -> bool {
     mons.iter()
         .any(|&(ml, mt, mr, mb)| x < mr && x + w > ml && y < mb && y + h > mt)
+}
+
+/// Horizontal tolerance (logical px) within which the panel counts as
+/// edge-docked — auto-hide only applies while docked.
+const EDGE_DOCK_THRESH: f64 = 16.0;
+
+/// Pure form of the docked check (unit-testable): true when the panel's
+/// [x, x+w] span hugs either monitor edge within EDGE_DOCK_THRESH.
+fn x_is_docked(x: f64, w: f64, mon_left: f64, mon_right: f64) -> bool {
+    (x - mon_left).abs() <= EDGE_DOCK_THRESH
+        || (mon_right - (x + w)).abs() <= EDGE_DOCK_THRESH
+}
+
+/// True when the panel is edge-docked on its CURRENT monitor. Auto-hide
+/// (peek) only applies to a docked panel: dragged to a floating spot it
+/// stays always-visible instead, and re-arms auto-hide once dragged back
+/// to an edge. Monitor unreadable → true (conservative: keep peek).
+fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
+    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
+        win.current_monitor(),
+        win.outer_position(),
+        win.outer_size(),
+    ) else {
+        return true;
+    };
+    let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let x = pos.x as f64 / scale;
+    let w = size.width as f64 / scale;
+    let ml = mon.position().x as f64 / scale;
+    let mr = ml + mon.size().width as f64 / scale;
+    x_is_docked(x, w, ml, mr)
 }
 
 /// Snap the panel flush to the edge configured by `cfg.pulse_side`
@@ -1447,6 +1487,23 @@ mod tests {
         // large rail = 63*1.25 = 78.75, pitch = 60 + 43.75 = 103.75.
         assert!((ring_center_y(60.0, 0) - (78.75 + 30.0)).abs() < f64::EPSILON);
         assert!((ring_center_y(60.0, 1) - (78.75 + 103.75 + 30.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn x_is_docked_only_near_an_edge() {
+        // Flush left / flush right (mon 0..1512, panel w 80).
+        assert!(x_is_docked(0.0, 80.0, 0.0, 1512.0));
+        assert!(x_is_docked(1432.0, 80.0, 0.0, 1512.0));
+        // Within the 16px tolerance on either side → docked (drag-back
+        // re-arms auto-hide).
+        assert!(x_is_docked(10.0, 80.0, 0.0, 1512.0));
+        assert!(x_is_docked(1425.0, 80.0, 0.0, 1512.0));
+        // Floating → NOT docked: auto-hide suspended, panel stays visible.
+        assert!(!x_is_docked(30.0, 80.0, 0.0, 1512.0));
+        assert!(!x_is_docked(700.0, 80.0, 0.0, 1512.0));
+        assert!(!x_is_docked(1400.0, 80.0, 0.0, 1512.0));
+        // Secondary monitor edges are their own docking edges.
+        assert!(x_is_docked(1512.0, 80.0, 1512.0, 4072.0));
     }
 
     #[test]
