@@ -242,6 +242,7 @@
   class:light={data.theme !== "dark"}
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
+  class:peeking
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; --s: {layoutS}; width:{panelW}px; height:{panelH}px"
 >
   {#if peeking}
@@ -435,6 +436,13 @@
        layout_scale) — PAD_V and the title/dock gaps track the size. */
     padding: calc(30px * var(--s, 1)) 16px;
     gap: calc(8px * var(--s, 1));
+  }
+
+  /* Peek mode: window is only 10px wide — padding would zero out the
+     content box.  Drop all padding so the grip fills the window. */
+  .vertical.peeking {
+    padding: 0;
+    gap: 0;
   }
 
   /* Fused berths: flat edge kisses the screen border (-1px overlap), rings
