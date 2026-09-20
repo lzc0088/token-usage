@@ -85,6 +85,24 @@ describe("DetailCard", () => {
     expect(target.textContent).toContain("月度消费");
   });
 
+  it("splits the header into left/right regions closed by a dashed divider", () => {
+    const target = renderCard();
+    const left = target.querySelector(".header-left");
+    const right = target.querySelector(".header-right");
+    expect(left).toBeTruthy();
+    expect(right).toBeTruthy();
+    // Left region: logo + vendor name only.
+    expect(left?.querySelector(".vendor-icon")).toBeTruthy();
+    expect(left?.querySelector(".vendor-name")?.textContent).toContain("Claude");
+    expect(left?.querySelector(".plan-badge")).toBeFalsy();
+    // Right region: plan badge on the first line, expiry under it.
+    const rightChildren = right ? [...right.children] : [];
+    expect(rightChildren[0]?.classList.contains("plan-badge")).toBe(true);
+    expect(rightChildren[1]?.textContent).toContain("到期");
+    // Dashed divider closes the header block with even spacing.
+    expect(target.querySelector(".card-header .header-divider")).toBeTruthy();
+  });
+
   it("keeps credits row first for planless vendors", () => {
     const target = renderCard({
       quota: {

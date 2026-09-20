@@ -89,20 +89,28 @@
   </div>
 
   <div class="card-body">
-    <!-- Header: icon + vendor + plan badge; expiry hugs the line above. -->
+    <!-- Header: LEFT region (logo + vendor name) · RIGHT region (plan
+         badge + expiry, stacked) — both centered on the same horizontal
+         midline — closed by a dashed divider with even spacing above
+         (7px) and below (card-body gap 7px). -->
     <div class="card-header">
-      <div class="header-line">
-        <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
-        <span class="vendor-name">{vendorDisplayName(quota.vendor)}</span>
-        {#if quota.plan}
-          <span class="plan-badge">{quota.plan}</span>
+      <div class="header-row">
+        <div class="header-left">
+          <span class="vendor-icon">{@html vendorIconMarkup(quota.vendor)}</span>
+          <span class="vendor-name">{vendorDisplayName(quota.vendor)}</span>
+        </div>
+        {#if quota.plan || quota.expires_at}
+          <div class="header-right">
+            {#if quota.plan}
+              <span class="plan-badge">{quota.plan}</span>
+            {/if}
+            {#if quota.expires_at}
+              <span class="expiry-text">到期 {formatShortExpiry(quota.expires_at)}</span>
+            {/if}
+          </div>
         {/if}
       </div>
-      {#if quota.expires_at}
-        <div class="expiry-line">
-          <span>到期 {formatShortExpiry(quota.expires_at)}</span>
-        </div>
-      {/if}
+      <div class="header-divider" aria-hidden="true"></div>
     </div>
 
     {#snippet balanceRows()}
@@ -251,13 +259,27 @@
   .card-header {
     display: flex;
     flex-direction: column;
-    gap: 4px; /* plan name ↔ expiry spacing (user-specified) */
   }
 
-  .header-line {
+  .header-row {
+    display: flex;
+    align-items: center; /* left/right regions share one horizontal midline */
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .header-left {
     display: flex;
     align-items: center;
     gap: 5px;
+    min-width: 0;
+  }
+
+  .header-right {
+    display: flex;
+    flex-direction: column; /* plan badge over expiry, two lines */
+    align-items: flex-end;
+    gap: 2px;
   }
 
   .vendor-icon {
@@ -274,7 +296,9 @@
   .vendor-name {
     font-size: 10px;
     font-weight: 600;
-    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .plan-badge {
@@ -285,12 +309,17 @@
     font-weight: 500;
   }
 
-  .expiry-line {
-    display: flex;
-    justify-content: flex-end;
+  .expiry-text {
     font-size: 10px;
-    margin-top: 0;
     opacity: 0.75;
+    white-space: nowrap;
+  }
+
+  /* Dashed divider closing the header — 7px above (margin) matches the
+     7px card-body gap below, keeping the spacing even on both sides. */
+  .header-divider {
+    margin-top: 7px;
+    border-top: 1px dashed var(--card-border);
   }
 
   /* ── Window section: 三行左对齐 ─────────────────────────────── */
