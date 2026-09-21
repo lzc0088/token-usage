@@ -1357,6 +1357,10 @@ pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) {
         tracing::warn!("pulse: flip pulse_side → {docked} failed: {e}");
     } else {
         tracing::info!("pulse: panel docked {docked} → pulse_side updated");
+        // Push the new side to the peek window so its silhouette mirrors the
+        // edge immediately — without this the handle stays on the old side's
+        // shape until the next quota refresh.
+        push_pulse_data(app, conn);
     }
 }
 
