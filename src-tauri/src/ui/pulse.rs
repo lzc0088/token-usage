@@ -1336,19 +1336,33 @@ pub fn persist_pulse_pos(app: &AppHandle) {
     // Skip while expanded — the window is lifted (taller than the collapsed
     // size), so persisting now would save the shifted y and drift the panel
     // upward across restarts.
-    let cfg = config::load(&conn).unwrap_or_default();
-    let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len(), panel_max_h(&h));
+    // Window getters BEFORE the DB guard — current_monitor/outer_size may
+    // round-trip to the main thread, and doing that under this thread's
+    // guard risks the same ABBA deadlock the flipped-side push below avoids.
+    let max_h = panel_max_h(&h);
     let h_now = h
         .outer_size()
         .map(|s| s.height as f64 / scale)
         .unwrap_or(0.0);
+    let cfg = config::load(&conn).unwrap_or_default();
+    let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len(), max_h);
     if (h_now - h_c).abs() > 2.0 {
         return;
     }
     save_pos(&conn, wx, wy);
     // 1s safety net for the side flip (the drag-end command is the primary
-    // path — see set_pulse_position).
-    sync_side_if_docked(app, &conn);
+    // path — see set_pulse_position). Signal only: the flip's frontend push
+    // happens AFTER the guard drops, off the lock.
+    let flipped = sync_side_if_docked(app, &conn);
+    drop(conn);
+    if flipped {
+        // Off-main thread with NO DB guard held — never call push_pulse_data
+        // here (its theme/monitor getters round-trip to the main thread →
+        // ABBA deadlock with a main-thread command waiting for the lock).
+        // The event makes the pulse/peek windows re-pull on the main thread.
+        use tauri::Emitter;
+        let _ = app.emit("config:changed", ());
+    }
 }
 
 /// Keep `pulse_side` in sync with where the panel is actually docked: a
@@ -1356,16 +1370,23 @@ pub fn persist_pulse_pos(app: &AppHandle) {
 /// on it (peek handle placement, collapse snap target, settings UI) stays
 /// consistent and the panel is never yanked back to the old edge. Only
 /// fires when flush (≤2px); floating positions never touch it.
-pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) {
+///
+/// Returns true when the side flipped — the CALLER must propagate the new
+/// side to the frontends AFTER releasing the DB guard: push_pulse_data does
+/// window/theme GETTERS that round-trip to the main thread, and doing them
+/// under this thread's DB guard deadlocks against a main-thread command
+/// (set_pulse_position / set_config) waiting for the same lock. Signal +
+/// caller-pushes, the established pattern (see park_card).
+pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) -> bool {
     let Some(win) = app.get_webview_window("pulse") else {
-        return;
+        return false;
     };
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         win.current_monitor(),
         win.outer_position(),
         win.outer_size(),
     ) else {
-        return;
+        return false;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let x = pos.x as f64 / scale;
@@ -1377,21 +1398,22 @@ pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) {
     } else if (mon_right - (x + w)).abs() <= 2.0 {
         "right"
     } else {
-        return; // floating — the setting is untouched
+        return false; // floating — the setting is untouched
     };
     let mut cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_side == docked {
-        return;
+        return false;
     }
     cfg.pulse_side = docked.into();
-    if let Err(e) = config::save(conn, &cfg) {
-        tracing::warn!("pulse: flip pulse_side → {docked} failed: {e}");
-    } else {
-        tracing::info!("pulse: panel docked {docked} → pulse_side updated");
-        // Push the new side to the peek window so its silhouette mirrors the
-        // edge immediately — without this the handle stays on the old side's
-        // shape until the next quota refresh.
-        push_pulse_data(app, conn);
+    match config::save(conn, &cfg) {
+        Ok(()) => {
+            tracing::info!("pulse: panel docked {docked} → pulse_side updated");
+            true
+        }
+        Err(e) => {
+            tracing::warn!("pulse: flip pulse_side → {docked} failed: {e}");
+            false
+        }
     }
 }
 

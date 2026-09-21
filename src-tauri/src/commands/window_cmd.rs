@@ -415,7 +415,13 @@ pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> 
     let state = app.state::<crate::state::AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::ui::pulse::save_pos(&conn, x, y);
-    crate::ui::pulse::sync_side_if_docked(&app, &conn);
+    if crate::ui::pulse::sync_side_if_docked(&app, &conn) {
+        // Cross-edge drag flipped pulse_side. Push the new side to the
+        // pulse/peek frontends — this command runs ON the main thread, so
+        // the window getters inside resolve inline (same safe pattern as
+        // set_config; the poller-side path must NOT do this under a lock).
+        crate::ui::pulse::push_pulse_data(&app, &conn);
+    }
     Ok(())
 }
 
