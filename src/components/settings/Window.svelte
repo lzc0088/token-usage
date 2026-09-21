@@ -403,18 +403,15 @@
     <div class="box-row">
       <div class="lab">
         显示方式
-        {#if platform === "windows"}<div class="hint">自动隐藏暂仅支持 macOS</div>{/if}
       </div>
       <Select
         class="sel"
         style="min-width:150px"
-        value={platform === "windows" ? "always" : config.pulse_display_mode || "always"}
-        options={platform === "windows"
-          ? [{ value: "always", label: "始终显示" }]
-          : [
-              { value: "always", label: "始终显示" },
-              { value: "auto_hide", label: "自动隐藏" },
-            ]}
+        value={config.pulse_display_mode || "always"}
+        options={[
+          { value: "always", label: "始终显示" },
+          { value: "auto_hide", label: "自动隐藏" },
+        ]}
         onchange={(v) => onUpdate({ pulse_display_mode: v as "always" | "auto_hide" })}
       />
     </div>

@@ -10,14 +10,13 @@
 //! (the ghost/flash); pure moves are always clean.
 //!
 //! macOS + Windows. The peek/auto-hide mode (edge handle, reveal state
-//! machine) is macOS-only for now — on Windows a configured auto_hide
-//! falls back to always-show. Other platforms: no-op (the floating widget
-//! covers Linux).
+//! machine) is supported on both platforms. Other platforms: no-op (the
+//! floating widget covers Linux).
 
 /// Platforms the pulse panel runs on.
 const PULSE_SUPPORTED: bool = cfg!(target_os = "macos") || cfg!(target_os = "windows");
 /// Platforms with the peek (auto-hide) state machine.
-const PEEK_SUPPORTED: bool = cfg!(target_os = "macos");
+const PEEK_SUPPORTED: bool = cfg!(target_os = "macos") || cfg!(target_os = "windows");
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
@@ -291,8 +290,6 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     }
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
-        // Peek/auto-hide is macOS-only: on Windows a configured auto_hide
-        // degrades to always-show (the panel simply stays up).
         let auto_hide = cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED;
         position_pulse(app, conn);
         // Auto-hide only applies while edge-docked (the peek handle lives
