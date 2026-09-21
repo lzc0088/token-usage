@@ -95,14 +95,37 @@ build_universal "dist/Helpers/token-usage-widget-reload" \
 
 rm -rf dist/arch
 
-# 4. Ad-hoc bundle integrity signing (no Developer ID needed).
-codesign --force --sign - \
-  --entitlements TokenUsageWidget.entitlements \
-  "$APPEX"
-codesign --force --sign - \
-  --entitlements Publisher.entitlements \
-  dist/Helpers/token-usage-widget-publish
-codesign --force --sign - dist/Helpers/token-usage-widget-reload
-codesign --verify --strict "$APPEX"
+# 4. Code signing. Everything nested inside the .app must satisfy
+#    notarization on release: Developer ID signature + hardened runtime +
+#    secure timestamp (ad-hoc nested binaries fail with "not signed with a
+#    valid Developer ID certificate"). The release workflow sets
+#    APPLE_SIGN_IDENTITY explicitly; anything else (local dev) signs ad-hoc
+#    — no keychain unlock prompt, bundle integrity only.
+sign_target() {
+  local target="$1" ent="${2:-}"
+  local identity="${APPLE_SIGN_IDENTITY:-}"
+  if [ -n "$identity" ]; then
+    echo "[build-widget] Developer ID signing: $(basename "$target") (runtime + timestamp)"
+    local args=(--force --sign "$identity" --options runtime --timestamp)
+    if [ -n "$ent" ]; then
+      args+=(--entitlements "$ent")
+      codesign "${args[@]}" "$target"
+    else
+      codesign "${args[@]}" "$target"
+    fi
+  else
+    echo "[build-widget] ad-hoc signing (no APPLE_SIGN_IDENTITY): $(basename "$target")"
+    if [ -n "$ent" ]; then
+      codesign --force --sign - --entitlements "$ent" "$target"
+    else
+      codesign --force --sign - "$target"
+    fi
+  fi
+  codesign --verify --strict "$target"
+}
 
-echo "[build-widget] built: $APPEX + 2 helpers (ad-hoc signed)"
+sign_target "$APPEX" TokenUsageWidget.entitlements
+sign_target dist/Helpers/token-usage-widget-publish Publisher.entitlements
+sign_target dist/Helpers/token-usage-widget-reload ""
+
+echo "[build-widget] built: $APPEX + 2 helpers"
