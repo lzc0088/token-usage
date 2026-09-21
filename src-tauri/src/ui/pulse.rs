@@ -112,27 +112,22 @@ fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
 /// `cfg.pulse_side` — it does not follow the panel's current x position
 /// (the panel may have been dragged away from the edge, but the handle must
 /// stay glued to the configured edge so users always know where to find it).
-/// Takes the already-loaded `cfg` — NO db access here, so the poller thread
-/// (collapse_pulse) can call it with NO DB guard held (window ops under a
-/// poller-held guard deadlock against main-thread commands waiting for the
-/// lock — see sync_side_if_docked's doc).
-fn position_peek(app: &AppHandle, cfg: &config::Config) {
-    let (Some(peek), Some(ring)) = (
-        app.get_webview_window("pulse-peek"),
-        app.get_webview_window("pulse"),
-    ) else {
+///
+/// Takes the panel's KNOWN geometry (`py`/`panel_h`) instead of reading the
+/// ring window: on Windows a read-back right after set_position sees the OLD
+/// rect (async dispatch), which left the handle at a stale spot after an
+/// edge-setting change. `cfg` is pre-loaded — NO db access here, so the
+/// poller thread (collapse_pulse) can call it with NO DB guard held (window
+/// ops under a poller-held guard deadlock against main-thread commands
+/// waiting for the lock — see flip_side's doc).
+fn position_peek(app: &AppHandle, cfg: &config::Config, py: f64, panel_h: f64) {
+    let Some(peek) = app.get_webview_window("pulse-peek") else {
         return;
     };
-    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
-        peek.current_monitor(),
-        ring.outer_position(),
-        ring.outer_size(),
-    ) else {
+    let Ok(Some(mon)) = peek.current_monitor() else {
         return;
     };
-    let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
-    let py = pos.y as f64 / scale;
-    let panel_h = size.height as f64 / scale;
+    let scale = peek.scale_factor().unwrap_or(1.0).max(1.0);
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
     let mon_top = mon.position().y as f64 / scale;
@@ -238,6 +233,18 @@ fn collapse_pulse(app: &AppHandle) {
             .and_then(|conn| config::load(&conn).ok())
             .unwrap_or_default()
     };
+    // Panel geometry for the handle placement. The snap below only MOVES the
+    // window (size untouched), so reading the height here is race-free; the
+    // snapped (x, y) comes back from snap_pulse_to_edge itself.
+    let (py, panel_h) = app
+        .get_webview_window("pulse")
+        .and_then(|ring| {
+            let s = ring.scale_factor().unwrap_or(1.0).max(1.0);
+            let pos = ring.outer_position().ok()?;
+            let size = ring.outer_size().ok()?;
+            Some((pos.y as f64 / s, size.height as f64 / s))
+        })
+        .unwrap_or((0.0, 0.0));
     if let Some(ring) = app.get_webview_window("pulse") {
         let _ = ring.hide();
         if let Some((x, y)) = snap_pulse_to_edge(&cfg.pulse_side, &ring) {
@@ -253,7 +260,7 @@ fn collapse_pulse(app: &AppHandle) {
     if let Some(card) = app.get_webview_window("pulse-card") {
         park_card(&card);
     }
-    position_peek(app, &cfg);
+    position_peek(app, &cfg, py, panel_h);
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.show();
     }
@@ -279,6 +286,10 @@ struct DockCache {
     opacity: f64,
     /// Whether peek (auto-hide) mode is enabled from config.
     peek_enabled: bool,
+    /// Configured dock edge — the reveal path snaps the panel flush to it
+    /// before showing (a drifted panel would reveal away from the cursor and
+    /// instantly re-collapse → flicker).
+    pulse_side: String,
 }
 
 static DOCK_CACHE: std::sync::Mutex<Option<DockCache>> = std::sync::Mutex::new(None);
@@ -293,6 +304,7 @@ fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) 
         theme: theme.to_string(),
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
         peek_enabled: cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED,
+        pulse_side: cfg.pulse_side.clone(),
     };
     *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
 }
@@ -334,24 +346,28 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
         let auto_hide = cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED;
-        position_pulse(app, conn);
+        // position_pulse returns where it PLACED the panel — the peek_armed
+        // check and the handle placement below use that KNOWN geometry, not a
+        // read-back of the window (on Windows set_position dispatches
+        // asynchronously, so a read-back can still see the pre-move rect and
+        // mis-arm auto-hide / strand the handle at a stale spot).
+        let placed = position_pulse(app, conn);
         // A restored saved position from a past drag may dock the panel at
         // the OTHER edge than the setting says (the old flip raced or never
         // ran). Sync the setting to reality here so the peek handle, collapse
         // snap target and settings UI all agree from the start — the flip is
         // pushed by the push_pulse_data at the end of this function.
-        // Main thread + caller-held guard: getters resolve inline (safe).
-        if let Some(docked) = docked_side(app) {
+        // The side comes from the PLACEMENT (known geometry), never a window
+        // read-back: on Windows a read-back right after set_position can see
+        // the pre-move rect, which would flip the setting straight back and
+        // silently undo the user's edge change.
+        if let Some(docked) = placed.and_then(|p| p.side) {
             flip_side(conn, docked);
         }
         // Auto-hide only applies while edge-docked (the peek handle lives
         // ON the screen edge). A floating panel — dragged to a non-edge
         // spot and persisted — stays visible like "always".
-        let peek_armed = auto_hide
-            && app
-                .get_webview_window("pulse")
-                .map(|h| panel_at_edge(&h))
-                .unwrap_or(false);
+        let peek_armed = auto_hide && placed.is_some_and(|p| p.at_edge);
         if let Some(h) = app.get_webview_window("pulse") {
             apply_floating_level(&h, cfg.pulse_topmost);
             // Pure visibility toggles — the window is never resized here.
@@ -374,7 +390,8 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         if let Some(p) = app.get_webview_window("pulse-peek") {
             apply_floating_level(&p, cfg.pulse_topmost);
             if peek_armed {
-                position_peek(app, &cfg);
+                let (py, panel_h) = placed.map(|p| (p.y, p.h)).unwrap_or((0.0, 0.0));
+                position_peek(app, &cfg, py, panel_h);
                 let _ = p.show();
             } else {
                 let _ = p.hide();
@@ -971,6 +988,19 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         (PeekState::Revealing, Some(t)) => {
                             if in_trigger {
                                 if t.elapsed() >= std::time::Duration::from_millis(PEEK_REVEAL_MS) {
+                                    // Guarantee the panel is flush with the
+                                    // handle's edge BEFORE showing: a drifted
+                                    // panel reveals away from the cursor, the
+                                    // next tick finds the pointer outside its
+                                    // halo → collapse → reveal → flicker loop
+                                    // that reads as "hover does nothing" (the
+                                    // right-edge case, where the cursor sits at
+                                    // the screen boundary, trips it hardest).
+                                    // The window is hidden, so the move is
+                                    // invisible. No DB guard held here (poller).
+                                    if let Some(ring) = app.get_webview_window("pulse") {
+                                        let _ = snap_pulse_to_edge(&dock.pulse_side, &ring);
+                                    }
                                     // Pure visibility toggle — the window kept
                                     // its full size while hidden, so no resize
                                     // (and no ghost frame) on reveal. VERIFIED:
@@ -1249,10 +1279,23 @@ fn snap_pulse_to_edge(side: &str, win: &tauri::WebviewWindow) -> Option<(i32, i3
     Some((snapped.round() as i32, py.round() as i32))
 }
 
-fn position_pulse(app: &AppHandle, conn: &Connection) {
-    let Some(win) = app.get_webview_window("pulse") else {
-        return;
-    };
+/// Where [`position_pulse`] placed the panel (logical px). Returned so callers
+/// act on the KNOWN geometry: on Windows window setters dispatch
+/// asynchronously, so reading back (outer_position) straight after
+/// set_position can still see the OLD rect — the read-after-write race that
+/// left the peek handle un-repositioned after an edge-setting change.
+#[derive(Clone, Copy)]
+struct Placement {
+    y: f64,
+    h: f64,
+    at_edge: bool,
+    /// Which edge the placement is flush with (≤2px), None when floating.
+    /// Derived from the KNOWN geometry — never a window read-back.
+    side: Option<&'static str>,
+}
+
+fn position_pulse(app: &AppHandle, conn: &Connection) -> Option<Placement> {
+    let win = app.get_webview_window("pulse")?;
     let cfg = config::load(conn).unwrap_or_default();
     let ring_count = load_quotas(conn).len().max(1);
     let (w, h) = collapsed_size(&cfg, ring_count, panel_max_h(&win));
@@ -1287,14 +1330,31 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
             );
         } else {
             let mut x = sx;
+            let mut at_edge = false;
+            let mut side = None;
             if let Ok(Some(mon)) = win.current_monitor() {
                 let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
                 let mon_left = mon.position().x as f64 / sf;
                 let mon_right = mon_left + mon.size().width as f64 / sf;
                 x = redock_x(x, w, mon_left, mon_right);
+                at_edge = x_is_docked(x, w, mon_left, mon_right);
+                side = if at_edge {
+                    Some(if (x - mon_left).abs() <= 2.0 {
+                        "left"
+                    } else {
+                        "right"
+                    })
+                } else {
+                    None
+                };
             }
             let _ = win.set_position(LogicalPosition::new(x, sy));
-            return;
+            return Some(Placement {
+                y: sy,
+                h,
+                at_edge,
+                side,
+            });
         }
     }
 
@@ -1313,7 +1373,12 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
         let py = (1080.0 - h) / 2.0;
         tracing::warn!("pulse: no monitor readable on fresh dock; defaulting to ({px},{py})");
         let _ = win.set_position(LogicalPosition::new(px, py));
-        return;
+        return Some(Placement {
+            y: py,
+            h,
+            at_edge: true,
+            side: Some("right"),
+        });
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let mw = mon.size().width as f64 / scale;
@@ -1327,6 +1392,18 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
     };
     let py = my + (mh - h) / 2.0;
     let _ = win.set_position(LogicalPosition::new(px, py));
+    let at_edge = x_is_docked(px, w, mx, mx + mw);
+    let side = if (px - mx).abs() <= 2.0 {
+        "left"
+    } else {
+        "right"
+    };
+    Some(Placement {
+        y: py,
+        h,
+        at_edge,
+        side: Some(side),
+    })
 }
 
 /// Save the pulse panel position (logical px) to the KV store.
