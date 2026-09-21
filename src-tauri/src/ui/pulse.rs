@@ -107,20 +107,28 @@ fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
     *PEEK_STATE.lock().unwrap_or_else(|e| e.into_inner()) = (st, t);
 }
 
-/// Place the peek handle window at the configured screen edge, vertically
-/// centered on the panel's rail. The handle's edge always matches
-/// `cfg.pulse_side` — it does not follow the panel's current x position
-/// (the panel may have been dragged away from the edge, but the handle must
-/// stay glued to the configured edge so users always know where to find it).
+/// Last rect (x, y logical px) `position_peek` placed the handle at. The
+/// poller's reveal trigger reads THIS — not the peek window's live position:
+/// on Windows a window read-back can return a stale rect (async setter
+/// dispatch), and a trigger zone that doesn't match the visible handle is
+/// exactly the "hover does nothing" failure. Updated only by position_peek
+/// (the single writer), so zone and handle can never diverge.
+static PEEK_RECT: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// Place the peek handle window at `side`'s screen edge, vertically centered
+/// on the panel's rail. The handle's edge always matches the configured
+/// `side` — it does not follow the panel's current x position (the panel may
+/// have been dragged away from the edge, but the handle must stay glued to
+/// the configured edge so users always know where to find it).
 ///
 /// Takes the panel's KNOWN geometry (`py`/`panel_h`) instead of reading the
 /// ring window: on Windows a read-back right after set_position sees the OLD
 /// rect (async dispatch), which left the handle at a stale spot after an
-/// edge-setting change. `cfg` is pre-loaded — NO db access here, so the
-/// poller thread (collapse_pulse) can call it with NO DB guard held (window
-/// ops under a poller-held guard deadlock against main-thread commands
-/// waiting for the lock — see flip_side's doc).
-fn position_peek(app: &AppHandle, cfg: &config::Config, py: f64, panel_h: f64) {
+/// edge-setting change. Takes plain config FIELDS (not `&Config`) — NO db
+/// access here, so the poller thread can call it with NO DB guard held
+/// (window ops under a poller-held guard deadlock against main-thread
+/// commands waiting for the lock — see flip_side's doc).
+fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64) {
     let Some(peek) = app.get_webview_window("pulse-peek") else {
         return;
     };
@@ -133,18 +141,25 @@ fn position_peek(app: &AppHandle, cfg: &config::Config, py: f64, panel_h: f64) {
     let mon_top = mon.position().y as f64 / scale;
     let mon_bottom = mon_top + mon.size().height as f64 / scale;
     // Handle x = configured edge (left edge → mon_left; right edge → mon_right - handle_w).
-    let x = if cfg.pulse_side == "left" {
+    let x = if side == "left" {
         mon_left
     } else {
         mon_right - PEEK_WIN_W
     };
     // Vertical center of the panel's rail (not the whole window — the rail
     // starts at RAIL_TOP below the title block).
-    let rail_top = (PAD_V + TITLE_BLOCK) * layout_scale(ring_diameter(&cfg.pulse_size));
+    let rail_top = (PAD_V + TITLE_BLOCK) * layout_scale(ring_diameter(size));
     let handle_y = (py + rail_top + (panel_h - rail_top - PAD_V_BOT) / 2.0 - PEEK_WIN_H / 2.0)
         .max(mon_top + 4.0)
         .min(mon_bottom - PEEK_WIN_H - 4.0);
     let _ = peek.set_position(LogicalPosition::new(x, handle_y));
+    // Record where the handle NOW is — the poller's trigger zone derives from
+    // this (see PEEK_RECT). One writer, so the zone always matches the handle
+    // the user actually sees.
+    *PEEK_RECT.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, handle_y));
+    tracing::debug!(
+        "peek: handle placed at ({x},{handle_y}) side={side} mon=[{mon_left},{mon_right}]"
+    );
 }
 
 /// Show the full panel, retire the peek handle (reveal transition end).
@@ -210,6 +225,11 @@ fn reveal_pulse_on_main(app: &AppHandle) -> bool {
         let _ = peek.hide();
     }
     set_peek_state(PeekState::Visible, None);
+    tracing::info!(
+        pos = ?ring.outer_position().ok(),
+        size = ?ring.outer_size().ok(),
+        "peek: panel revealed"
+    );
     true
 }
 
@@ -260,7 +280,7 @@ fn collapse_pulse(app: &AppHandle) {
     if let Some(card) = app.get_webview_window("pulse-card") {
         park_card(&card);
     }
-    position_peek(app, &cfg, py, panel_h);
+    position_peek(app, &cfg.pulse_side, &cfg.pulse_size, py, panel_h);
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.show();
     }
@@ -290,6 +310,9 @@ struct DockCache {
     /// before showing (a drifted panel would reveal away from the cursor and
     /// instantly re-collapse → flicker).
     pulse_side: String,
+    /// Ring-size preset ("small" | "medium" | "large") — feeds the peek
+    /// handle's rail-centering math (position_peek) without a DB read.
+    pulse_size: String,
 }
 
 static DOCK_CACHE: std::sync::Mutex<Option<DockCache>> = std::sync::Mutex::new(None);
@@ -305,6 +328,7 @@ fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) 
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
         peek_enabled: cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED,
         pulse_side: cfg.pulse_side.clone(),
+        pulse_size: cfg.pulse_size.clone(),
     };
     *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
 }
@@ -391,7 +415,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             apply_floating_level(&p, cfg.pulse_topmost);
             if peek_armed {
                 let (py, panel_h) = placed.map(|p| (p.y, p.h)).unwrap_or((0.0, 0.0));
-                position_peek(app, &cfg, py, panel_h);
+                position_peek(app, &cfg.pulse_side, &cfg.pulse_size, py, panel_h);
                 let _ = p.show();
             } else {
                 let _ = p.hide();
@@ -404,6 +428,14 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
                 PeekState::Visible
             },
             None,
+        );
+        tracing::info!(
+            "pulse: sync — side={} display={} peek_armed={} placed_y={:?} placed_h={:?}",
+            cfg.pulse_side,
+            cfg.pulse_display_mode,
+            peek_armed,
+            placed.map(|p| p.y),
+            placed.map(|p| p.h),
         );
         // Cursor-driven hover (see ensure_hover_poller) — one poller ever.
         ensure_hover_poller(app);
@@ -903,6 +935,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
         let mut card_on_left = false;
         let mut hiding_since: Option<std::time::Instant> = None;
         let mut last_inside = None::<std::time::Instant>;
+        // Consecutive reveal failures with the cursor parked on the trigger —
+        // a stuck state detector (see the failure branch). 0 on any success
+        // or trigger re-entry.
+        let mut reveal_failures: u32 = 0;
         let mut last_panel_pos = (0.0, 0.0);
         let mut primary_h = 0.0f64;
         // Primary monitor scale — Windows converts GetCursorPos's physical
@@ -965,14 +1001,22 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     // Reveal trigger: the peek handle window ONLY (graced) —
                     // not the whole screen edge, so sweeping the cursor to
                     // the edge (scrollbars, hot corners) never pops the panel.
-                    let in_trigger = app
-                        .get_webview_window("pulse-peek")
-                        .and_then(|p| {
-                            let s = p.scale_factor().unwrap_or(1.0).max(1.0);
-                            p.outer_position()
-                                .ok()
-                                .map(|pp| (pp.x as f64 / s, pp.y as f64 / s))
-                        })
+                    // The rect comes from PEEK_RECT (what position_peek last
+                    // PLACED), with the live window position as fallback — a
+                    // stale read-back must never move the zone off the handle
+                    // the user sees.
+                    let rect = PEEK_RECT
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .or_else(|| {
+                            app.get_webview_window("pulse-peek").and_then(|p| {
+                                let s = p.scale_factor().unwrap_or(1.0).max(1.0);
+                                p.outer_position()
+                                    .ok()
+                                    .map(|pp| (pp.x as f64 / s, pp.y as f64 / s))
+                            })
+                        });
+                    let in_trigger = rect
                         .map(|(qx, qy)| {
                             mx >= qx - HOVER_GRACE
                                 && mx < qx + PEEK_WIN_W + HOVER_GRACE
@@ -982,7 +1026,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         .unwrap_or(false);
                     match peek_state() {
                         (PeekState::Hidden, _) if in_trigger => {
-                            tracing::debug!("peek: cursor on trigger → Revealing");
+                            reveal_failures = 0;
+                            tracing::info!(
+                                "peek: cursor on trigger → Revealing (handle={:?}, cursor=({mx},{my}))",
+                                rect
+                            );
                             set_peek_state(PeekState::Revealing, Some(std::time::Instant::now()));
                         }
                         (PeekState::Revealing, Some(t)) => {
@@ -1007,6 +1055,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                     // on failure the handle stays visible and
                                     // Revealing retries after another dwell.
                                     if reveal_pulse(&app) {
+                                        reveal_failures = 0;
                                         // Open the hovered ring's card right
                                         // away — only when the cursor is REALLY
                                         // inside the revealed panel (ring_index_at
@@ -1040,6 +1089,41 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                             PeekState::Revealing,
                                             Some(std::time::Instant::now()),
                                         );
+                                        // Repeated failures with the cursor
+                                        // parked on the trigger = a stuck
+                                        // state (bad window rect / lost
+                                        // dispatch), not a race. Force a full
+                                        // re-arm: re-place the handle from the
+                                        // known geometry and restart from
+                                        // Hidden so the next dwell retries
+                                        // clean. Logged at WARN — this should
+                                        // never fire in normal operation.
+                                        reveal_failures += 1;
+                                        if reveal_failures >= 3 {
+                                            tracing::warn!(
+                                                "peek: reveal failed {reveal_failures}× with cursor on trigger — forcing re-arm"
+                                            );
+                                            if let Some(ring) = app.get_webview_window("pulse") {
+                                                let s = ring.scale_factor().unwrap_or(1.0).max(1.0);
+                                                let (py, ph) = ring
+                                                    .outer_position()
+                                                    .ok()
+                                                    .zip(ring.outer_size().ok())
+                                                    .map(|(p, z)| {
+                                                        (p.y as f64 / s, z.height as f64 / s)
+                                                    })
+                                                    .unwrap_or((0.0, 0.0));
+                                                position_peek(
+                                                    &app,
+                                                    &dock.pulse_side,
+                                                    &dock.pulse_size,
+                                                    py,
+                                                    ph,
+                                                );
+                                            }
+                                            reveal_failures = 0;
+                                            set_peek_state(PeekState::Hidden, None);
+                                        }
                                     }
                                 }
                             } else {
