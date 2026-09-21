@@ -178,7 +178,10 @@
     });
   }
 
-  // Snap flush to the nearest screen edge when dropped close to it.
+  // Snap flush to the nearest screen edge when dropped close to it, and
+  // clamp fully on-screen otherwise — a drop beyond an edge (native drag
+  // allows off-screen windows) would strand the panel with no title bar
+  // to drag it back.
   async function snapToEdge() {
     try {
       const { pos, size, mon, scale } = await readGeometry();
@@ -186,11 +189,18 @@
       const threshold = SNAP_THRESHOLD * scale;
       const monLeft = mon.position.x;
       const monRight = mon.position.x + mon.size.width;
+      const monTop = mon.position.y;
+      const monBottom = monTop + mon.size.height;
+      const y = Math.min(Math.max(pos.y, monTop), monBottom - size.height);
+      let x: number;
       if (pos.x - monLeft <= threshold) {
-        await animateToPosition(monLeft, pos.y);
+        x = monLeft;
       } else if (monRight - (pos.x + size.width) <= threshold) {
-        await animateToPosition(monRight - size.width, pos.y);
+        x = monRight - size.width;
+      } else {
+        x = Math.min(Math.max(pos.x, monLeft), monRight - size.width);
       }
+      await animateToPosition(x, y);
     } catch {
       // ignore — position stays wherever the drag left it
     }

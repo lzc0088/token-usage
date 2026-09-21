@@ -158,7 +158,29 @@ fn position_peek(app: &AppHandle, conn: &Connection) {
 /// raced show would otherwise dead-lock (no handle, no panel, no retry).
 /// On false the poller stays in Revealing and retries while the cursor
 /// still targets the edge; the handle never disappears on a bad reveal.
+///
+/// The show + verify run ON the main thread: on macOS both calls order
+/// through the same event queue even off-thread, but on Windows show()
+/// from a foreign thread is dispatched asynchronously — an immediate
+/// is_visible() on the poller thread reads stale state and would fail the
+/// reveal forever. Blocking channel recv; the poller is a dedicated thread.
 fn reveal_pulse(app: &AppHandle) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    let handle = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        let ok = reveal_pulse_on_main(&handle);
+        let _ = tx.send(ok);
+    }) {
+        tracing::warn!("peek reveal: main-thread dispatch failed: {e}");
+        return false;
+    }
+    rx.recv_timeout(std::time::Duration::from_millis(750))
+        .unwrap_or(false)
+}
+
+/// Main-thread half of [`reveal_pulse`]: show the panel, verify, retire the
+/// peek handle only on a confirmed show.
+fn reveal_pulse_on_main(app: &AppHandle) -> bool {
     let Some(ring) = app.get_webview_window("pulse") else {
         return false;
     };
