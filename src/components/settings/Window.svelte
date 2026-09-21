@@ -319,8 +319,8 @@
     {/if}
   </div>
 
-  <!-- ══ 悬浮（macOS 不支持：菜单栏标题已显示读数） ══ -->
-  {#if platform !== "macos"}
+  <!-- ══ 悬浮（Linux 专属：macOS 用菜单栏标题，Windows 用额度悬浮面板） ══ -->
+  {#if platform === "linux"}
   <div class="section-title">{t("window.floating")}</div>
   <div class="section-box">
     <div class="box-row">

@@ -524,6 +524,12 @@ fn dock_height_capped(d: f64, n: usize, max_panel_h: f64) -> f64 {
     dock_height(d, n).min(avail)
 }
 
+/// Extra window height on Windows (logical px): WebView2 rounds logical→
+/// physical px at fractional DPI scales (125%/150%), which can shave a
+/// pixel or two off the bottom padding; transparent slack absorbs it.
+/// macOS needs none (points map exactly).
+const WIN_H_SLACK: f64 = if cfg!(windows) { 6.0 } else { 0.0 };
+
 /// Collapsed (ring-only) window size, logical px. Mirrors the CSS layout:
 /// fixed vertical padding + scaled title block + capped dock height.
 fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> (f64, f64) {
@@ -533,7 +539,8 @@ fn collapsed_size(cfg: &config::Config, ring_count: usize, max_panel_h: f64) -> 
         PAD_V
             + PAD_V_BOT
             + TITLE_BLOCK * layout_scale(d)
-            + dock_height_capped(d, ring_count, max_panel_h),
+            + dock_height_capped(d, ring_count, max_panel_h)
+            + WIN_H_SLACK,
     )
 }
 

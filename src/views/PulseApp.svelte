@@ -208,6 +208,14 @@
   // balance/credits amount either way).
   let panelTitle = $derived("剩余量");
 
+  // Windows renders differently in two ways we compensate for via a `win`
+  // class: WebView2 over a transparent window can't sample the desktop, so
+  // backdrop-filter shows as a flat gray glass block instead of a blur
+  // (disabled there); classic scrollbars take LAYOUT width, not overlay
+  // (dock scrollbar hidden below).
+  const isWindows =
+    typeof navigator !== "undefined" && /Win/.test(navigator.platform ?? "");
+
   // Extra windows (week / MCP / …) as inner concentric arcs: all windows
   // sorted by usage, minus the most critical one (that's the main arc).
   function extraPcts(q: PulseQuota): number[] {
@@ -239,6 +247,7 @@
   class:light={data.theme !== "dark"}
   class:flush-right={flushSide === "right"}
   class:flush-left={flushSide === "left"}
+  class:win={isWindows}
   style="--ring-size: {data.ring_diameter}px; --pulse-alpha: {data.opacity ?? 1}; --s: {layoutS}; width:{panelW}px; height:{panelH}px"
 >
   <!-- Visual surface: bg + blur.  Docked edges use the concave-shoulder
@@ -384,6 +393,14 @@
     pointer-events: none;
   }
 
+  /* Windows: WebView2 over a transparent window can't sample the desktop
+     behind it, so the blur renders as a flat gray glass block — drop it
+     and let the (alpha-controlled) solid surface carry the look. */
+  .pulse-panel.win .panel-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   /* Rail silhouette — clip-path replaces border-radius for docked edges;
      the concave-shoulder S-curve grows out of the screen border. */
   .pulse-panel.flush-right .panel-surface,
@@ -453,9 +470,15 @@
     flex-direction: column;
     justify-content: space-between;
     gap: calc(14px * var(--s, 1));
-    /* Scroll when the vendor count would exceed the panel height cap. */
+    /* Scroll when the vendor count would exceed the panel height cap —
+       but the BAR is hidden: on Windows classic scrollbars take ~17px of
+       LAYOUT width (macOS overlay bars take none), covering the rings.
+       Wheel/drag still scrolls. */
     overflow-y: auto;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+  }
+  .ring-dock::-webkit-scrollbar {
+    display: none;
   }
 
   .ring-dock::-webkit-scrollbar {

@@ -67,8 +67,9 @@ fn ensure_square_corners(_win: &tauri::WebviewWindow) {}
 
 /// Sync widget visibility + handle position with config (startup + on change).
 pub fn sync_floating(app: &AppHandle, conn: &Connection) {
-    // macOS: tray title already covers this — never show the widget.
-    if std::env::consts::OS == "macos" {
+    // macOS: tray title covers this. Windows: the pulse quota panel is the
+    // desktop widget now — the floating widget is Linux-only.
+    if std::env::consts::OS != "linux" {
         hide_all(app);
         return;
     }

@@ -127,7 +127,8 @@ pub struct Config {
     /// Overview: quota vendor IDs to show, in order (None = show all active).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overview_quota_vendors: Option<Vec<String>>,
-    /// Show a floating data widget on the desktop (Windows/Linux only).
+    /// Show a floating data widget on the desktop (Linux only — macOS uses
+    /// the tray title, Windows uses the pulse quota panel).
     #[serde(default = "default_false")]
     pub floating_enabled: bool,
     /// Floating widget display mode: "today_tokens" | "today_cost" | "total_tokens" | "total_cost".
