@@ -181,21 +181,29 @@ fn reveal_pulse(app: &AppHandle) -> bool {
 
 /// Main-thread half of [`reveal_pulse`]: show the panel, verify, retire the
 /// peek handle only on a confirmed show.
+///
+/// Verify with a SHORT bounded poll (≤4 × 15ms): on Windows show() is
+/// dispatched asynchronously even on the main thread, so an immediate
+/// is_visible() can read the pre-show state. Treating that as failure sent
+/// the poller into an endless Revealing→retry loop (handle visible, panel
+/// never appears) — the right-edge case trips it more often because the
+/// cursor sits at the screen boundary and the very next tick re-enters
+/// Revealing before the async show lands. Visible within the budget → done.
 fn reveal_pulse_on_main(app: &AppHandle) -> bool {
     let Some(ring) = app.get_webview_window("pulse") else {
         return false;
     };
-    let shown = match ring.show() {
-        Ok(()) => ring.is_visible().unwrap_or(false),
-        Err(e) => {
-            tracing::warn!("peek reveal: ring show failed: {e}");
-            false
+    let mut shown = ring.show().is_ok() && ring.is_visible().unwrap_or(false);
+    for _ in 0..4 {
+        if shown {
+            break;
         }
-    };
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        shown = ring.is_visible().unwrap_or(false);
+    }
     if !shown {
-        // is_visible() is ordered after show() through the same event
-        // queue, so this is a REAL failure, not a race — log the geometry
-        // to identify why (off-screen / zero size / closed window).
+        // Log the geometry to identify a REAL failure (off-screen / zero
+        // size / closed window) — races are absorbed by the poll above.
         tracing::warn!(
             pos = ?ring.outer_position().ok(),
             size = ?ring.outer_size().ok(),
