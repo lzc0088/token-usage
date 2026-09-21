@@ -141,8 +141,8 @@ pub struct Config {
     /// Triggered when remaining ≤ 20% OR projected exhaustion is within 2 h.
     #[serde(default = "default_true")]
     pub quota_notify_enabled: bool,
-    /// Pulse-style floating quota panel (macOS: NSPanel-level floating rings).
-    #[serde(default = "default_false")]
+    /// Pulse-style floating quota panel (macOS/Windows edge-docked rings).
+    #[serde(default = "default_true")]
     pub pulse_enabled: bool,
     /// Pulse dock edge: "left" | "right". The stack is always vertical; this
     /// only picks which screen edge it fuses to when (re)docked.
@@ -206,7 +206,7 @@ impl Default for Config {
             floating_display: default_floating_display(),
             floating_position: default_floating_position(),
             quota_notify_enabled: default_true(),
-            pulse_enabled: default_false(),
+            pulse_enabled: default_true(),
             pulse_side: default_pulse_side(),
             pulse_size: default_pulse_size(),
             pulse_opacity: default_pulse_opacity(),
