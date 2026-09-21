@@ -112,16 +112,17 @@ fn set_peek_state(st: PeekState, t: Option<std::time::Instant>) {
 /// `cfg.pulse_side` — it does not follow the panel's current x position
 /// (the panel may have been dragged away from the edge, but the handle must
 /// stay glued to the configured edge so users always know where to find it).
-/// Takes `conn` from the caller — callers (set_config / lib.rs setup) already
-/// hold the DB guard, and re-locking it on this thread self-deadlocks.
-fn position_peek(app: &AppHandle, conn: &Connection) {
+/// Takes the already-loaded `cfg` — NO db access here, so the poller thread
+/// (collapse_pulse) can call it with NO DB guard held (window ops under a
+/// poller-held guard deadlock against main-thread commands waiting for the
+/// lock — see sync_side_if_docked's doc).
+fn position_peek(app: &AppHandle, cfg: &config::Config) {
     let (Some(peek), Some(ring)) = (
         app.get_webview_window("pulse-peek"),
         app.get_webview_window("pulse"),
     ) else {
         return;
     };
-    let cfg = config::load(conn).unwrap_or_default();
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         peek.current_monitor(),
         ring.outer_position(),
@@ -210,29 +211,41 @@ fn reveal_pulse_on_main(app: &AppHandle) -> bool {
 }
 
 /// Hide the panel, surface the peek handle at the edge (collapse end).
-/// Runs on the poller thread (no DB guard held), so it may lock the DB to
-/// read config for the handle's edge. Before anything re-appears, the panel
-/// is snapped back flush to the configured edge (an INVISIBLE move — the
-/// window is already hidden): auto-hide requires edge-docking because the
-/// reveal handle lives on the screen edge, and a panel dragged to a
-/// floating spot re-triggers the reveal/flicker loop.
+/// Runs on the poller thread. The DB is locked ONLY for the short config
+/// read (guard dropped before any window op) — window operations under a
+/// poller-held DB guard deadlock against main-thread commands (set_config /
+/// set_pulse_position) waiting for the same lock: on Windows the ops can
+/// require the main thread, the main thread can require the lock → ABBA,
+/// permanent freeze. Before anything re-appears, the panel is snapped back
+/// flush to the configured edge (an INVISIBLE move — the window is already
+/// hidden): auto-hide requires edge-docking because the reveal handle lives
+/// on the screen edge, and a panel dragged to a floating spot re-triggers
+/// the reveal/flicker loop.
 fn collapse_pulse(app: &AppHandle) {
-    // Bind the state handle first — the guard borrows through it, so it must
-    // outlive the lock (and_then on a temporary fails E0515).
-    let state = app.try_state::<AppState>();
-    let conn_guard = state.as_ref().and_then(|s| s.db.lock().ok());
+    // Short db-only lock: read the config, drop the guard immediately.
+    let cfg = {
+        let state = app.try_state::<AppState>();
+        let guard = state.as_ref().and_then(|s| s.db.lock().ok());
+        guard
+            .and_then(|conn| config::load(&conn).ok())
+            .unwrap_or_default()
+    };
     if let Some(ring) = app.get_webview_window("pulse") {
         let _ = ring.hide();
-        if let Some(conn) = conn_guard.as_deref() {
-            snap_pulse_to_edge(conn, &ring);
+        if let Some((x, y)) = snap_pulse_to_edge(&cfg.pulse_side, &ring) {
+            // Persist the flushed x — its OWN short db lock (no window op
+            // inside), so the poller never holds the guard across one.
+            if let Some(state) = app.try_state::<AppState>() {
+                if let Ok(conn) = state.db.lock() {
+                    save_pos(&conn, x, y);
+                }
+            }
         }
     }
     if let Some(card) = app.get_webview_window("pulse-card") {
         park_card(&card);
     }
-    if let Some(conn) = conn_guard.as_deref() {
-        position_peek(app, conn);
-    }
+    position_peek(app, &cfg);
     if let Some(peek) = app.get_webview_window("pulse-peek") {
         let _ = peek.show();
     }
@@ -314,6 +327,15 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     if cfg.pulse_enabled {
         let auto_hide = cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED;
         position_pulse(app, conn);
+        // A restored saved position from a past drag may dock the panel at
+        // the OTHER edge than the setting says (the old flip raced or never
+        // ran). Sync the setting to reality here so the peek handle, collapse
+        // snap target and settings UI all agree from the start — the flip is
+        // pushed by the push_pulse_data at the end of this function.
+        // Main thread + caller-held guard: getters resolve inline (safe).
+        if let Some(docked) = docked_side(app) {
+            flip_side(conn, docked);
+        }
         // Auto-hide only applies while edge-docked (the peek handle lives
         // ON the screen edge). A floating panel — dragged to a non-edge
         // spot and persisted — stays visible like "always".
@@ -326,7 +348,9 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
             apply_floating_level(&h, cfg.pulse_topmost);
             // Pure visibility toggles — the window is never resized here.
             if peek_armed {
-                snap_pulse_to_edge(conn, &h);
+                if let Some((x, y)) = snap_pulse_to_edge(&cfg.pulse_side, &h) {
+                    save_pos(conn, x, y);
+                }
                 let _ = h.hide();
             } else {
                 let _ = h.show();
@@ -342,7 +366,7 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
         if let Some(p) = app.get_webview_window("pulse-peek") {
             apply_floating_level(&p, cfg.pulse_topmost);
             if peek_armed {
-                position_peek(app, conn);
+                position_peek(app, &cfg);
                 let _ = p.show();
             } else {
                 let _ = p.hide();
@@ -1183,19 +1207,21 @@ fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
     x_is_docked(x, w, ml, mr)
 }
 
-/// Snap the panel flush to the edge configured by `cfg.pulse_side`
-/// (vertical position unchanged), persisting the new x. Auto-hide needs
-/// this: the peek handle lives ON the configured screen edge, so the panel
-/// must also be edge-docked — otherwise the reveal shows the panel away from
-/// the cursor and it collapses again in a ~560ms loop. Mirrors token-monitor,
+/// Snap the panel flush to `side` (vertical position unchanged). Returns
+/// the snapped logical coords so the CALLER persists them under whatever
+/// lock discipline its thread requires (main thread: caller-held guard;
+/// poller: a separate short lock). NO db access here. Auto-hide needs this:
+/// the peek handle lives ON the configured screen edge, so the panel must
+/// also be edge-docked — otherwise the reveal shows the panel away from the
+/// cursor and it collapses again in a ~560ms loop. Mirrors token-monitor,
 /// whose edgeDock rail is always edge-flush.
-fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
+fn snap_pulse_to_edge(side: &str, win: &tauri::WebviewWindow) -> Option<(i32, i32)> {
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         win.current_monitor(),
         win.outer_position(),
         win.outer_size(),
     ) else {
-        return;
+        return None;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let px = pos.x as f64 / scale;
@@ -1203,12 +1229,6 @@ fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
     let w = size.width as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
-    // Use the configured side, not "nearest edge". (config::load — the
-    // pulse_side field lives inside the JSON blob on the `config` row, not
-    // on its own key.)
-    let side = config::load(conn)
-        .map(|cfg| cfg.pulse_side)
-        .unwrap_or_else(|_| "right".into());
     let snapped = if side == "left" {
         mon_left
     } else {
@@ -1218,10 +1238,7 @@ fn snap_pulse_to_edge(conn: &Connection, win: &tauri::WebviewWindow) {
         let _ = win.set_position(LogicalPosition::new(snapped, py));
         tracing::debug!("pulse: auto-hide snapped panel flush to edge x={snapped}");
     }
-    // Persist the flushed x either way so the 1s position poller and the
-    // restore path agree (the panel is about to be hidden, which skips
-    // persisting).
-    save_pos(conn, snapped.round() as i32, py.round() as i32);
+    Some((snapped.round() as i32, py.round() as i32))
 }
 
 fn position_pulse(app: &AppHandle, conn: &Connection) {
@@ -1338,12 +1355,14 @@ pub fn persist_pulse_pos(app: &AppHandle) {
     // upward across restarts.
     // Window getters BEFORE the DB guard — current_monitor/outer_size may
     // round-trip to the main thread, and doing that under this thread's
-    // guard risks the same ABBA deadlock the flipped-side push below avoids.
+    // guard is the ABBA half of the freeze (main-thread command waiting for
+    // the lock while the poller waits for the main thread).
     let max_h = panel_max_h(&h);
     let h_now = h
         .outer_size()
         .map(|s| s.height as f64 / scale)
         .unwrap_or(0.0);
+    let docked = docked_side(app);
     let cfg = config::load(&conn).unwrap_or_default();
     let (_, h_c) = collapsed_size(&cfg, load_quotas(&conn).len(), max_h);
     if (h_now - h_c).abs() > 2.0 {
@@ -1351,9 +1370,9 @@ pub fn persist_pulse_pos(app: &AppHandle) {
     }
     save_pos(&conn, wx, wy);
     // 1s safety net for the side flip (the drag-end command is the primary
-    // path — see set_pulse_position). Signal only: the flip's frontend push
-    // happens AFTER the guard drops, off the lock.
-    let flipped = sync_side_if_docked(app, &conn);
+    // path — see set_pulse_position). flip_side is db-only, safe under the
+    // guard; the frontend push happens AFTER the guard drops.
+    let flipped = docked.is_some_and(|d| flip_side(&conn, d));
     drop(conn);
     if flipped {
         // Off-main thread with NO DB guard held — never call push_pulse_data
@@ -1365,41 +1384,40 @@ pub fn persist_pulse_pos(app: &AppHandle) {
     }
 }
 
-/// Keep `pulse_side` in sync with where the panel is actually docked: a
-/// drag from one edge to the other flips the setting, so everything keyed
-/// on it (peek handle placement, collapse snap target, settings UI) stays
-/// consistent and the panel is never yanked back to the old edge. Only
-/// fires when flush (≤2px); floating positions never touch it.
-///
-/// Returns true when the side flipped — the CALLER must propagate the new
-/// side to the frontends AFTER releasing the DB guard: push_pulse_data does
-/// window/theme GETTERS that round-trip to the main thread, and doing them
-/// under this thread's DB guard deadlocks against a main-thread command
-/// (set_pulse_position / set_config) waiting for the same lock. Signal +
-/// caller-pushes, the established pattern (see park_card).
-pub fn sync_side_if_docked(app: &AppHandle, conn: &Connection) -> bool {
-    let Some(win) = app.get_webview_window("pulse") else {
-        return false;
-    };
+/// Which screen edge the panel is flush with (≤2px), or None when floating.
+/// PURE window getters — call from any thread with NO DB guard held: these
+/// may round-trip to the main thread, and under a poller-held guard that's
+/// the ABBA half of the freeze (main-thread command waits for the lock
+/// while the poller waits for the main thread).
+pub fn docked_side(app: &AppHandle) -> Option<&'static str> {
+    let win = app.get_webview_window("pulse")?;
     let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
         win.current_monitor(),
         win.outer_position(),
         win.outer_size(),
     ) else {
-        return false;
+        return None;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let x = pos.x as f64 / scale;
     let w = size.width as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
-    let docked = if (x - mon_left).abs() <= 2.0 {
-        "left"
+    if (x - mon_left).abs() <= 2.0 {
+        Some("left")
     } else if (mon_right - (x + w)).abs() <= 2.0 {
-        "right"
+        Some("right")
     } else {
-        return false; // floating — the setting is untouched
-    };
+        None // floating
+    }
+}
+
+/// Flip `pulse_side` to the docked edge when they disagree. PURE db — no
+/// window ops, safe under a caller-held guard on any thread. Returns true
+/// when the setting changed; the CALLER propagates to frontends (main
+/// thread: push_pulse_data under the guard is fine — getters resolve
+/// inline; poller: emit "config:changed" AFTER dropping the guard).
+pub fn flip_side(conn: &Connection, docked: &str) -> bool {
     let mut cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_side == docked {
         return false;

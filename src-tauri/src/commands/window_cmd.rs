@@ -415,7 +415,9 @@ pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> 
     let state = app.state::<crate::state::AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::ui::pulse::save_pos(&conn, x, y);
-    if crate::ui::pulse::sync_side_if_docked(&app, &conn) {
+    let flipped =
+        crate::ui::pulse::docked_side(&app).is_some_and(|d| crate::ui::pulse::flip_side(&conn, d));
+    if flipped {
         // Cross-edge drag flipped pulse_side. Push the new side to the
         // pulse/peek frontends — this command runs ON the main thread, so
         // the window getters inside resolve inline (same safe pattern as
