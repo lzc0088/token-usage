@@ -109,6 +109,13 @@
 
   // NOTE: hover keep-alive is handled by the Rust cursor poller — this
   // view only renders and animates.
+
+  // Suppress the native WebView2 context menu (refresh / save as / …).
+  $effect(() => {
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  });
 </script>
 
 <div class="pulse-card-root" class:dark={data.theme === "dark"}>

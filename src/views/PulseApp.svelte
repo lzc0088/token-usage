@@ -143,6 +143,41 @@
     }
   }
 
+  // Smoothly animate the window to a target position (ease-out cubic).
+  // Native windows can't use CSS transitions — position is set by the OS —
+  // so we drive it with rAF in small steps.
+  function animateToPosition(
+    targetX: number,
+    targetY: number,
+    duration = 180
+  ): Promise<void> {
+    return win.outerPosition().then((start) => {
+      const sx = start.x;
+      const sy = start.y;
+      const dx = targetX - sx;
+      const dy = targetY - sy;
+      // Already there — nothing to animate.
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return Promise.resolve();
+      const t0 = performance.now();
+      return new Promise<void>((resolve) => {
+        function frame() {
+          const t = Math.min((performance.now() - t0) / duration, 1);
+          // ease-out cubic: fast start, gentle settle.
+          const e = 1 - (1 - t) * (1 - t) * (1 - t);
+          win.setPosition(
+            new PhysicalPosition(
+              Math.round(sx + dx * e),
+              Math.round(sy + dy * e)
+            )
+          ).catch(() => {});
+          if (t < 1) requestAnimationFrame(frame);
+          else resolve();
+        }
+        requestAnimationFrame(frame);
+      });
+    });
+  }
+
   // Snap flush to the nearest screen edge when dropped close to it.
   async function snapToEdge() {
     try {
@@ -152,9 +187,9 @@
       const monLeft = mon.position.x;
       const monRight = mon.position.x + mon.size.width;
       if (pos.x - monLeft <= threshold) {
-        await win.setPosition(new PhysicalPosition(monLeft, pos.y));
+        await animateToPosition(monLeft, pos.y);
       } else if (monRight - (pos.x + size.width) <= threshold) {
-        await win.setPosition(new PhysicalPosition(monRight - size.width, pos.y));
+        await animateToPosition(monRight - size.width, pos.y);
       }
     } catch {
       // ignore — position stays wherever the drag left it
@@ -178,11 +213,16 @@
           .catch(() => {});
       });
     };
+    // Suppress the WebView2 native context menu (refresh / save as / …) —
+    // the panel is a HUD widget, not a document.
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("contextmenu", onContextMenu);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("contextmenu", onContextMenu);
     };
   });
 
@@ -395,10 +435,16 @@
 
   /* Windows: WebView2 over a transparent window can't sample the desktop
      behind it, so the blur renders as a flat gray glass block — drop it
-     and let the (alpha-controlled) solid surface carry the look. */
+     and let the rings float without a visible background panel. */
   .pulse-panel.win .panel-surface {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    background: transparent;
+  }
+  /* Rail outline is also hidden on Windows — with a transparent bg the
+     stroke would draw an empty pill silhouette around nothing. */
+  .pulse-panel.win .panel-surface .rail-outline {
+    display: none;
   }
 
   /* Rail silhouette — clip-path replaces border-radius for docked edges;
