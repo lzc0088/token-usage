@@ -157,7 +157,7 @@ fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64)
     // this (see PEEK_RECT). One writer, so the zone always matches the handle
     // the user actually sees.
     *PEEK_RECT.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, handle_y));
-    tracing::debug!(
+    tracing::info!(
         "peek: handle placed at ({x},{handle_y}) side={side} mon=[{mon_left},{mon_right}]"
     );
 }
@@ -361,6 +361,25 @@ fn ring_diameter(size: &str) -> f64 {
     }
 }
 
+/// [`position_pulse`] with auto-hide's docking guarantee: in auto_hide mode
+/// a restored FLOATING saved position would suspend the peek handle entirely
+/// (peek_armed=false, panel just stays up) — which reads as "auto-hide is
+/// broken/unstable" whenever a floating position lingers from an always-show
+/// session. Discard it and re-dock fresh at the configured edge instead.
+fn position_pulse_with_auto_hide_dock(
+    app: &AppHandle,
+    conn: &Connection,
+    auto_hide: bool,
+) -> Option<Placement> {
+    let placed = position_pulse(app, conn);
+    if !auto_hide || placed.is_some_and(|p| p.at_edge) {
+        return placed;
+    }
+    tracing::info!("pulse: auto_hide with floating saved position → re-docking fresh");
+    clear_pos(conn);
+    position_pulse(app, conn)
+}
+
 /// Sync pulse panel visibility + position with config (startup + on change).
 pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     if !PULSE_SUPPORTED {
@@ -370,12 +389,12 @@ pub fn sync_pulse(app: &AppHandle, conn: &Connection) {
     let cfg = config::load(conn).unwrap_or_default();
     if cfg.pulse_enabled {
         let auto_hide = cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED;
+        let placed = position_pulse_with_auto_hide_dock(app, conn, auto_hide);
         // position_pulse returns where it PLACED the panel — the peek_armed
         // check and the handle placement below use that KNOWN geometry, not a
         // read-back of the window (on Windows set_position dispatches
         // asynchronously, so a read-back can still see the pre-move rect and
         // mis-arm auto-hide / strand the handle at a stale spot).
-        let placed = position_pulse(app, conn);
         // A restored saved position from a past drag may dock the panel at
         // the OTHER edge than the setting says (the old flip raced or never
         // ran). Sync the setting to reality here so the peek handle, collapse
