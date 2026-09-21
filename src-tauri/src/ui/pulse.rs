@@ -1517,7 +1517,11 @@ mod tests {
         for n in [1usize, 3, 5] {
             let (w, h) = collapsed_size(&cfg, n, MAX_PANEL_H);
             assert_eq!(w, d + PANEL_PAD * 2.0);
-            let expect_h = PAD_V + PAD_V_BOT + TITLE_BLOCK + dock_height_capped(d, n, MAX_PANEL_H);
+            let expect_h = PAD_V
+                + PAD_V_BOT
+                + TITLE_BLOCK
+                + dock_height_capped(d, n, MAX_PANEL_H)
+                + WIN_H_SLACK;
             assert!(
                 (h - expect_h).abs() < f64::EPSILON,
                 "n={n}: {h} != {expect_h}"
@@ -1527,7 +1531,10 @@ mod tests {
         // height = 36 + 44 + 27 (title block) + 235 = 342.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
-            assert!((h3 - 342.0).abs() < 0.01, "medium n=3: {h3}");
+            assert!(
+                (h3 - (342.0 + WIN_H_SLACK)).abs() < 0.01,
+                "medium n=3: {h3}"
+            );
         }
         // Zero rings degrade to the single-ring minimum, never negative.
         let (_, h0) = collapsed_size(&cfg, 0, MAX_PANEL_H);
@@ -1636,11 +1643,17 @@ mod tests {
         // Large, 3 rings: s=1.25 → dock = 3*(60+26.25) + 2*17.5 = 293.75,
         // height = 36 + 44 + 33.75 + 293.75 = 407.5.
         let (_, h_l) = collapsed_size(&cfg_l, 3, MAX_PANEL_H);
-        assert!((h_l - 407.5).abs() < 0.01, "large n=3: {h_l}");
+        assert!(
+            (h_l - (407.5 + WIN_H_SLACK)).abs() < 0.01,
+            "large n=3: {h_l}"
+        );
         // Small, 3 rings: s=0.75 → dock = 3*(36+15.75) + 2*10.5 = 176.25,
         // height = 36 + 44 + 20.25 + 176.25 = 276.5.
         let (_, h_s) = collapsed_size(&cfg_s, 3, MAX_PANEL_H);
-        assert!((h_s - 276.5).abs() < 0.01, "small n=3: {h_s}");
+        assert!(
+            (h_s - (276.5 + WIN_H_SLACK)).abs() < 0.01,
+            "small n=3: {h_s}"
+        );
         // Ring pitch scales too (hover hit-test + card line stay aligned):
         // large rail = 63*1.25 = 78.75, pitch = 60 + 43.75 = 103.75.
         assert!((ring_center_y(60.0, 0) - (78.75 + 30.0)).abs() < f64::EPSILON);
@@ -1682,7 +1695,7 @@ mod tests {
         let cfg = config::Config::default();
         let (_, h10) = collapsed_size(&cfg, 10, MAX_PANEL_H);
         assert!(
-            h10 <= MAX_PANEL_H + f64::EPSILON,
+            h10 <= MAX_PANEL_H + WIN_H_SLACK + f64::EPSILON,
             "10 rings capped: {h10} > {MAX_PANEL_H}"
         );
         let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
@@ -1696,13 +1709,18 @@ mod tests {
         let max = (screen_h * MAX_PANEL_H_RATIO).floor(); // 785
                                                           // 20 large rings: natural dock = 20*81 + 19*14 = 1906 ≫ avail.
         let (w, h20) = collapsed_size(&cfg, 20, max);
-        assert!((h20 - max).abs() < f64::EPSILON, "capped to {max}: {h20}");
+        assert!(
+            (h20 - (max + WIN_H_SLACK)).abs() < f64::EPSILON,
+            "capped to {max}: {h20}"
+        );
         // Width is untouched by the height cap.
         let d = ring_diameter(&cfg.pulse_size);
         assert_eq!(w, d + PANEL_PAD * 2.0);
         // A tiny screen still leaves the 60px minimum dock (never negative).
         let (_, h_tiny) = collapsed_size(&cfg, 20, 100.0);
-        assert!((h_tiny - (PAD_V + PAD_V_BOT + TITLE_BLOCK + 60.0)).abs() < f64::EPSILON);
+        assert!(
+            (h_tiny - (PAD_V + PAD_V_BOT + TITLE_BLOCK + 60.0 + WIN_H_SLACK)).abs() < f64::EPSILON
+        );
     }
 
     #[test]
