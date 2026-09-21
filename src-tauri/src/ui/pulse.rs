@@ -1253,7 +1253,19 @@ fn position_pulse(app: &AppHandle, conn: &Connection) {
 
     // Fresh dock: configured edge ("left" | "right"), vertically centered.
     // (Dragged positions persist and are restored above.)
-    let Ok(Some(mon)) = win.primary_monitor() else {
+    // On Windows the window may not be fully realised during the setup
+    // closure — primary_monitor() can return Err. Fall back to
+    // current_monitor(), then to a default 1920×1080 right-edge dock so the
+    // panel is never left unpositioned (invisible) on first launch.
+    let mon = match win.primary_monitor() {
+        Ok(Some(m)) => Some(m),
+        _ => win.current_monitor().ok().flatten(),
+    };
+    let Some(mon) = mon else {
+        let px = 1920.0 - w;
+        let py = (1080.0 - h) / 2.0;
+        tracing::warn!("pulse: no monitor readable on fresh dock; defaulting to ({px},{py})");
+        let _ = win.set_position(LogicalPosition::new(px, py));
         return;
     };
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);

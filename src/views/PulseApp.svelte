@@ -204,33 +204,42 @@
       if (target.closest(".ring-container")) return;
       win.startDragging().catch(() => {});
     };
-    const onMouseUp = () => {
-      // Persist after a drag (the 1s Rust poller is the safety net).
-      snapToEdge().then(() => {
-        win
-          .outerPosition()
-          .then((pos) => invoke("set_pulse_position", { x: pos.x, y: pos.y }))
-          .catch(() => {});
-      });
-    };
     // Suppress the WebView2 native context menu (refresh / save as / …) —
     // the panel is a HUD widget, not a document.
     const onContextMenu = (e: MouseEvent) => e.preventDefault();
     document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("contextmenu", onContextMenu);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("contextmenu", onContextMenu);
     };
   });
 
-  // Track window moves (fires during native drag) to recompute which edge
-  // is fused.
+  // Drag-end detection + snap. On Windows, startDragging() runs a native
+  // modal loop that swallows the mouseup — so instead of listening for
+  // mouseup we debounce onMoved: when the position stops changing for
+  // DRAG_SETTLE_MS the drag has ended → snap to edge + persist.
+  const DRAG_SETTLE_MS = 120;
+  let dragTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function onDragSettled() {
+    snapToEdge().then(() => {
+      win
+        .outerPosition()
+        .then((pos) => invoke("set_pulse_position", { x: pos.x, y: pos.y }))
+        .catch(() => {});
+    });
+  }
+
   $effect(() => {
-    const unlisten = win.onMoved(() => updateFlushSide());
+    const unlisten = win.onMoved(() => {
+      updateFlushSide();
+      // Reset the settle timer on every move; fires once the drag stops.
+      if (dragTimer !== undefined) clearTimeout(dragTimer);
+      dragTimer = setTimeout(onDragSettled, DRAG_SETTLE_MS);
+    });
     return () => {
+      if (dragTimer !== undefined) clearTimeout(dragTimer);
       unlisten.then((u) => u()).catch(() => {});
     };
   });
@@ -434,17 +443,19 @@
   }
 
   /* Windows: WebView2 over a transparent window can't sample the desktop
-     behind it, so the blur renders as a flat gray glass block — drop it
-     and let the rings float without a visible background panel. */
+     behind it, so backdrop-filter renders as a flat gray block. Drop the
+     blur and use a SOLID background instead of semi-transparent — without
+     blur, alpha looks like a dead flat rectangle. The pill/rail shape,
+     outline and layout all stay identical to macOS. */
   .pulse-panel.win .panel-surface {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: transparent;
   }
-  /* Rail outline is also hidden on Windows — with a transparent bg the
-     stroke would draw an empty pill silhouette around nothing. */
-  .pulse-panel.win .panel-surface .rail-outline {
-    display: none;
+  .pulse-panel.win {
+    --pulse-bg: rgb(0 0 0);
+  }
+  .pulse-panel.win.light {
+    --pulse-bg: rgb(240 238 234);
   }
 
   /* Rail silhouette — clip-path replaces border-radius for docked edges;
