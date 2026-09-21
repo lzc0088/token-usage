@@ -429,6 +429,7 @@
         onchange={(v) => onUpdate({ pulse_size: v as "small" | "medium" | "large" })}
       />
     </div>
+    {#if platform !== "windows"}
     <div class="box-row">
       <div class="lab">透明度</div>
       <Select
@@ -449,6 +450,7 @@
         onchange={(v) => onUpdate({ pulse_opacity: parseFloat(v) || 1 })}
       />
     </div>
+    {/if}
     <div class="box-row">
       <div class="lab">悬浮于其他应用之上<div class="hint">关闭后作为普通窗口，不遮挡其他应用</div></div>
       <div class="tg-placeholder">
