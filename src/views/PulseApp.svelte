@@ -1,7 +1,8 @@
 <script lang="ts">
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+  import { getCurrentWindow, availableMonitors } from "@tauri-apps/api/window";
+  import type { Monitor } from "@tauri-apps/api/window";
   import { PhysicalPosition } from "@tauri-apps/api/dpi";
   import QuotaRing from "../components/pulse/QuotaRing.svelte";
   import { fmtCredits, splitBalance } from "../lib/quota-format";
@@ -117,13 +118,30 @@
   // Distance (logical px) from a screen edge within which the panel snaps.
   const SNAP_THRESHOLD = 24;
 
+  // Monitor that CONTAINS the panel (by its center point). currentMonitor()
+  // is unreliable here: for a boundary-hugging window it can return the
+  // ADJACENT monitor (panel flush against the built-in's right edge with the
+  // external to its right), and snapping/clamping against THAT monitor's
+  // edges teleports the panel onto the other screen entirely (2026-09-22
+  // dual-monitor bug: panel revealed at the external's left edge, invisible
+  // on the built-in, flickering reveal/collapse loop).
   async function readGeometry() {
-    const [pos, size, mon, scale] = await Promise.all([
+    const [pos, size, mons, scale] = await Promise.all([
       win.outerPosition(),
       win.outerSize(),
-      currentMonitor(),
+      availableMonitors(),
       win.scaleFactor(),
     ]);
+    const cx = pos.x + size.width / 2;
+    const cy = pos.y + size.height / 2;
+    const mon =
+      mons.find(
+        (m: Monitor) =>
+          cx >= m.position.x &&
+          cx < m.position.x + m.size.width &&
+          cy >= m.position.y &&
+          cy < m.position.y + m.size.height
+      ) ?? mons[0];
     return { pos, size, mon, scale };
   }
 
@@ -178,10 +196,13 @@
     });
   }
 
-  // Snap flush to the nearest screen edge when dropped close to it, and
-  // clamp fully on-screen otherwise — a drop beyond an edge (native drag
-  // allows off-screen windows) would strand the panel with no title bar
-  // to drag it back.
+  // Snap flush to the nearest edge of the panel's OWN monitor when dropped
+  // close to it, and clamp fully on-screen otherwise — a drop beyond an edge
+  // (native drag allows off-screen windows) would strand the panel with no
+  // title bar to drag it back. Both gap tests use Math.abs: a bare
+  // `gapL <= threshold` also matches panels LEFT of the monitor (negative
+  // gap), which yanked the panel onto an adjacent screen when the monitor
+  // lookup disagreed with the panel's actual screen.
   async function snapToEdge() {
     try {
       const { pos, size, mon, scale } = await readGeometry();
@@ -192,10 +213,12 @@
       const monTop = mon.position.y;
       const monBottom = monTop + mon.size.height;
       const y = Math.min(Math.max(pos.y, monTop), monBottom - size.height);
+      const gapL = pos.x - monLeft;
+      const gapR = monRight - (pos.x + size.width);
       let x: number;
-      if (pos.x - monLeft <= threshold) {
+      if (Math.abs(gapL) <= threshold) {
         x = monLeft;
-      } else if (monRight - (pos.x + size.width) <= threshold) {
+      } else if (Math.abs(gapR) <= threshold) {
         x = monRight - size.width;
       } else {
         x = Math.min(Math.max(pos.x, monLeft), monRight - size.width);

@@ -133,7 +133,14 @@ fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64)
     let Some(peek) = app.get_webview_window("pulse-peek") else {
         return;
     };
-    let Ok(Some(mon)) = peek.current_monitor() else {
+    // The handle belongs to the PANEL's screen — use the panel's monitor
+    // (center-based), not the 8px handle's own current_monitor, which can
+    // disagree after a cross-screen move.
+    let mon = app
+        .get_webview_window("pulse")
+        .and_then(|ring| monitor_of_window(&ring))
+        .or_else(|| monitor_of_window(&peek));
+    let Some(mon) = mon else {
         return;
     };
     let scale = peek.scale_factor().unwrap_or(1.0).max(1.0);
@@ -732,7 +739,10 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
     };
     let vendor = dock.vendors.get(index).cloned().unwrap_or_default();
     let mut card_on_left = false;
-    if let (Ok(pos), Ok(Some(mon))) = (ring.outer_position(), ring.current_monitor()) {
+    // The card opens beside the panel ON THE PANEL'S screen — center-based
+    // monitor lookup, so a panel dragged onto a second screen gets its card
+    // clamped to that screen (current_monitor could return the adjacent one).
+    if let (Ok(pos), Some(mon)) = (ring.outer_position(), monitor_of_window(&ring)) {
         let scale = ring.scale_factor().unwrap_or(1.0).max(1.0);
         let px = pos.x as f64 / scale;
         let py = pos.y as f64 / scale;
@@ -1412,9 +1422,12 @@ fn x_is_docked(x: f64, w: f64, mon_left: f64, mon_right: f64) -> bool {
 /// (peek) only applies to a docked panel: dragged to a floating spot it
 /// stays always-visible instead, and re-arms auto-hide once dragged back
 /// to an edge. Monitor unreadable → true (conservative: keep peek).
+/// Center-based monitor lookup (see monitor_of_window) so a panel dragged
+/// onto a SECOND screen is judged against that screen's edges, not the
+/// primary's.
 fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
-    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
-        win.current_monitor(),
+    let (Some(mon), Ok(pos), Ok(size)) = (
+        monitor_of_window(win),
         win.outer_position(),
         win.outer_size(),
     ) else {
@@ -1428,6 +1441,43 @@ fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
     x_is_docked(x, w, ml, mr)
 }
 
+/// Pure: does the rect [rx, rx+rw) × [ry, ry+rh) contain the point?
+/// Half-open on the right/bottom edge so adjacent monitors never both claim
+/// a boundary point.
+fn point_in_rect(px: i32, py: i32, rx: i32, ry: i32, rw: i32, rh: i32) -> bool {
+    px >= rx && px < rx + rw && py >= ry && py < ry + rh
+}
+
+/// The monitor whose rect CONTAINS the window's center. `current_monitor()`
+/// can return the ADJACENT monitor for a boundary-hugging window (the panel
+/// flush against one screen's right edge with another screen to its right) —
+/// snapping against that monitor's edges teleports the panel onto the other
+/// screen (2026-09-22 dual-monitor bug: panel revealed on the external's left
+/// edge while the peek handle stayed on the built-in → invisible panel +
+/// reveal/collapse flicker loop). Falls back to primary when the center is
+/// off every monitor (fully off-screen).
+fn monitor_of_window(win: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
+    let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) else {
+        return win.primary_monitor().ok().flatten();
+    };
+    let cx = pos.x + (size.width / 2) as i32;
+    let cy = pos.y + (size.height / 2) as i32;
+    let monitors = win.available_monitors().unwrap_or_default();
+    monitors
+        .into_iter()
+        .find(|m| {
+            point_in_rect(
+                cx,
+                cy,
+                m.position().x,
+                m.position().y,
+                m.size().width as i32,
+                m.size().height as i32,
+            )
+        })
+        .or_else(|| win.primary_monitor().ok().flatten())
+}
+
 /// Snap the panel flush to `side` (vertical position unchanged). Returns
 /// the snapped logical coords so the CALLER persists them under whatever
 /// lock discipline its thread requires (main thread: caller-held guard;
@@ -1437,8 +1487,8 @@ fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
 /// cursor and it collapses again in a ~560ms loop. Mirrors token-monitor,
 /// whose edgeDock rail is always edge-flush.
 fn snap_pulse_to_edge(side: &str, win: &tauri::WebviewWindow) -> Option<(i32, i32)> {
-    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
-        win.current_monitor(),
+    let (Some(mon), Ok(pos), Ok(size)) = (
+        monitor_of_window(win),
         win.outer_position(),
         win.outer_size(),
     ) else {
@@ -1515,7 +1565,7 @@ fn position_pulse(app: &AppHandle, conn: &Connection) -> Option<Placement> {
             let mut x = sx;
             let mut at_edge = false;
             let mut side = None;
-            if let Ok(Some(mon)) = win.current_monitor() {
+            if let Some(mon) = monitor_of_window(&win) {
                 let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
                 let mon_left = mon.position().x as f64 / sf;
                 let mon_right = mon_left + mon.size().width as f64 / sf;
@@ -1656,11 +1706,12 @@ pub fn persist_pulse_pos(app: &AppHandle) {
 /// PURE window getters — call from any thread with NO DB guard held: these
 /// may round-trip to the main thread, and under a poller-held guard that's
 /// the ABBA half of the freeze (main-thread command waits for the lock
-/// while the poller waits for the main thread).
+/// while the poller waits for the main thread). Center-based monitor lookup
+/// so a panel dragged onto a second screen reports THAT screen's edge.
 pub fn docked_side(app: &AppHandle) -> Option<&'static str> {
     let win = app.get_webview_window("pulse")?;
-    let (Ok(Some(mon)), Ok(pos), Ok(size)) = (
-        win.current_monitor(),
+    let (Some(mon), Ok(pos), Ok(size)) = (
+        monitor_of_window(&win),
         win.outer_position(),
         win.outer_size(),
     ) else {
@@ -1824,6 +1875,27 @@ pub struct PulseBalance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn point_in_rect_boundary_semantics() {
+        // Inside: strictly within, and on the left/top edge (inclusive).
+        assert!(point_in_rect(5, 5, 0, 0, 100, 100));
+        assert!(point_in_rect(0, 0, 0, 0, 100, 100));
+        // Right/bottom edges are EXCLUSIVE — adjacent monitors sharing a
+        // border never both claim the boundary point.
+        assert!(!point_in_rect(100, 50, 0, 0, 100, 100));
+        assert!(!point_in_rect(50, 100, 0, 0, 100, 100));
+        // A panel center just LEFT of an external monitor's left edge
+        // (built-in [0,5120), external [5120,8576)) must resolve to the
+        // built-in — the regression behind the 2026-09-22 cross-screen
+        // teleport (center 5119 → built-in; 5120 → external).
+        assert!(point_in_rect(5119, 500, 0, 0, 5120, 2880));
+        assert!(!point_in_rect(5119, 500, 5120, 0, 3456, 2234));
+        assert!(point_in_rect(5120, 500, 5120, 0, 3456, 2234));
+        // Fully off every monitor → false (caller falls back to primary).
+        assert!(!point_in_rect(-100, -100, 0, 0, 5120, 2880));
+        assert!(!point_in_rect(99999, 500, 0, 0, 5120, 2880));
+    }
 
     #[test]
     fn saved_pos_off_every_monitor_is_rejected() {
