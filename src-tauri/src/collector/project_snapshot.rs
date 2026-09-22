@@ -73,10 +73,13 @@ async fn build_period_projects(
 ) -> Vec<ProjectAgg> {
     let sess_args = tokscale::report_args(tp, &["claude".to_string()], "session,model");
     let ws_args = tokscale::report_args(tp, &[], "workspace,model");
-    let (sess_res, ws_res) = tokio::join!(
-        tokscale::run_json(bin, &sess_args),
-        tokscale::run_json(bin, &ws_args),
-    );
+    // SEQUENTIAL, not parallel: each tokscale process peaks ~180MB (V8 heap
+    // over the full token history), so two at once doubles the app's peak
+    // RSS (~300MB → ~480MB with the app itself). The two reports are
+    // independent; order is irrelevant and the extra ~1-2s is invisible in
+    // this background precompute.
+    let sess_res = tokscale::run_json(bin, &sess_args).await;
+    let ws_res = tokscale::run_json(bin, &ws_args).await;
 
     // Claude projects from session report + DB path map.
     let mut projects = match sess_res {

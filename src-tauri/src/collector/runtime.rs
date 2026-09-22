@@ -341,11 +341,19 @@ pub async fn start(app: AppHandle, db: Arc<Mutex<Connection>>) {
                     // periods and persist to DB. Spawned off the consumer loop so
                     // it doesn't block event processing (~2s of tokscale calls).
                     // get_projects then reads these snapshots directly (pure DB).
-                    let bin_snap = bin_for_snapshot.clone();
-                    let db_snap = db.clone();
-                    tauri::async_runtime::spawn(async move {
-                        super::project_snapshot::precompute_and_persist(bin_snap, db_snap).await;
-                    });
+                    // Same 120s rate limit as the TodaySummary branch below —
+                    // an unrated snapshot here plus a rated one there ran
+                    // tokscale (2 processes, ~360MB peak) twice as often as
+                    // needed in smart mode.
+                    if last_project_snapshot.elapsed() >= PROJECT_SNAPSHOT_MIN_INTERVAL {
+                        last_project_snapshot = Instant::now();
+                        let bin_snap = bin_for_snapshot.clone();
+                        let db_snap = db.clone();
+                        tauri::async_runtime::spawn(async move {
+                            super::project_snapshot::precompute_and_persist(bin_snap, db_snap)
+                                .await;
+                        });
+                    }
                 }
                 scheduler::CollectionEvent::TodaySummary(v) => {
                     // Ingest today's per-client/model entries into daily_usage

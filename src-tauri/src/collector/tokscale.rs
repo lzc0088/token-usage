@@ -266,6 +266,11 @@ pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleErro
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args)
         .env("TOKSCALE_PRICING_CACHE_ONLY", "1")
+        // Kill the child when this future is dropped — the timeout below
+        // drops it, and without kill_on_drop a timed-out tokscale survives
+        // as an orphan holding ~180MB at high CPU indefinitely (observed
+        // 2026-09-22: a leaked scan process pinned 24% CPU / 171MB).
+        .kill_on_drop(true)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
@@ -290,6 +295,10 @@ pub async fn run_json(bin: &Path, args: &[String]) -> Result<Value, TokscaleErro
 
 /// Re-warm the pricing cache when it's older than this.
 const PRICING_CACHE_MAX_AGE_SECS: u64 = 7 * 24 * 3600;
+
+/// Bound for the pricing-cache warm child: the pricing fetch is the only
+/// network op tokscale makes; 60s is generous on any working route.
+const PRICING_WARM_TIMEOUT_SECS: u64 = 60;
 
 /// tokscale config dir: `$TOKSCALE_CONFIG_DIR` if set, else `~/.config/tokscale`
 /// (tokscale uses XDG-style paths even on macOS — verified on this machine).
@@ -330,6 +339,11 @@ pub fn pricing_cache_stale() -> bool {
 /// report **without** `TOKSCALE_PRICING_CACHE_ONLY` so it fetches + caches the
 /// table; no-op when the cache is fresh. Returns immediately; failures only
 /// mean cost estimates stay $0 until the next successful warm.
+///
+/// The blocking wait is BOUNDED (60s): an unbounded `cmd.status()` hangs
+/// forever when the pricing fetch stalls (CN networks without the proxy),
+/// leaking a ~150MB process for the app's lifetime — same orphan class the
+/// async path's kill_on_drop fixes. On timeout the child is killed.
 pub fn ensure_pricing_cache(bin: &Path) {
     if !pricing_cache_stale() {
         return;
@@ -344,7 +358,31 @@ pub fn ensure_pricing_cache(bin: &Path) {
             .stderr(Stdio::null());
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — suppress cmd flash
-        let _ = cmd.status();
+        let Ok(mut child) = cmd.spawn() else {
+            return;
+        };
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(PRICING_WARM_TIMEOUT_SECS);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => {}
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    "pricing cache warm timed out after {PRICING_WARM_TIMEOUT_SECS}s — killing child"
+                );
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
     });
 }
 
