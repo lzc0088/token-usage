@@ -400,6 +400,7 @@
         onchange={(v) => onUpdate({ pulse_side: v as "left" | "right" })}
       />
     </div>
+    {#if platform !== "windows"}
     <div class="box-row">
       <div class="lab">
         显示方式
@@ -415,6 +416,7 @@
         onchange={(v) => onUpdate({ pulse_display_mode: v as "always" | "auto_hide" })}
       />
     </div>
+    {/if}
     <div class="box-row">
       <div class="lab">面板尺寸</div>
       <Select

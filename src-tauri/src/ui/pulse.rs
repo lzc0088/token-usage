@@ -10,13 +10,14 @@
 //! (the ghost/flash); pure moves are always clean.
 //!
 //! macOS + Windows. The peek/auto-hide mode (edge handle, reveal state
-//! machine) is supported on both platforms. Other platforms: no-op (the
+//! machine) is macOS-only — on Windows the panel is always shown (a saved
+//! auto_hide setting degrades to always). Other platforms: no-op (the
 //! floating widget covers Linux).
 
 /// Platforms the pulse panel runs on.
 const PULSE_SUPPORTED: bool = cfg!(target_os = "macos") || cfg!(target_os = "windows");
 /// Platforms with the peek (auto-hide) state machine.
-const PEEK_SUPPORTED: bool = cfg!(target_os = "macos") || cfg!(target_os = "windows");
+const PEEK_SUPPORTED: bool = cfg!(target_os = "macos");
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
