@@ -890,23 +890,67 @@ fn global_mouse_topleft(_primary_h: f64, _primary_scale: f64) -> Option<(f64, f6
     None
 }
 
-/// Windows: GetCursorPos returns PHYSICAL px with a top-left origin (no
-/// flip needed) — divided by the PRIMARY monitor's scale to match the
-/// logical-space hit-testing the poller does (window physical / window
-/// scale). Exact on single-monitor and uniform-DPI setups; mixed-DPI
-/// secondary monitors degrade gracefully, same approximation class as the
-/// macOS primary-flip.
+/// Windows: GetCursorPos returns PHYSICAL px in virtual-desktop coords
+/// (top-left origin, no flip needed). Returned RAW — the poller hit-tests
+/// in PHYSICAL space on Windows (see to_hit_space): dividing by the PRIMARY
+/// monitor's scale mismatches every monitor whose scale differs (mixed-DPI
+/// multi-monitor), which silently killed all hover detection on secondary
+/// monitors (no card, no peek reveal — 2026-09-22 log-confirmed).
 #[cfg(target_os = "windows")]
-fn global_mouse_topleft(_primary_h: f64, primary_scale: f64) -> Option<(f64, f64)> {
+fn global_mouse_topleft(_primary_h: f64, _primary_scale: f64) -> Option<(f64, f64)> {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
     let mut pt = POINT::default();
     if unsafe { GetCursorPos(&mut pt) }.is_ok() {
-        let s = primary_scale.max(1.0);
-        Some((pt.x as f64 / s, pt.y as f64 / s))
+        Some((pt.x as f64, pt.y as f64))
     } else {
         None
     }
+}
+
+/// Hit-test space conversion for the hover poller. Windows compares the
+/// PHYSICAL cursor against PHYSICAL window rects (each window's rect is
+/// already physical; no per-monitor scale mixing). macOS keeps AppKit's
+/// global logical space (mouseLocation), where rects divide by window scale.
+#[cfg(target_os = "windows")]
+fn to_hit_space(v: f64, _scale: f64) -> f64 {
+    v
+}
+#[cfg(not(target_os = "windows"))]
+fn to_hit_space(v: f64, scale: f64) -> f64 {
+    v / scale
+}
+
+/// A logical-px constant (HOVER_GRACE, PEEK_PROX, …) into hit space.
+#[cfg(target_os = "windows")]
+fn hit_const(c: f64, scale: f64) -> f64 {
+    c * scale
+}
+#[cfg(not(target_os = "windows"))]
+fn hit_const(c: f64, _scale: f64) -> f64 {
+    c
+}
+
+/// A hit-space delta into logical px (ring-band math stays logical).
+#[cfg(target_os = "windows")]
+fn hit_delta_to_logical(d: f64, scale: f64) -> f64 {
+    d / scale
+}
+#[cfg(not(target_os = "windows"))]
+fn hit_delta_to_logical(d: f64, _scale: f64) -> f64 {
+    d
+}
+
+/// A LOGICAL value (e.g. PEEK_RECT, recorded by position_peek in the peek
+/// monitor's logical frame) into hit space. Distinct from to_hit_space,
+/// which is for RAW window coordinates (already physical on Windows).
+#[cfg(target_os = "windows")]
+fn logical_to_hit(v: f64, scale: f64) -> f64 {
+    v * scale
+}
+#[cfg(not(target_os = "windows"))]
+fn logical_to_hit(v: f64, _scale: f64) -> f64 {
+    v
 }
 
 #[cfg(target_os = "windows")]
@@ -992,8 +1036,19 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             let (Ok(pos), Ok(size)) = (ring.outer_position(), ring.outer_size()) else {
                 continue;
             };
-            let (px, py) = (pos.x as f64 / scale, pos.y as f64 / scale);
-            let (w_c, h_c) = (size.width as f64 / scale, size.height as f64 / scale);
+            // Panel rect in HIT space — physical on Windows (mixed-DPI safe:
+            // every window rect is physical, and the cursor is physical too,
+            // so monitors with different scales just work), logical on macOS.
+            let (px, py) = (
+                to_hit_space(pos.x as f64, scale),
+                to_hit_space(pos.y as f64, scale),
+            );
+            let (w_c, h_c) = (
+                to_hit_space(size.width as f64, scale),
+                to_hit_space(size.height as f64, scale),
+            );
+            let grace = hit_const(HOVER_GRACE, scale);
+            let prox = hit_const(PEEK_PROX, scale);
 
             // A physically held button = the user is dragging the panel (the
             // native titlebar-style drag keeps the button down). One query
@@ -1021,26 +1076,41 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                     // not the whole screen edge, so sweeping the cursor to
                     // the edge (scrollbars, hot corners) never pops the panel.
                     // The rect comes from PEEK_RECT (what position_peek last
-                    // PLACED), with the live window position as fallback — a
-                    // stale read-back must never move the zone off the handle
-                    // the user sees.
+                    // PLACED, logical), converted into hit space with the
+                    // peek window's OWN scale, with the live physical position
+                    // as fallback — a stale read-back must never move the zone
+                    // off the handle the user sees.
+                    let peek_win = app.get_webview_window("pulse-peek");
+                    let peek_scale = peek_win
+                        .as_ref()
+                        .map(|p| p.scale_factor().unwrap_or(1.0).max(1.0))
+                        .unwrap_or(1.0);
                     let rect = PEEK_RECT
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
+                        .map(|(qx, qy)| {
+                            (
+                                logical_to_hit(qx, peek_scale),
+                                logical_to_hit(qy, peek_scale),
+                            )
+                        })
                         .or_else(|| {
-                            app.get_webview_window("pulse-peek").and_then(|p| {
-                                let s = p.scale_factor().unwrap_or(1.0).max(1.0);
-                                p.outer_position()
-                                    .ok()
-                                    .map(|pp| (pp.x as f64 / s, pp.y as f64 / s))
-                            })
+                            peek_win
+                                .as_ref()
+                                .and_then(|p| p.outer_position().ok())
+                                .map(|pp| {
+                                    (
+                                        to_hit_space(pp.x as f64, peek_scale),
+                                        to_hit_space(pp.y as f64, peek_scale),
+                                    )
+                                })
                         });
+                    let hw = hit_const(PEEK_WIN_W, peek_scale);
+                    let hh = hit_const(PEEK_WIN_H, peek_scale);
+                    let hg = hit_const(HOVER_GRACE, peek_scale);
                     let in_trigger = rect
                         .map(|(qx, qy)| {
-                            mx >= qx - HOVER_GRACE
-                                && mx < qx + PEEK_WIN_W + HOVER_GRACE
-                                && my >= qy - HOVER_GRACE
-                                && my < qy + PEEK_WIN_H + HOVER_GRACE
+                            mx >= qx - hg && mx < qx + hw + hg && my >= qy - hg && my < qy + hh + hg
                         })
                         .unwrap_or(false);
                     match peek_state() {
@@ -1089,7 +1159,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                                             && my < py + h_c
                                         {
                                             ring_index_at(
-                                                my - py,
+                                                hit_delta_to_logical(my - py, scale),
                                                 dock.diameter,
                                                 dock.vendors.len(),
                                             )
@@ -1157,22 +1227,26 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             }
 
             // Dragging = the panel is moving under the pointer; suppress.
-            let dragging = (px - last_panel_pos.0).abs() + (py - last_panel_pos.1).abs() > 1.5;
+            // Threshold in hit space (physical px on Windows).
+            let dragging = (px - last_panel_pos.0).abs() + (py - last_panel_pos.1).abs()
+                > hit_const(1.5, scale);
             last_panel_pos = (px, py);
 
-            let in_panel = mx >= px - HOVER_GRACE
-                && mx < px + w_c + HOVER_GRACE
-                && my >= py - HOVER_GRACE
-                && my < py + h_c + HOVER_GRACE;
+            let in_panel = mx >= px - grace
+                && mx < px + w_c + grace
+                && my >= py - grace
+                && my < py + h_c + grace;
             // Wider proximity halo — peek keep-alive only (card hover still
             // uses the tight in_panel): working beside the docked panel
             // keeps it on screen; only a real departure collapses it.
-            let near_panel = mx >= px - PEEK_PROX
-                && mx < px + w_c + PEEK_PROX
-                && my >= py - PEEK_PROX
-                && my < py + h_c + PEEK_PROX;
+            let near_panel =
+                mx >= px - prox && mx < px + w_c + prox && my >= py - prox && my < py + h_c + prox;
             let ring_idx = if in_panel && !dragging {
-                ring_index_at(my - py, dock.diameter, dock.vendors.len())
+                ring_index_at(
+                    hit_delta_to_logical(my - py, scale),
+                    dock.diameter,
+                    dock.vendors.len(),
+                )
             } else {
                 None
             };
@@ -1181,11 +1255,16 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                 let cscale = card.scale_factor().unwrap_or(1.0).max(1.0);
                 let card_h = *CARD_H_REPORT.lock().unwrap_or_else(|e| e.into_inner());
                 let (kx, ky) = card_keepalive_rect(card_on_left, card_h);
-                cpos.map(|p| (p.x as f64 / cscale, p.y as f64 / cscale))
-                    .map(|(cx, cy)| {
-                        mx >= cx + kx.0 && mx < cx + kx.1 && my >= cy + ky.0 && my < cy + ky.1
-                    })
-                    .unwrap_or(false)
+                let (kx0, kx1) = (hit_const(kx.0, cscale), hit_const(kx.1, cscale));
+                let (ky0, ky1) = (hit_const(ky.0, cscale), hit_const(ky.1, cscale));
+                cpos.map(|p| {
+                    (
+                        to_hit_space(p.x as f64, cscale),
+                        to_hit_space(p.y as f64, cscale),
+                    )
+                })
+                .map(|(cx, cy)| mx >= cx + kx0 && mx < cx + kx1 && my >= cy + ky0 && my < cy + ky1)
+                .unwrap_or(false)
             };
 
             if dragging || button_down {
