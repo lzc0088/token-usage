@@ -314,7 +314,11 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            // AppleScript (login-item) instead of a legacy LaunchAgent plist:
+            // System Settings then lists the APP itself ("Token Usage") under
+            // 登录项, whereas the legacy agent displayed the signing cert's
+            // developer name ("LiuZeChuan") in the 允许在后台 section.
+            tauri_plugin_autostart::MacosLauncher::AppleScript,
             None,
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

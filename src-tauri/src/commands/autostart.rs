@@ -56,10 +56,37 @@ pub fn get_auto_start(app: AppHandle) -> Result<bool, String> {
     Ok(app.autolaunch().is_enabled().unwrap_or(false))
 }
 
+/// Remove the legacy LaunchAgent plist from the pre-AppleScript era.
+/// Switching the launcher (2026-09-22) leaves the old plist behind: it would
+/// fire a SECOND app launch at boot alongside the login item, and it's the
+/// plist that showed up as the "LiuZeChuan" (signing-cert developer name)
+/// background item in System Settings. Best-effort; only deletes a plist
+/// that points at THIS app.
+fn remove_legacy_launch_agent() {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(home) = dirs::home_dir() else { return };
+        let plist = home
+            .join("Library")
+            .join("LaunchAgents")
+            .join("Token Usage.plist");
+        let Ok(content) = std::fs::read_to_string(&plist) else {
+            return;
+        };
+        if content.contains("Token Usage.app") {
+            match std::fs::remove_file(&plist) {
+                Ok(()) => debug!("removed legacy LaunchAgent plist"),
+                Err(e) => warn!("failed to remove legacy LaunchAgent plist: {e}"),
+            }
+        }
+    }
+}
+
 /// Reconcile OS autostart with the stored config at app startup.
-/// Called from `setup` so a wiped LaunchAgent (or a fresh install with
+/// Called from `setup` so a wiped registration (or a fresh install with
 /// `auto_start = true` in the DB) self-heals.
 pub fn sync_auto_start_on_boot(app: &AppHandle) {
+    remove_legacy_launch_agent();
     let want = {
         let state = app.state::<AppState>();
         let conn = state.db_read();
