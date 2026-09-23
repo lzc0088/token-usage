@@ -870,6 +870,11 @@ const POLL_MS: u64 = 33;
 /// migrates there (follow-active-screen). Long enough that merely passing
 /// the boundary or glancing over never moves the panel.
 const FOLLOW_DWELL: std::time::Duration = std::time::Duration::from_millis(1500);
+/// Display-topology probe cadence (ticks). The ScaleFactorChanged listener
+/// only fires when a display change alters the WINDOW's scale — unplugging
+/// a same-scale external moves windows with no event at all, so the poller
+/// also watches the monitor-set signature and re-docks on change.
+const TOPOLOGY_REFRESH: u32 = 15;
 /// Linger after the pointer leaves both windows before hiding the card.
 const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
 /// Linger before the PANEL itself collapses in peek mode — deliberately
@@ -1080,6 +1085,9 @@ pub fn ensure_hover_poller(app: &AppHandle) {
         // for FOLLOW_DWELL before the panel migrates (transit passes don't
         // count). None when the cursor is back on the panel's screen.
         let mut follow_candidate: Option<((i32, i32), std::time::Instant)> = None;
+        // Monitor-set signature (sorted origins+sizes). None until the first
+        // probe fills it (the first fill is not a "change").
+        let mut last_topology: Option<Vec<(i32, i32, u32, u32)>> = None;
         let mut primary_h = 0.0f64;
         // Primary monitor scale — Windows converts GetCursorPos's physical
         // px to the poller's logical space with it (macOS ignores it).
@@ -1137,6 +1145,38 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             // slow drag near the edge can't trip the linger and collapse the
             // panel under the cursor.
             let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !button_down;
+
+            // ── Display topology change ───────────────────────────────────
+            // Probe the monitor set every TOPOLOGY_REFRESH ticks and re-dock
+            // when it changes. The main-thread ScaleFactorChanged listener
+            // only fires when the WINDOW's scale changes — unplugging a
+            // same-scale external just relocates windows with no event, so
+            // the handle would stay wherever macOS dumped it.
+            if tick % TOPOLOGY_REFRESH == 0 && !button_down {
+                let mut sig: Vec<(i32, i32, u32, u32)> = ring
+                    .available_monitors()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            m.position().x,
+                            m.position().y,
+                            m.size().width,
+                            m.size().height,
+                        )
+                    })
+                    .collect();
+                sig.sort_unstable();
+                match &last_topology {
+                    Some(prev) if *prev != sig => {
+                        tracing::info!("pulse: display topology changed → re-docking");
+                        last_topology = Some(sig);
+                        redock_after_display_change(&app);
+                    }
+                    None => last_topology = Some(sig),
+                    _ => {}
+                }
+            }
 
             // ── Follow active screen ─────────────────────────────────────
             // When the cursor dwells on a DIFFERENT monitor than the panel
@@ -1583,6 +1623,54 @@ fn monitor_key_of_hit_point(monitors: &[tauri::Monitor], x: f64, y: f64) -> Opti
 /// configured edge, keeping the current vertical position. Runs on the
 /// poller thread — DB locks are SHORT and never held across window ops
 /// (see flip_side's doc); the cross-scale two-step hop mirrors position_peek.
+/// Re-dock the panel + peek handle after a display topology change (monitor
+/// plugged/unplugged; detected by the poller's topology probe). Runs on the
+/// POLLER thread — DB locks are SHORT and never held across window ops (see
+/// flip_side's doc). A docked/auto-hide panel re-snaps to its configured
+/// edge (vertically centered) on whichever monitor it now lives on; the
+/// handle follows. A floating always-mode panel keeps macOS's relocation —
+/// display changes must not hijack a deliberate floating placement.
+fn redock_after_display_change(app: &AppHandle) {
+    let Some(ring) = app.get_webview_window("pulse") else {
+        return;
+    };
+    // Short db-only lock: config fields, guard dropped before window ops.
+    let (side, size, auto_hide) = {
+        let state = app.try_state::<AppState>();
+        let guard = state.as_ref().and_then(|s| s.db.lock().ok());
+        guard
+            .and_then(|conn| config::load(&conn).ok())
+            .map(|c| {
+                (
+                    c.pulse_side,
+                    c.pulse_size,
+                    c.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED,
+                )
+            })
+            .unwrap_or_else(|| ("right".into(), "medium".into(), false))
+    };
+    let was_docked = panel_at_edge(&ring);
+    if !auto_hide && !was_docked {
+        return; // deliberate floating panel — keep it where macOS put it
+    }
+    // Snap the panel to the configured edge (x + centered y). panel_h from
+    // the window (a move never changes the size).
+    let panel_h = ring
+        .outer_size()
+        .map(|z| z.height as f64 / ring.scale_factor().unwrap_or(1.0).max(1.0))
+        .unwrap_or(300.0);
+    if let Some((x, y)) = snap_pulse_to_edge(&side, &ring) {
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Ok(conn) = state.db.lock() {
+                save_pos(&conn, x, y);
+            }
+        }
+        // Handle follows the panel (center-based) — pass the KNOWN snapped y.
+        position_peek(app, &side, &size, y as f64, panel_h);
+        tracing::info!("pulse: re-docked after display change at ({x},{y}) side={side}");
+    }
+}
+
 fn migrate_to_active_screen(app: &AppHandle, mon: &tauri::Monitor) {
     let Some(ring) = app.get_webview_window("pulse") else {
         return;

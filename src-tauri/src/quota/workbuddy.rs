@@ -13,8 +13,23 @@
 //!
 //! No credential is required from the user (subscription/auto-detect like
 //! Claude Code); the stored credential string, when present, is ignored.
+//!
+//! ## At-rest encryption (client ≥ 2026-09)
+//!
+//! The desktop client now seals credential FIELDS (`auth.accessToken`, …) in
+//! `$wbEncrypted` envelopes: AES-256-GCM, AAD = `WB-AAD\0`-domain context
+//! binding (framing "field" → "WBEV1", scheme "sym-v1"), key =
+//! SHA-256(atRestSecretKey). The at-rest secret comes from a build-static
+//! payload exposed by the client's patched Electron via the linked binding
+//! `electron_browser_workbuddy_storage.loggerGet()` — reachable by running
+//! the bundled Electron binary with `ELECTRON_RUN_AS_NODE=1` (verified
+//! 2026-09-23: derived keyId matches the envelope, token decrypts).
 
 use std::path::PathBuf;
+
+use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use sha2::{Digest, Sha256};
 
 use super::types::{epoch_to_iso, Quota, QuotaStatus, QuotaWindow, QuotaWindowSubItem};
 use super::VendorError;
@@ -121,6 +136,141 @@ fn read_session() -> Option<LocalSession> {
     None
 }
 
+/// Length-prefixed UTF-8 (u32 BE + bytes) — the AAD string encoder.
+fn aad_lp(out: &mut Vec<u8>, b: &[u8]) {
+    out.extend_from_slice(&(b.len() as u32).to_be_bytes());
+    out.extend_from_slice(b);
+}
+
+/// Symmetric field AAD, mirroring the client's buildAuthenticatedContextAad:
+/// "WB-AAD\0" | 1 | lp("WBEV1") | lp("sym-v1") | u32(suite) | lp(keyId) |
+/// framing(field)=2 | sequence-absent=0 | final-undefined=0.
+fn field_aad(key_id: &str, suite: u32) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(64);
+    aad.extend_from_slice(b"WB-AAD\0");
+    aad.push(1);
+    aad_lp(&mut aad, b"WBEV1");
+    aad_lp(&mut aad, b"sym-v1");
+    aad.extend_from_slice(&suite.to_be_bytes());
+    aad_lp(&mut aad, key_id.as_bytes());
+    aad.push(2);
+    aad.push(0);
+    aad.push(0);
+    aad
+}
+
+/// Locate the WorkBuddy Electron executable (for ELECTRON_RUN_AS_NODE).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn workbuddy_electron_bin() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let candidates = [
+            PathBuf::from("/Applications/WorkBuddy.app/Contents/MacOS/Electron"),
+            dirs::home_dir()?.join("Applications/WorkBuddy.app/Contents/MacOS/Electron"),
+        ];
+        candidates.into_iter().find(|p| p.is_file())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
+        let candidates = [
+            local
+                .join("Programs")
+                .join("WorkBuddy")
+                .join("WorkBuddy.exe"),
+            local.join("WorkBuddy").join("WorkBuddy.exe"),
+        ];
+        candidates.into_iter().find(|p| p.is_file())
+    }
+}
+
+/// Build-static protector key = SHA-256(atRestSecretKey string). Fetched once
+/// per process via the client's bundled Electron (ELECTRON_RUN_AS_NODE +
+/// its custom linked binding); cached — the secret is constant per build.
+static PROTECTOR_KEY: std::sync::OnceLock<std::sync::Mutex<Option<Vec<u8>>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn protector_key() -> Option<Vec<u8>> {
+    let cell = PROTECTOR_KEY.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = cell.lock().ok()?;
+    if let Some(k) = guard.as_ref() {
+        return Some(k.clone());
+    }
+    let bin = workbuddy_electron_bin()?;
+    // Prints the 44-char atRestSecretKey on stdout; exit 1 on any failure.
+    const SCRIPT: &str = r#"try{const b=process._linkedBinding("electron_browser_workbuddy_storage");const p=JSON.parse(b.loggerGet());process.stdout.write(p.atRestSecretKey)}catch(e){process.exit(1)}"#;
+    let out = std::process::Command::new(&bin)
+        .env("ELECTRON_RUN_AS_NODE", "1")
+        .arg("-e")
+        .arg(SCRIPT)
+        .output()
+        .ok()?;
+    if !out.status.success() || out.stdout.len() != 44 {
+        tracing::warn!(
+            "workbuddy: static key fetch failed (status={:?}, len={})",
+            out.status.code(),
+            out.stdout.len()
+        );
+        return None;
+    }
+    let secret = String::from_utf8(out.stdout).ok()?;
+    let key = Sha256::digest(secret.as_bytes()).to_vec();
+    *guard = Some(key.clone());
+    Some(key)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn protector_key() -> Option<Vec<u8>> {
+    None
+}
+
+/// Decrypt a `{$wbEncrypted: 1, envelope: "<b64 JSON>"}` field value with the
+/// static protector key. Returns the plaintext string, or None when the
+/// client is unavailable / the envelope fails authentication.
+fn open_encrypted_field(sealed: &serde_json::Value) -> Option<String> {
+    if sealed.get("$wbEncrypted")?.as_i64() != Some(1) {
+        return None;
+    }
+    let envelope_b64 = sealed.get("envelope")?.as_str()?;
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&STANDARD.decode(envelope_b64).ok()?).ok()?;
+    let key_id = envelope.get("keyId")?.as_str()?;
+    let suite = envelope.get("suite")?.as_u64()? as u32;
+    let nonce = STANDARD.decode(envelope.get("nonce")?.as_str()?).ok()?;
+    let tag = STANDARD.decode(envelope.get("authTag")?.as_str()?).ok()?;
+    let ct = STANDARD
+        .decode(envelope.get("ciphertext")?.as_str()?)
+        .ok()?;
+    let key = protector_key()?;
+    // keyId is the SHA-256 prefix of the key — a mismatch means the client
+    // build changed its static secret; refuse rather than fail auth blindly.
+    let derived_hex: String = Sha256::digest(&key)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if !derived_hex.starts_with(key_id) {
+        tracing::warn!(
+            "workbuddy: envelope keyId {key_id} != derived {} (client build changed?)",
+            &derived_hex[..16]
+        );
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(&key).ok()?; // 32 bytes from Sha256
+    let mut payload = ct;
+    payload.extend_from_slice(&tag); // this crate expects ciphertext || tag
+    let pt = cipher
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            aes_gcm::aead::Payload {
+                msg: &payload,
+                aad: &field_aad(key_id, suite),
+            },
+        )
+        .ok()?;
+    String::from_utf8(pt).ok()
+}
+
 fn parse_session_json(v: &serde_json::Value) -> Option<LocalSession> {
     let s = |val: Option<&serde_json::Value>| {
         val.and_then(|x| x.as_str())
@@ -129,7 +279,20 @@ fn parse_session_json(v: &serde_json::Value) -> Option<LocalSession> {
     };
     let auth = v.get("auth")?;
     let account = v.get("account").cloned().unwrap_or(serde_json::Value::Null);
-    let access_token = s(auth.get("accessToken"))?;
+    // Plain string (older client) or a $wbEncrypted envelope (≥ 2026-09) —
+    // the sealed form is decrypted with the build-static protector key.
+    let access_token = match auth.get("accessToken") {
+        Some(serde_json::Value::String(plain)) => {
+            let t = plain.trim().to_string();
+            if t.is_empty() {
+                return None;
+            } else {
+                t
+            }
+        }
+        Some(sealed @ serde_json::Value::Object(_)) => open_encrypted_field(sealed)?,
+        _ => return None,
+    };
     let user_id = s(account.get("uid"))?;
     if access_token.is_empty() || user_id.is_empty() {
         return None;
