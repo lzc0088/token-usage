@@ -50,6 +50,8 @@ export interface PulseData {
   max_panel_h?: number;
   /** Panel side: "left" | "right" — anchors the peek handle's silhouette. */
   side?: string;
+  /** Today's total usage, compact-formatted (e.g. "2.8M") — header line. */
+  today_tokens?: string;
 }
 
 /** Card-show payload from Rust (ui/pulse.rs expand_pulse → "pulse:card"). */

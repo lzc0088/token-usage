@@ -36,7 +36,7 @@ const RING_LARGE: f64 = 60.0;
 /// separated by RING_GAP, and the panel adds vertical padding + title block.
 const LABEL_H: f64 = 21.0;
 const RING_GAP: f64 = 14.0;
-const TITLE_BLOCK: f64 = 27.0;
+const TITLE_BLOCK: f64 = 123.0;
 
 /// Fixed vertical padding (logical px) — mirrors PulseApp.svelte CSS (fixed, not scale-dependent).
 const PAD_V: f64 = 36.0;
@@ -129,7 +129,7 @@ static PEEK_RECT: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(N
 /// access here, so the poller thread can call it with NO DB guard held
 /// (window ops under a poller-held guard deadlock against main-thread
 /// commands waiting for the lock — see flip_side's doc).
-fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64) {
+fn position_peek(app: &AppHandle, side: &str, _size: &str, py: f64, panel_h: f64) {
     let Some(peek) = app.get_webview_window("pulse-peek") else {
         return;
     };
@@ -143,7 +143,7 @@ fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64)
     let Some(mon) = mon else {
         return;
     };
-    let scale = peek.scale_factor().unwrap_or(1.0).max(1.0);
+    let scale = mon.scale_factor();
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
     let mon_top = mon.position().y as f64 / scale;
@@ -154,19 +154,35 @@ fn position_peek(app: &AppHandle, side: &str, size: &str, py: f64, panel_h: f64)
     } else {
         mon_right - PEEK_WIN_W
     };
-    // Vertical center of the panel's rail (not the whole window — the rail
-    // starts at RAIL_TOP below the title block).
-    let rail_top = (PAD_V + TITLE_BLOCK) * layout_scale(ring_diameter(size));
-    let handle_y = (py + rail_top + (panel_h - rail_top - PAD_V_BOT) / 2.0 - PEEK_WIN_H / 2.0)
+    // The handle sits at the PANEL's vertical center: a docked panel is
+    // always centered on its screen (position_pulse), so this puts the grip
+    // exactly at the screen's mid-height — centering on the ring rail
+    // instead would sit it ~20px low (the title block is taller than the
+    // bottom padding).
+    let handle_y = (py + panel_h / 2.0 - PEEK_WIN_H / 2.0)
         .max(mon_top + 4.0)
         .min(mon_bottom - PEEK_WIN_H - 4.0);
+    // Cross-monitor two-step: a Logical set on a window that currently sits on
+    // a DIFFERENT monitor converts with the WRONG scale factor (2x built-in
+    // vs 1x external), clamping the handle to a fixed mid-screen point on the
+    // target instead of its edge — the "external display plugged in" case.
+    // Hop to an off-screen-but-adjacent PHYSICAL point of the target monitor
+    // first (nearest-monitor resolution attaches the window to the target,
+    // nothing is painted), THEN the Logical edge placement converts with the
+    // now-correct scale.
+    let mon_right_phys = mon.position().x + mon.size().width as i32;
+    let hop_y_phys = mon.position().y + mon.size().height as i32 / 2;
+    let _ = peek.set_position(tauri::PhysicalPosition::new(
+        mon_right_phys + 100,
+        hop_y_phys,
+    ));
     let _ = peek.set_position(LogicalPosition::new(x, handle_y));
     // Record where the handle NOW is — the poller's trigger zone derives from
     // this (see PEEK_RECT). One writer, so the zone always matches the handle
     // the user actually sees.
     *PEEK_RECT.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, handle_y));
     tracing::info!(
-        "peek: handle placed at ({x},{handle_y}) side={side} mon=[{mon_left},{mon_right}]"
+        "peek: handle placed at ({x},{handle_y}) side={side} mon=[{mon_left},{mon_right}] scale={scale}"
     );
 }
 
@@ -321,6 +337,10 @@ struct DockCache {
     /// Ring-size preset ("small" | "medium" | "large") — feeds the peek
     /// handle's rail-centering math (position_peek) without a DB read.
     pulse_size: String,
+    /// Follow-active-screen toggle — the poller migrates the panel to the
+    /// cursor's monitor after a dwell, straight from this cache (no DB read
+    /// on the hot path).
+    follow_screen: bool,
 }
 
 static DOCK_CACHE: std::sync::Mutex<Option<DockCache>> = std::sync::Mutex::new(None);
@@ -337,6 +357,7 @@ fn refresh_dock_cache(cfg: &config::Config, theme: &str, quotas: &[PulseQuota]) 
         peek_enabled: cfg.pulse_display_mode == "auto_hide" && PEEK_SUPPORTED,
         pulse_side: cfg.pulse_side.clone(),
         pulse_size: cfg.pulse_size.clone(),
+        follow_screen: cfg.pulse_follow_screen,
     };
     *DOCK_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache);
 }
@@ -489,6 +510,12 @@ pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
         .get_webview_window("pulse")
         .map(|w| panel_max_h(&w))
         .unwrap_or(MAX_PANEL_H);
+    let today_tokens = today_usage_text(app, conn);
+    tracing::info!(
+        "pulse: build_pulse_data — today_tokens={today_tokens:?} quotas={} side={}",
+        load_quotas(conn).len(),
+        cfg.pulse_side,
+    );
     PulseData {
         quotas: load_quotas(conn),
         size: cfg.pulse_size.clone(),
@@ -497,7 +524,26 @@ pub fn build_pulse_data(app: &AppHandle, conn: &Connection) -> PulseData {
         opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
         max_panel_h,
         side: cfg.pulse_side.clone(),
+        today_tokens,
     }
+}
+
+/// Today's usage, compact-formatted for the panel header. Prefers the live
+/// today cache (the exact value the tray shows, refreshed every scan);
+/// falls back to a DB query (startup before the first scan completes).
+fn today_usage_text(app: &AppHandle, conn: &Connection) -> String {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(cache) = state.last_today.lock() {
+            if let Some(s) = cache.as_ref() {
+                return crate::ui::fmt::compact_tokens(s.total_tokens);
+            }
+        }
+    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let range = crate::query::range_for_period(crate::query::Period::Day, &today);
+    crate::query::summary::query(conn, &range)
+        .map(|s| crate::ui::fmt::compact_tokens(s.total_tokens))
+        .unwrap_or_else(|_| "0".into())
 }
 
 /// Push quota data to the pulse frontend via event.
@@ -759,7 +805,18 @@ fn show_card_for(app: &AppHandle, dock: &DockCache, index: usize) -> bool {
             mon_top,
             mon_bottom,
         );
-        // Pure move (the window keeps its creation size) — never a resize.
+        // Cross-monitor two-step (see position_peek): the card window is
+        // parked off-screen beside whatever monitor it last served — a
+        // Logical set from HERE onto the panel's monitor converts with the
+        // wrong scale when the two differ. Hop to an off-screen point of the
+        // TARGET monitor first, then the Logical placement is exact. Pure
+        // moves — never a resize.
+        let mon_right_phys = mon.position().x + mon.size().width as i32;
+        let hop_y_phys = mon.position().y + mon.size().height as i32 / 2;
+        let _ = card.set_position(tauri::PhysicalPosition::new(
+            mon_right_phys + 100,
+            hop_y_phys,
+        ));
         let _ = card.set_position(LogicalPosition::new(x, y));
     }
 
@@ -809,6 +866,10 @@ fn emit_card_hide(app: &AppHandle) {
 /// until clicked). `NSEvent.mouseLocation` is thread-safe and needs no
 /// permissions; 30Hz hit-testing costs nothing.
 const POLL_MS: u64 = 33;
+/// How long the cursor must dwell on ANOTHER monitor before the panel
+/// migrates there (follow-active-screen). Long enough that merely passing
+/// the boundary or glancing over never moves the panel.
+const FOLLOW_DWELL: std::time::Duration = std::time::Duration::from_millis(1500);
 /// Linger after the pointer leaves both windows before hiding the card.
 const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
 /// Linger before the PANEL itself collapses in peek mode — deliberately
@@ -965,7 +1026,7 @@ fn logical_to_hit(v: f64, _scale: f64) -> f64 {
 }
 
 #[cfg(target_os = "windows")]
-fn any_mouse_button_down() -> bool {
+pub fn any_mouse_button_down() -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
     // High bit = currently pressed (physical state, works outside our
     // windows — the drag-hold signal, mirroring pressedMouseButtons).
@@ -974,7 +1035,7 @@ fn any_mouse_button_down() -> bool {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn any_mouse_button_down() -> bool {
+pub fn any_mouse_button_down() -> bool {
     false
 }
 
@@ -985,7 +1046,7 @@ fn any_mouse_button_down() -> bool {
 /// slow drag near the edge used to trip the peek linger → panel collapsed
 /// mid-drag). Thread-safe class method, no permissions needed.
 #[cfg(target_os = "macos")]
-fn any_mouse_button_down() -> bool {
+pub fn any_mouse_button_down() -> bool {
     use objc::{class, msg_send, sel, sel_impl};
     unsafe {
         let mask: i64 = msg_send![class!(NSEvent), pressedMouseButtons];
@@ -1014,6 +1075,11 @@ pub fn ensure_hover_poller(app: &AppHandle) {
         // or trigger re-entry.
         let mut reveal_failures: u32 = 0;
         let mut last_panel_pos = (0.0, 0.0);
+        // Follow-active-screen: the (monitor-origin, first-seen) candidate
+        // for a pending migration — the cursor must STAY on another monitor
+        // for FOLLOW_DWELL before the panel migrates (transit passes don't
+        // count). None when the cursor is back on the panel's screen.
+        let mut follow_candidate: Option<((i32, i32), std::time::Instant)> = None;
         let mut primary_h = 0.0f64;
         // Primary monitor scale — Windows converts GetCursorPos's physical
         // px to the poller's logical space with it (macOS ignores it).
@@ -1071,6 +1137,45 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             // slow drag near the edge can't trip the linger and collapse the
             // panel under the cursor.
             let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !button_down;
+
+            // ── Follow active screen ─────────────────────────────────────
+            // When the cursor dwells on a DIFFERENT monitor than the panel
+            // for FOLLOW_DWELL, migrate the panel (and its peek handle) to
+            // that screen's configured edge. Skipped while dragging (button
+            // held), while a detail card is open (mid-interaction), and in
+            // peek transitions (only stable Hidden/Visible states) — so the
+            // panel never jumps out from under the cursor.
+            if dock.follow_screen
+                && !button_down
+                && !visible
+                && matches!(peek_state().0, PeekState::Hidden | PeekState::Visible)
+            {
+                let monitors = ring.available_monitors().unwrap_or_default();
+                let cursor_mon = monitor_key_of_hit_point(&monitors, mx, my);
+                let panel_mon = monitor_of_window(&ring).map(|m| (m.position().x, m.position().y));
+                match (cursor_mon, panel_mon) {
+                    (Some(ck), Some(pk)) if ck != pk => {
+                        let now = std::time::Instant::now();
+                        let first_seen = match follow_candidate {
+                            Some((k, t)) if k == ck => t,
+                            _ => {
+                                follow_candidate = Some((ck, now));
+                                now
+                            }
+                        };
+                        if now.duration_since(first_seen) >= FOLLOW_DWELL {
+                            follow_candidate = None;
+                            if let Some(target) = monitors
+                                .iter()
+                                .find(|m| (m.position().x, m.position().y) == ck)
+                            {
+                                migrate_to_active_screen(&app, target);
+                            }
+                        }
+                    }
+                    _ => follow_candidate = None,
+                }
+            }
 
             // ── Auto-hide: panel hidden behind the peek handle. The reveal
             // trigger is the handle window itself (with hover grace) — only
@@ -1448,6 +1553,94 @@ fn point_in_rect(px: i32, py: i32, rx: i32, ry: i32, rw: i32, rh: i32) -> bool {
     px >= rx && px < rx + rw && py >= ry && py < ry + rh
 }
 
+/// The monitor (by physical origin, a stable topology key) whose rect
+/// contains the given HIT-space point (physical on Windows, logical on
+/// macOS — see to_hit_space). Used by the follow-active-screen poller.
+fn monitor_key_of_hit_point(monitors: &[tauri::Monitor], x: f64, y: f64) -> Option<(i32, i32)> {
+    monitors.iter().find_map(|m| {
+        #[cfg(target_os = "windows")]
+        let (l, t, w, h) = (
+            m.position().x,
+            m.position().y,
+            m.size().width as i32,
+            m.size().height as i32,
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (l, t, w, h) = {
+            let s = m.scale_factor();
+            (
+                (m.position().x as f64 / s) as i32,
+                (m.position().y as f64 / s) as i32,
+                (m.size().width as f64 / s) as i32,
+                (m.size().height as f64 / s) as i32,
+            )
+        };
+        point_in_rect(x as i32, y as i32, l, t, w, h).then(|| (m.position().x, m.position().y))
+    })
+}
+
+/// Migrate the panel (and, when auto-hidden, the peek handle) to `mon`'s
+/// configured edge, keeping the current vertical position. Runs on the
+/// poller thread — DB locks are SHORT and never held across window ops
+/// (see flip_side's doc); the cross-scale two-step hop mirrors position_peek.
+fn migrate_to_active_screen(app: &AppHandle, mon: &tauri::Monitor) {
+    let Some(ring) = app.get_webview_window("pulse") else {
+        return;
+    };
+    // Short db-only lock: config fields, guard dropped before any window op.
+    let (side, size) = {
+        let state = app.try_state::<AppState>();
+        let guard = state.as_ref().and_then(|s| s.db.lock().ok());
+        guard
+            .and_then(|conn| config::load(&conn).ok())
+            .map(|c| (c.pulse_side, c.pulse_size))
+            .unwrap_or_else(|| ("right".into(), "medium".into()))
+    };
+    let s = mon.scale_factor();
+    let mon_left = mon.position().x as f64 / s;
+    let mon_right = mon_left + mon.size().width as f64 / s;
+    let mon_top = mon.position().y as f64 / s;
+    let mon_bottom = mon_top + mon.size().height as f64 / s;
+    // Current geometry (physical) → target-monitor logical frame.
+    let (panel_w, panel_h) = ring
+        .outer_size()
+        .map(|z| (z.width as f64 / s, z.height as f64 / s))
+        .unwrap_or((80.0, 300.0));
+    let x = if side == "left" {
+        mon_left
+    } else {
+        mon_right - panel_w
+    };
+    // Docked rails are always vertically centered (see position_pulse's
+    // restore path) — migrating keeps the EDGE, not the old y.
+    let y = mon_top + (mon_bottom - mon_top - panel_h) / 2.0;
+    // Cross-monitor two-step (see position_peek): hop the window onto the
+    // target monitor physically first, then the logical placement converts
+    // with the correct scale.
+    let mon_right_phys = mon.position().x + mon.size().width as i32;
+    let hop_y_phys = mon.position().y + mon.size().height as i32 / 2;
+    let _ = ring.set_position(tauri::PhysicalPosition::new(
+        mon_right_phys + 100,
+        hop_y_phys,
+    ));
+    let _ = ring.set_position(LogicalPosition::new(x, y));
+    // Persist under a SHORT db-only lock.
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(conn) = state.db.lock() {
+            save_pos(&conn, x.round() as i32, y.round() as i32);
+        }
+    }
+    tracing::info!(
+        "pulse: migrated to active screen (origin {:?}, side={side})",
+        mon.position()
+    );
+    // Auto-hidden: move the peek handle with it (position_peek derives the
+    // edge from the panel's monitor — already migrated above).
+    if peek_state().0 == PeekState::Hidden {
+        position_peek(app, &side, &size, y, panel_h);
+    }
+}
+
 /// The monitor whose rect CONTAINS the window's center. `current_monitor()`
 /// can return the ADJACENT monitor for a boundary-hugging window (the panel
 /// flush against one screen's right edge with another screen to its right) —
@@ -1498,6 +1691,7 @@ fn snap_pulse_to_edge(side: &str, win: &tauri::WebviewWindow) -> Option<(i32, i3
     let px = pos.x as f64 / scale;
     let py = pos.y as f64 / scale;
     let w = size.width as f64 / scale;
+    let h = size.height as f64 / scale;
     let mon_left = mon.position().x as f64 / scale;
     let mon_right = mon_left + mon.size().width as f64 / scale;
     let snapped = if side == "left" {
@@ -1505,9 +1699,19 @@ fn snap_pulse_to_edge(side: &str, win: &tauri::WebviewWindow) -> Option<(i32, i3
     } else {
         mon_right - w
     };
-    if (snapped - px).abs() > f64::EPSILON {
-        let _ = win.set_position(LogicalPosition::new(snapped, py));
-        tracing::debug!("pulse: auto-hide snapped panel flush to edge x={snapped}");
+    // A docked rail is always vertically centered (position_pulse's restore
+    // rule), so the snap enforces BOTH coordinates. Fixing only x left a
+    // stale y in place whenever the earlier placement never landed on the
+    // (hidden) window — the panel then revealed off-center, e.g. at the old
+    // dragged y.
+    let mon_top = mon.position().y as f64 / scale;
+    let mon_bottom = mon_top + mon.size().height as f64 / scale;
+    let snapped_y = mon_top + (mon_bottom - mon_top - h) / 2.0;
+    if (snapped - px).abs() > f64::EPSILON || (snapped_y - py).abs() > f64::EPSILON {
+        let _ = win.set_position(LogicalPosition::new(snapped, snapped_y));
+        tracing::debug!(
+            "pulse: auto-hide snapped panel flush to ({snapped},{snapped_y}) [was ({px},{py})]"
+        );
     }
     Some((snapped.round() as i32, py.round() as i32))
 }
@@ -1565,12 +1769,24 @@ fn position_pulse(app: &AppHandle, conn: &Connection) -> Option<Placement> {
             let mut x = sx;
             let mut at_edge = false;
             let mut side = None;
+            let mut y = sy;
             if let Some(mon) = monitor_of_window(&win) {
                 let sf = win.scale_factor().unwrap_or(1.0).max(1.0);
                 let mon_left = mon.position().x as f64 / sf;
                 let mon_right = mon_left + mon.size().width as f64 / sf;
+                let mon_top = mon.position().y as f64 / sf;
+                let mon_bottom = mon_top + mon.size().height as f64 / sf;
                 x = redock_x(x, w, mon_left, mon_right);
                 at_edge = x_is_docked(x, w, mon_left, mon_right);
+                // A DOCKED rail is always vertically centered (token-monitor
+                // edgeDock semantics): the horizontal drag position (which
+                // edge) persists, the vertical one doesn't — a stale dragged
+                // y from an old resolution/screen left the panel looking
+                // arbitrarily placed. Floating panels keep the exact saved
+                // spot.
+                if at_edge {
+                    y = mon_top + (mon_bottom - mon_top - h) / 2.0;
+                }
                 side = if at_edge {
                     Some(if (x - mon_left).abs() <= 2.0 {
                         "left"
@@ -1581,9 +1797,15 @@ fn position_pulse(app: &AppHandle, conn: &Connection) -> Option<Placement> {
                     None
                 };
             }
-            let _ = win.set_position(LogicalPosition::new(x, sy));
+            let _ = win.set_position(LogicalPosition::new(x, y));
+            let actual = win.outer_position().ok();
+            let actual_scale = win.scale_factor().unwrap_or(0.0);
+            tracing::info!(
+                "pulse: restore — saved=({sx},{sy}) → intended=({x},{y}) at_edge={at_edge} h={h} | actual={:?} scale={actual_scale}",
+                actual
+            );
             return Some(Placement {
-                y: sy,
+                y,
                 h,
                 at_edge,
                 side,
@@ -1818,6 +2040,9 @@ pub struct PulseData {
     pub max_panel_h: f64,
     /// Panel side: "left" | "right" — anchors the peek handle's silhouette.
     pub side: String,
+    /// Today's total usage, compact-formatted (e.g. "2.8M") — the panel
+    /// header line above the 剩余量 title.
+    pub today_tokens: String,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -1943,11 +2168,12 @@ mod tests {
             );
         }
         // Concrete anchor (medium rings, n=3): dock = 3*69 + 2*14 = 235,
-        // height = 36 + 44 + 27 (title block) + 235 = 342.
+        // height = 36 + 44 + 123 (title block: label 14 + 10 + ring 52 +
+        // gap 8 + title 31 + gap 8) + 235 = 438.
         if d == RING_MEDIUM {
             let (_, h3) = collapsed_size(&cfg, 3, MAX_PANEL_H);
             assert!(
-                (h3 - (342.0 + WIN_H_SLACK)).abs() < 0.01,
+                (h3 - (438.0 + WIN_H_SLACK)).abs() < 0.01,
                 "medium n=3: {h3}"
             );
         }
@@ -2056,23 +2282,25 @@ mod tests {
             ..Default::default()
         };
         // Large, 3 rings: s=1.25 → dock = 3*(60+26.25) + 2*17.5 = 293.75,
-        // height = 36 + 44 + 33.75 + 293.75 = 407.5.
-        let (_, h_l) = collapsed_size(&cfg_l, 3, MAX_PANEL_H);
+        // height = 36 + 44 + 153.75 (title block 123×1.25) + 293.75 = 527.5.
+        // max_h 1200 (not MAX_PANEL_H) so the dock isn't capped — this case
+        // asserts the SCALING, and 522.5 would exceed the 520 cap.
+        let (_, h_l) = collapsed_size(&cfg_l, 3, 1200.0);
         assert!(
-            (h_l - (407.5 + WIN_H_SLACK)).abs() < 0.01,
+            (h_l - (527.5 + WIN_H_SLACK)).abs() < 0.01,
             "large n=3: {h_l}"
         );
         // Small, 3 rings: s=0.75 → dock = 3*(36+15.75) + 2*10.5 = 176.25,
-        // height = 36 + 44 + 20.25 + 176.25 = 276.5.
+        // height = 36 + 44 + 92.25 (title block 123×0.75) + 176.25 = 348.5.
         let (_, h_s) = collapsed_size(&cfg_s, 3, MAX_PANEL_H);
         assert!(
-            (h_s - (276.5 + WIN_H_SLACK)).abs() < 0.01,
+            (h_s - (348.5 + WIN_H_SLACK)).abs() < 0.01,
             "small n=3: {h_s}"
         );
         // Ring pitch scales too (hover hit-test + card line stay aligned):
-        // large rail = 63*1.25 = 78.75, pitch = 60 + 43.75 = 103.75.
-        assert!((ring_center_y(60.0, 0) - (78.75 + 30.0)).abs() < f64::EPSILON);
-        assert!((ring_center_y(60.0, 1) - (78.75 + 103.75 + 30.0)).abs() < f64::EPSILON);
+        // large rail = (36+123)*1.25 = 198.75, pitch = 60 + 43.75 = 103.75.
+        assert!((ring_center_y(60.0, 0) - (198.75 + 30.0)).abs() < f64::EPSILON);
+        assert!((ring_center_y(60.0, 1) - (198.75 + 103.75 + 30.0)).abs() < f64::EPSILON);
     }
 
     #[test]

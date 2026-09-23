@@ -466,6 +466,19 @@
         ></button>
       </div>
     </div>
+    <div class="box-row">
+      <div class="lab">跟随活动屏幕<div class="hint">鼠标在其他显示器停留约 1.5 秒后，侧边栏自动移动到该屏幕边缘；关闭则固定在当前屏幕</div></div>
+      <div class="tg-placeholder">
+        <button
+          class="tg"
+          class:on={config.pulse_follow_screen !== false}
+          role="switch"
+          aria-checked={config.pulse_follow_screen !== false}
+          aria-label="跟随活动屏幕"
+          onclick={() => onUpdate({ pulse_follow_screen: !(config.pulse_follow_screen !== false) })}
+        ></button>
+      </div>
+    </div>
     {/if}
   </div>
   {/if}

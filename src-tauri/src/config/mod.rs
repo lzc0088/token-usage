@@ -161,6 +161,11 @@ pub struct Config {
     /// (panel hides to a narrow grip when idle; cursor reveals it).
     #[serde(default = "default_pulse_display_mode")]
     pub pulse_display_mode: String,
+    /// Pulse panel follows the ACTIVE screen: when the cursor dwells on a
+    /// different monitor, the panel migrates to the same edge of that screen.
+    /// Turn off to pin the panel to one display.
+    #[serde(default = "default_true")]
+    pub pulse_follow_screen: bool,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -211,6 +216,7 @@ impl Default for Config {
             pulse_size: default_pulse_size(),
             pulse_opacity: default_pulse_opacity(),
             pulse_topmost: default_true(),
+            pulse_follow_screen: default_true(),
             pulse_display_mode: default_pulse_display_mode(),
         }
     }

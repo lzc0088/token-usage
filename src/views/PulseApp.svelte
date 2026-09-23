@@ -52,7 +52,7 @@
   // Ring item = ring + LABEL_H (pct label); items separated by ITEM_GAP.
   const LABEL_H = 21;
   const ITEM_GAP = 14;
-  const TITLE_BLOCK = 27;
+  const TITLE_BLOCK = 123;
   // Fixed vertical padding (logical px) — matches Rust PAD_V / PAD_V_BOT
   // (fixed, not scale-dependent; bottom is larger for visual breathing room).
   const PAD_V = 36;
@@ -229,12 +229,29 @@
     }
   }
 
+  // True between a panel mousedown and the drag settle — the frontend snap
+  // runs ONLY for real user drags. App-initiated moves (startup placement,
+  // peek reveal, screen migration) must not trigger it: the debounced
+  // snapToEdge reads the position 120ms later and, when that read is stale
+  // relative to an in-flight Rust set_position, animates the window BACK to
+  // the stale spot — the Rust/frontend placement fight that pinned the
+  // panel at an old dragged y (2026-09-23).
+  let dragging = false;
+  let dragGuard: ReturnType<typeof setTimeout> | undefined;
+
   $effect(() => {
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       // Drag only from panel chrome (title, padding), never from rings.
       if (!target?.closest(".pulse-panel")) return;
       if (target.closest(".ring-container")) return;
+      dragging = true;
+      // Safety: a click without a drag never fires onMoved — clear the flag
+      // so a later app-initiated move can't be mistaken for a drag.
+      if (dragGuard !== undefined) clearTimeout(dragGuard);
+      dragGuard = setTimeout(() => {
+        dragging = false;
+      }, 3000);
       win.startDragging().catch(() => {});
     };
     // Suppress the WebView2 native context menu (refresh / save as / …) —
@@ -243,6 +260,7 @@
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("contextmenu", onContextMenu);
     return () => {
+      if (dragGuard !== undefined) clearTimeout(dragGuard);
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("contextmenu", onContextMenu);
     };
@@ -256,6 +274,7 @@
   let dragTimer: ReturnType<typeof setTimeout> | undefined;
 
   function onDragSettled() {
+    dragging = false;
     snapToEdge().then(() => {
       win
         .outerPosition()
@@ -266,13 +285,21 @@
 
   $effect(() => {
     const unlisten = win.onMoved(() => {
+      // flushSide tracking runs for EVERY move (app-initiated too).
       updateFlushSide();
+      // Snap + persist only after a real drag (see `dragging`).
+      if (!dragging) return;
+      if (dragGuard !== undefined) clearTimeout(dragGuard);
+      dragGuard = setTimeout(() => {
+        dragging = false;
+      }, 2000);
       // Reset the settle timer on every move; fires once the drag stops.
       if (dragTimer !== undefined) clearTimeout(dragTimer);
       dragTimer = setTimeout(onDragSettled, DRAG_SETTLE_MS);
     });
     return () => {
       if (dragTimer !== undefined) clearTimeout(dragTimer);
+      if (dragGuard !== undefined) clearTimeout(dragGuard);
       unlisten.then((u) => u()).catch(() => {});
     };
   });
@@ -284,6 +311,13 @@
   // poller (ui/pulse.rs ensure_hover_poller) — DOM hover events in the
   // non-key webview proved unreliable after the two-window split. This
   // window reports nothing; it only render the rings.
+
+  // "100.1M" → ["100.1", "M"]; a plain integer (no unit) → [n, ""].
+  let todayParts = $derived.by(() => {
+    const v = data.today_tokens ?? "";
+    const m = /^([\d.,]+)([BMK]?)$/.exec(v);
+    return m ? [m[1], m[2]] as const : [v, ""] as const;
+  });
 
   // Panel-level title explaining the percentage mode — the rings report
   // what is LEFT (usage-remaining mode; plan-less vendors show their
@@ -373,6 +407,43 @@
         />
       </svg>
     {/if}
+  </div>
+
+  <!-- Today's usage header (live value, mirrors the tray readout): a small
+       label at the 剩余量 title's size, with the value carried INSIDE a ring
+       (never wider than the ring's inner diameter — the panel's content box
+       is only ~48px, so a plain text line would clip). -->
+  <div class="panel-today">
+    <span class="today-lbl">今日{#if todayParts[1]}<span class="today-unit">({todayParts[1]})</span>{/if}</span>
+    <svg
+      class="today-ring"
+      viewBox="0 0 52 52"
+      width={52 * layoutS}
+      height={52 * layoutS}
+      aria-hidden="true"
+    >
+      <!-- Green ring (the panel's "good" status color); the unit moved to
+           the label, so the interior carries ONLY the number. -->
+      <circle
+        cx="26"
+        cy="26"
+        r="23.5"
+        fill="none"
+        stroke="var(--pulse-good)"
+        stroke-width="5"
+      />
+      {#if todayParts}
+        <text
+          x="26"
+          y="30"
+          text-anchor="middle"
+          font-size="11"
+          font-weight="600"
+          fill="var(--pulse-text)"
+          style="font-variant-numeric: tabular-nums; font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;"
+        >{todayParts[0]}</text>
+      {/if}
+    </svg>
   </div>
 
   <!-- Panel title (mode indicator) -->
@@ -518,7 +589,11 @@
     --rail-stroke: rgba(0, 0, 0, 0.1);
   }
 
-  /* Content rides above the surface layer. */
+  /* Content rides above the surface layer. The surface is an absolutely
+     positioned z-index:0 element — anything NOT promoted here paints BELOW
+     it (invisible, but still occupying layout space). Every direct child of
+     the panel shell must be listed. */
+  .panel-today,
   .panel-title,
   .rail-with-tooltip {
     position: relative;
@@ -580,11 +655,51 @@
     border-radius: 2px;
   }
 
+  /* ── Today's usage header ───────────────────────────────────────────── */
+
+  /* Pinned block (× --s) so the Rust TITLE_BLOCK (= 14 + 8gap + title 15+4
+     + 8gap = 49, scaled) matches the rendered layout exactly — same
+     discipline as .panel-title. */
+  .panel-today {
+    /* Label (10px, same as 剩余量) + a 52px value ring — matches the Rust
+       TITLE_BLOCK (14 + 10 + 52 + 8gap + title 31 + 8gap = 123, × --s). */
+    height: calc(72px * var(--s, 1));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: center;
+    font-family: "SF Pro Rounded", "SF Rounded", "Helvetica Neue Rounded",
+      -apple-system, sans-serif;
+  }
+  .today-lbl {
+    height: calc(14px * var(--s, 1));
+    line-height: calc(14px * var(--s, 1));
+    /* Same size as the 剩余量 title below. */
+    font-size: calc(10px * var(--s, 1));
+    font-weight: 600;
+    color: var(--pulse-text);
+    letter-spacing: 0.03em;
+  }
+  .today-ring {
+    margin-top: calc(10px * var(--s, 1));
+    display: block;
+    overflow: visible;
+  }
+  /* Unit + parentheses on the label, smaller than the 今日 glyphs. */
+  .today-unit {
+    font-size: calc(8px * var(--s, 1));
+    font-weight: 500;
+    margin-left: 1px;
+    letter-spacing: 0;
+  }
+
   /* ── Panel title ────────────────────────────────────────────────────── */
 
   .panel-title {
-    /* Pinned block (× --s) so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK = 33
-       + 27, scaled) arrow math matches the rendered layout exactly. */
+    /* Pinned block (× --s) so the Rust RAIL_TOP (PAD_V + TITLE_BLOCK,
+       scaled) arrow math matches the rendered layout exactly. margin-top
+       adds breathing room below the today ring (8px flex gap + 12px). */
+    margin-top: calc(12px * var(--s, 1));
     height: calc(15px * var(--s, 1));
     line-height: calc(15px * var(--s, 1));
     font-size: calc(10px * var(--s, 1));

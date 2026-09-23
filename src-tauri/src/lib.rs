@@ -646,6 +646,32 @@ pub fn run() {
                 ui::pulse::sync_pulse(app.handle(), &conn);
             }
 
+            // ── display hot-plug: re-dock the pulse panel + peek handle ────
+            // Plugging/unplugging a monitor changes the window's scale factor
+            // and can leave the peek handle stranded mid-screen on the new
+            // monitor (a Logical placement converted with the pre-hop scale).
+            // ScaleFactorChanged fires for the pulse window on any display
+            // topology change → re-run the placement math. Skipped while a
+            // mouse button is held (a mid-drag fire would fight the drag; the
+            // drag-settle path re-docks on drop anyway). Main thread + DB
+            // guard — the same discipline as set_config.
+            if let Some(ring) = app.get_webview_window("pulse") {
+                let app_h = app.handle().clone();
+                ring.on_window_event(move |e| {
+                    if !matches!(e, tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                        return;
+                    }
+                    if ui::pulse::any_mouse_button_down() {
+                        return; // mid-drag — the settle handler will re-dock
+                    }
+                    let state = app_h.try_state::<crate::state::AppState>();
+                    let Some(state) = state else { return };
+                    let Ok(conn) = state.db.lock() else { return };
+                    tracing::info!("pulse: display scale changed → re-sync placement");
+                    ui::pulse::sync_pulse(&app_h, &conn);
+                });
+            }
+
             // ── persist the floating handle's dragged position ──────────────
             // A low-rate poll captures the resting position after a drag without
             // the bookkeeping of per-move event debouncing. No-op on macOS /

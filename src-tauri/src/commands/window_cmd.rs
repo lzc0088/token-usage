@@ -414,7 +414,19 @@ pub fn get_pulse_data(app: AppHandle) -> Result<crate::ui::pulse::PulseData, Str
 pub fn set_pulse_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     let state = app.state::<crate::state::AppState>();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    crate::ui::pulse::save_pos(&conn, x, y);
+    // The frontend passes PHYSICAL px (outerPosition); every consumer of the
+    // saved spot (load_pos → position_pulse, all logical-space math) and the
+    // 1s persist poller both work in LOGICAL px. Convert here so a
+    // physical-value save can't be misread as logical after a restart
+    // (which would look off-screen and force a fresh dock).
+    let scale = app
+        .get_webview_window("pulse")
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0)
+        .max(1.0);
+    let lx = (x as f64 / scale).round() as i32;
+    let ly = (y as f64 / scale).round() as i32;
+    crate::ui::pulse::save_pos(&conn, lx, ly);
     let flipped =
         crate::ui::pulse::docked_side(&app).is_some_and(|d| crate::ui::pulse::flip_side(&conn, d));
     if flipped {
