@@ -423,9 +423,11 @@ pub async fn run(app: AppHandle, db: Arc<Mutex<Connection>>) {
             // (debounced; also covers the first-refresh path above).
             crate::ui::widget_snapshot::export_debounced(&app);
             // Pulse panel: push fresh quota data to the floating rings.
-            if let Ok(conn) = db.lock() {
-                crate::ui::pulse::push_pulse_data(&app, &conn);
-            }
+            // OFFMAIN variant — the plain push does window getters that
+            // round-trip to the main event loop; under a scheduler-held db
+            // guard that deadlocks against main-thread db commands (the
+            // 2026-09-24 whole-process freeze).
+            crate::ui::pulse::push_pulse_data_offmain(&app, &db);
             dispatch_notifications(&app).await;
             // quota_min tray mode reads the quota cache — repaint so the
             // tightest percentage stays live between collector ticks.

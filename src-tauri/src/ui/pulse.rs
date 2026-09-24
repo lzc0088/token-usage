@@ -572,6 +572,57 @@ pub fn push_pulse_data(app: &AppHandle, conn: &Connection) {
     }
 }
 
+/// Lock-safe push for NON-main callers (quota scheduler). The db-dependent
+/// half (config + quotas + today summary — pure db, no window ops) resolves
+/// under the guard; the window GETTERS in build_pulse_data (panel_max_h →
+/// current_monitor, resolved_theme → theme) are synchronous round-trips to
+/// the main event loop and run AFTER the guard is released. Calling
+/// push_pulse_data while a background thread holds the db guard deadlocks
+/// against any main-thread command waiting for the same lock — the whole-
+/// process freeze of 2026-09-24 (log tails end at build_pulse_data, no
+/// error, every background thread stalled).
+pub fn push_pulse_data_offmain(app: &AppHandle, db: &std::sync::Arc<std::sync::Mutex<Connection>>) {
+    // ── Phase 1: pure db under the guard ─────────────────────────────────
+    let (cfg, quotas, today) = {
+        let Ok(conn) = db.lock() else { return };
+        let cfg = match config::load(&conn) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        if !cfg.pulse_enabled {
+            return;
+        }
+        (cfg, load_quotas(&conn), today_usage_text(app, &conn))
+    };
+    // ── Phase 2: window getters with NO guard held ───────────────────────
+    let max_panel_h = app
+        .get_webview_window("pulse")
+        .map(|w| panel_max_h(&w))
+        .unwrap_or(MAX_PANEL_H);
+    let theme = resolved_theme(app, &cfg);
+    let payload = PulseData {
+        quotas: quotas.clone(),
+        size: cfg.pulse_size.clone(),
+        ring_diameter: ring_diameter(&cfg.pulse_size),
+        theme: theme.clone(),
+        opacity: cfg.pulse_opacity.clamp(0.2, 1.0),
+        max_panel_h,
+        side: cfg.pulse_side.clone(),
+        today_tokens: today,
+    };
+    refresh_dock_cache(&cfg, &payload.theme, &payload.quotas);
+    for w in [
+        app.get_webview_window("pulse"),
+        app.get_webview_window("pulse-card"),
+        app.get_webview_window("pulse-peek"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let _ = w.emit("pulse:update", &payload);
+    }
+}
+
 /// Load vendor quotas from the quota_cache table, filtered AND ordered by
 /// the same rules the main window's quota page (`get_quotas`) applies:
 /// `quota_active_vendors` for visibility, `quota_vendor_order` (falling back
