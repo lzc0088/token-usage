@@ -870,11 +870,11 @@ const POLL_MS: u64 = 33;
 /// migrates there (follow-active-screen). Long enough that merely passing
 /// the boundary or glancing over never moves the panel.
 const FOLLOW_DWELL: std::time::Duration = std::time::Duration::from_millis(1500);
-/// Display-topology probe cadence (ticks). The ScaleFactorChanged listener
-/// only fires when a display change alters the WINDOW's scale — unplugging
-/// a same-scale external moves windows with no event at all, so the poller
-/// also watches the monitor-set signature and re-docks on change.
-const TOPOLOGY_REFRESH: u32 = 15;
+/// Monitor-snapshot refresh cadence (ticks ≈ 2s). available_monitors()
+/// leaks ~1.3KB/call through the macOS 27 NSScreen bridge, so the poller
+/// NEVER calls it per tick — all consumers share this snapshot (topology
+/// detection derives its signature from the same refresh).
+const MON_SNAPSHOT_REFRESH: u32 = 60;
 /// Linger after the pointer leaves both windows before hiding the card.
 const HOVER_LINGER: std::time::Duration = std::time::Duration::from_millis(150);
 /// Linger before the PANEL itself collapses in peek mode — deliberately
@@ -1088,6 +1088,10 @@ pub fn ensure_hover_poller(app: &AppHandle) {
         // Monitor-set signature (sorted origins+sizes). None until the first
         // probe fills it (the first fill is not a "change").
         let mut last_topology: Option<Vec<(i32, i32, u32, u32)>> = None;
+        // Shared monitor snapshot — refreshed every MON_SNAPSHOT_REFRESH
+        // ticks; the per-tick hot path (panel_at_edge, follow) reads this
+        // instead of calling available_monitors (see MON_SNAPSHOT_REFRESH).
+        let mut mon_snapshot: Vec<tauri::Monitor> = Vec::new();
         let mut primary_h = 0.0f64;
         // Primary monitor scale — Windows converts GetCursorPos's physical
         // px to the poller's logical space with it (macOS ignores it).
@@ -1144,19 +1148,32 @@ pub fn ensure_hover_poller(app: &AppHandle) {
             // auto-hide entirely, and a held button suspends it mid-drag so a
             // slow drag near the edge can't trip the linger and collapse the
             // panel under the cursor.
-            let peek_armed = dock.peek_enabled && panel_at_edge(&ring) && !button_down;
+            // ── Shared monitor snapshot ───────────────────────────────────
+            // One available_monitors() call every MON_SNAPSHOT_REFRESH ticks
+            // feeds everything below (peek_armed, topology, follow). The
+            // 0.5s topology responsiveness degrades to ~2s — fine for a
+            // hot-plug reaction.
+            if tick % MON_SNAPSHOT_REFRESH == 0 || mon_snapshot.is_empty() {
+                if let Ok(mons) = ring.available_monitors() {
+                    mon_snapshot = mons;
+                }
+            }
+            let panel_mon_ref = monitor_of_window_in(pos, size, &mon_snapshot);
+            let peek_armed = dock.peek_enabled
+                && panel_mon_ref
+                    .map(|mon| panel_at_edge_in(&ring, mon, pos, size))
+                    .unwrap_or(true)
+                && !button_down;
 
             // ── Display topology change ───────────────────────────────────
-            // Probe the monitor set every TOPOLOGY_REFRESH ticks and re-dock
-            // when it changes. The main-thread ScaleFactorChanged listener
-            // only fires when the WINDOW's scale changes — unplugging a
-            // same-scale external just relocates windows with no event, so
-            // the handle would stay wherever macOS dumped it.
-            if tick % TOPOLOGY_REFRESH == 0 && !button_down {
-                let mut sig: Vec<(i32, i32, u32, u32)> = ring
-                    .available_monitors()
-                    .unwrap_or_default()
-                    .into_iter()
+            // Signature derived from the shared snapshot (no extra monitor
+            // call). The main-thread ScaleFactorChanged listener only fires
+            // when the WINDOW's scale changes — unplugging a same-scale
+            // external just relocates windows with no event, so the handle
+            // would stay wherever macOS dumped it.
+            if tick % MON_SNAPSHOT_REFRESH == 0 && !button_down {
+                let mut sig: Vec<(i32, i32, u32, u32)> = mon_snapshot
+                    .iter()
                     .map(|m| {
                         (
                             m.position().x,
@@ -1190,9 +1207,8 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                 && !visible
                 && matches!(peek_state().0, PeekState::Hidden | PeekState::Visible)
             {
-                let monitors = ring.available_monitors().unwrap_or_default();
-                let cursor_mon = monitor_key_of_hit_point(&monitors, mx, my);
-                let panel_mon = monitor_of_window(&ring).map(|m| (m.position().x, m.position().y));
+                let cursor_mon = monitor_key_of_hit_point(&mon_snapshot, mx, my);
+                let panel_mon = panel_mon_ref.map(|m| (m.position().x, m.position().y));
                 match (cursor_mon, panel_mon) {
                     (Some(ck), Some(pk)) if ck != pk => {
                         let now = std::time::Instant::now();
@@ -1205,7 +1221,7 @@ pub fn ensure_hover_poller(app: &AppHandle) {
                         };
                         if now.duration_since(first_seen) >= FOLLOW_DWELL {
                             follow_candidate = None;
-                            if let Some(target) = monitors
+                            if let Some(target) = mon_snapshot
                                 .iter()
                                 .find(|m| (m.position().x, m.position().y) == ck)
                             {
@@ -1578,6 +1594,18 @@ fn panel_at_edge(win: &tauri::WebviewWindow) -> bool {
     ) else {
         return true;
     };
+    panel_at_edge_in(win, &mon, pos, size)
+}
+
+/// Cached-snapshot variant used by the poller's hot path (see
+/// monitor_of_window_in for why the monitor list must not be fetched per
+/// tick).
+fn panel_at_edge_in(
+    win: &tauri::WebviewWindow,
+    mon: &tauri::Monitor,
+    pos: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+) -> bool {
     let scale = win.scale_factor().unwrap_or(1.0).max(1.0);
     let x = pos.x as f64 / scale;
     let w = size.width as f64 / scale;
@@ -1737,6 +1765,33 @@ fn migrate_to_active_screen(app: &AppHandle, mon: &tauri::Monitor) {
 /// edge while the peek handle stayed on the built-in → invisible panel +
 /// reveal/collapse flicker loop). Falls back to primary when the center is
 /// off every monitor (fully off-screen).
+/// Pure variant over a caller-supplied monitor list — the poller's hot path
+/// passes its CACHED snapshot (available_monitors leaks ~1.3KB per call on
+/// macOS 27 via the NSScreen bridge; at the poller's former 60-90 calls/sec
+/// that grew RSS by ~3.6MB/min. Low-frequency paths keep the self-fetching
+/// wrapper below).
+fn monitor_of_window_in(
+    pos: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    monitors: &[tauri::Monitor],
+) -> Option<&tauri::Monitor> {
+    let cx = pos.x + (size.width / 2) as i32;
+    let cy = pos.y + (size.height / 2) as i32;
+    monitors
+        .iter()
+        .find(|m| {
+            point_in_rect(
+                cx,
+                cy,
+                m.position().x,
+                m.position().y,
+                m.size().width as i32,
+                m.size().height as i32,
+            )
+        })
+        .or_else(|| monitors.first())
+}
+
 fn monitor_of_window(win: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
     let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) else {
         return win.primary_monitor().ok().flatten();
