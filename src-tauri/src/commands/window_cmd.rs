@@ -51,10 +51,22 @@ pub fn open_settings(
 /// Show + focus the settings window, hiding the main popover first. Shared by
 /// `open_settings` and the tray menu's "settings" item.
 pub fn show_settings_window(app: &AppHandle) {
+    // Resolve the target screen BEFORE hiding main (hiding first would make
+    // its monitor stale). Settings is opened from the tray menu or from the
+    // main window — both live on the active screen, so main's monitor is the
+    // right anchor (main itself is already tray-screen-correct).
+    let target_mon = crate::active_monitor(app);
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }
     if let Some(w) = app.get_webview_window("settings") {
+        // tauri.conf.json has "center": true, which macOS resolves against
+        // the PRIMARY monitor — on a multi-display setup that lands the
+        // window on the wrong screen. Re-center explicitly on the active
+        // monitor before showing.
+        if let Some(mon) = target_mon {
+            crate::center_on_monitor(&w, &mon);
+        }
         let _ = w.show();
         let _ = w.set_focus();
         // Window dragging: MovableByWindowBackground is enabled once at

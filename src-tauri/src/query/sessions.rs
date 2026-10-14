@@ -21,6 +21,12 @@ pub struct SessionVm {
     pub rounds: i64,
     pub model_count: i64,
     pub models: String,
+    /// Token composition (drives the row's cache-hit chip): prompt tokens
+    /// served from cache vs freshly processed.
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
     pub last_used_at: Option<String>,
     pub project_name: Option<String>,
     pub project_path: Option<String>,
@@ -73,7 +79,11 @@ pub fn query(
                 COALESCE(SUM(rounds), 0) AS rounds,
                 COUNT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END) AS model_count,
                 COALESCE(GROUP_CONCAT(DISTINCT CASE WHEN model NOT IN ('<synthetic>') THEN model END), '') AS models,
-                MAX(last_used_at) AS last_used_at
+                MAX(last_used_at) AS last_used_at,
+                COALESCE(SUM(input_tokens), 0) AS input,
+                COALESCE(SUM(output_tokens), 0) AS output,
+                COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+                COALESCE(SUM(cache_write_tokens), 0) AS cache_write
          FROM sessions
          GROUP BY tool, session_id
          HAVING COALESCE(SUM(message_count), 0) >= ?2
@@ -95,6 +105,10 @@ pub fn query(
                 rounds: r.get::<_, i64>(5)?,
                 model_count: r.get::<_, i64>(6)?,
                 models: r.get::<_, String>(7)?,
+                input: r.get::<_, i64>(9)?,
+                output: r.get::<_, i64>(10)?,
+                cache_read: r.get::<_, i64>(11)?,
+                cache_write: r.get::<_, i64>(12)?,
                 last_used_at: file_mtime.or(db_time),
                 project_name: (!proj_name.is_empty()).then_some(proj_name),
                 project_path: (!proj_path.is_empty()).then_some(proj_path),

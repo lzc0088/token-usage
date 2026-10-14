@@ -122,6 +122,15 @@
       { label: t("detail.cache"), tokens: dr.cache_read, pct: (dr.cache_read / total) * 100, color: "var(--tok-cache-r)" },
     ];
   }
+
+  /** 缓存命中率 = cache_read / (input + cache_read + cache_write)。
+   *  无缓存数据（分量全 0）返回 null —— 不显示 chip。 */
+  function cacheHit(s: SessionVm): number | null {
+    const r = s.cache_read ?? 0;
+    const denom = (s.input ?? 0) + r + (s.cache_write ?? 0);
+    if (denom <= 0) return null;
+    return (r / denom) * 100;
+  }
 </script>
 
 <div class="seg-body">
@@ -201,6 +210,7 @@
     {:else}
       {#each sorted as s (s.tool + s.session_id)}
         {@const st = splitTokens(s.tokens)}
+        {@const cr = cacheHit(s)}
         {@const open = expanded === `${s.tool}:${s.session_id}`}
         {@const ml = modelLabel(s.model_count, s.models)}
         {@const tc = toolMeta(s.tool).color}
@@ -237,6 +247,15 @@
           </div>
           <div class="s-right">
             <div class="s-meta">
+              {#if cr !== null}
+                <span
+                  class="s-cache"
+                  class:cache-high={cr >= 80}
+                  class:cache-mid={cr >= 50 && cr < 80}
+                  title={`${t("sessions.cacheHit")}: ${cr.toFixed(0)}%  ·  R ${(s.cache_read ?? 0).toLocaleString()}  ·  W ${(s.cache_write ?? 0).toLocaleString()}`}
+                >{cr.toFixed(0)}%</span
+                >
+              {/if}
               <span class="s-cost"><CostText usd={s.cost_usd} {currency} {cnyRate} /></span>
               <span class="s-tokens">{st.value}<span class="tku">{st.unit}</span></span>
             </div>
@@ -386,4 +405,19 @@
   .rd-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
   .rd-cost { font-size: 0.7333rem; color: var(--amber); font-family: var(--font-mono); }
   .rd-tokens { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dim); }
+
+  .s-cache {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--text-faint);
+    background: var(--glass-3);
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 0 4px;
+    line-height: 1.4;
+    cursor: default;
+  }
+  .s-cache.cache-high { color: var(--tok-input); border-color: #00e68a33; }
+  .s-cache.cache-mid { color: var(--amber); border-color: #ffc22633; }
 </style>

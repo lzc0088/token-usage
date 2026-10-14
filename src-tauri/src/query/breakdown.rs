@@ -211,6 +211,20 @@ pub fn query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw(key: &str, tokens: i64) -> RawEntry {
+        RawEntry {
+            key: key.into(),
+            tokens,
+            cost: tokens as f64 * 0.01,
+            messages: tokens,
+            input: tokens,
+            output: tokens,
+            cache_read: 0,
+            cache_write: 0,
+        }
+    }
+
     use crate::storage::{daily_usage::ingest_graph, schema};
 
     fn seeded_conn() -> Connection {

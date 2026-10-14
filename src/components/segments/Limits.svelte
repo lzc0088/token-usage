@@ -54,6 +54,17 @@
   // data that arrived via a later `quota:updated` event.
   let refreshGen = 0;
 
+  /** Persist one vendor's hidden-row set (atomic single-field command —
+   *  the emitted config:changed flows back into this component's config prop,
+   *  which re-derives the cards). */
+  async function setHidden(vendor: string, hidden: string[]): Promise<void> {
+    try {
+      await api.setLimitHiddenItems(vendor, hidden);
+    } catch {
+      /* keep current view; next config sync reconciles */
+    }
+  }
+
   async function refresh(): Promise<void> {
     const gen = ++refreshGen;
     try {
@@ -115,7 +126,16 @@
   {:else}
     {@const progressMode = config?.quota_progress_mode ?? "剩余"}
     {#each visibleQuotas as q (q.vendor)}
-      <QuotaCard quota={q} {progressMode} {nowMs} {currency} {cnyRate}  onQuotaChanged={refresh} />
+      <QuotaCard
+        quota={q}
+        {progressMode}
+        {nowMs}
+        {currency}
+        {cnyRate}
+        hiddenItems={config?.limit_hidden_items?.[q.vendor] ?? []}
+        onHiddenItemsChange={(hidden) => setHidden(q.vendor, hidden)}
+        onQuotaChanged={refresh}
+      />
     {/each}
   {/if}
 </div>

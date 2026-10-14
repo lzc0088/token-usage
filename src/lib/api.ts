@@ -80,6 +80,11 @@ export interface SessionVm {
   rounds: number;
   model_count: number;
   models: string;
+  /** Token composition — drives the cache-hit chip on the row. */
+  input?: number;
+  output?: number;
+  cache_read?: number;
+  cache_write?: number;
   last_used_at: string | null;
   project_name: string | null;
   project_path: string | null;
@@ -324,6 +329,8 @@ export interface Config {
   pulse_display_mode?: "always" | "auto_hide";
   /** Pulse panel migrates to the cursor's monitor after a dwell. */
   pulse_follow_screen?: boolean;
+  /** Per-vendor hidden quota-card row ids ("balance" | "window:<label>"). */
+  limit_hidden_items?: Record<string, string[]>;
 }
 
 // ── exchange rate ───────────────────────────────────────────────────────────
@@ -372,6 +379,10 @@ export const api = {
 
   getDetailBreakdown: (period: Period, dimension: Dimension, filter: string) =>
     invoke<Breakdown>("get_detail_breakdown", { period, dimension, filter }),
+
+  /** Atomically set one vendor's hidden quota-card rows. */
+  setLimitHiddenItems: (vendor: string, hidden: string[]) =>
+    invoke<void>("set_limit_hidden_items", { vendor, hidden }),
 
   getTrends: (period: Period) => invoke<Trends>("get_trends", { period }),
 

@@ -74,6 +74,52 @@ fn build_tray_icon() -> tauri::image::Image<'static> {
 ///   macOS: menu bar at screen top → window below the tray icon
 ///   Windows/Linux: taskbar at screen bottom → window above the tray icon
 /// Horizontal centring on the tray icon is unchanged.
+/// The monitor whose rect contains the given physical point (center of the
+/// point when it has size). Falls back to the primary monitor when no
+/// monitor contains it (point off every screen).
+pub(crate) fn monitor_containing(
+    w: &tauri::WebviewWindow,
+    px: f64,
+    py: f64,
+) -> Option<tauri::Monitor> {
+    let mons = w.available_monitors().ok()?;
+    mons.into_iter()
+        .find(|m| {
+            px >= m.position().x as f64
+                && px < (m.position().x + m.size().width as i32) as f64
+                && py >= m.position().y as f64
+                && py < (m.position().y + m.size().height as i32) as f64
+        })
+        .or_else(|| w.primary_monitor().ok().flatten())
+}
+
+/// Center `w` on `mon` (physical px). No-op when the monitor is None.
+pub(crate) fn center_on_monitor(w: &tauri::WebviewWindow, mon: &tauri::Monitor) {
+    let Ok(size) = w.outer_size() else { return };
+    let scale = w.scale_factor().unwrap_or(1.0).max(1.0);
+    // Monitor rect in physical px (Tauri reports physical).
+    let mx = mon.position().x as f64;
+    let my = mon.position().y as f64;
+    let mw = mon.size().width as f64;
+    let mh = mon.size().height as f64;
+    let x = mx + (mw - size.width as f64) / 2.0;
+    let y = my + (mh - size.height as f64) / 2.0;
+    let _ = w.set_position(PhysicalPosition::new(x as i32, y as i32));
+}
+
+/// The monitor a newly-shown window should land on: the MAIN window's
+/// current monitor (settings is always opened from the tray or from main,
+/// both of which live on the user's active screen — and main is already
+/// tray-screen-correct via show_main_under_tray). Falls back to primary.
+pub(crate) fn active_monitor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    app.get_webview_window("main")
+        .and_then(|m| m.current_monitor().ok().flatten())
+        .or_else(|| {
+            app.get_webview_window("settings")
+                .and_then(|w| w.primary_monitor().ok().flatten())
+        })
+}
+
 pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let state = app.state::<AppState>();
@@ -90,13 +136,18 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
         if let Ok(guard) = LAST_TRAY_RECT.lock() {
             if let Some((tray_pos, tray_size)) = *guard {
                 if let Ok(win_size) = w.outer_size() {
-                    let mut x =
-                        tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
                     // Keep a margin from the screen edges so the popover isn't
                     // flush with the right/left border (the tray icon usually
                     // sits at the very edge → x would otherwise clip it).
                     const EDGE_MARGIN: f64 = 16.0;
-                    if let Ok(Some(mon)) = w.current_monitor() {
+                    let mut x =
+                        tray_pos.x + (tray_size.width / 2.0) - (win_size.width as f64 / 2.0);
+                    // Clamp against the monitor that CONTAINS THE TRAY — not
+                    // the window's current monitor: on a multi-display setup
+                    // the window can sit on screen B while the tray lives on
+                    // screen A, and clamping against B's edges drags the
+                    // popover onto the wrong screen (or off it entirely).
+                    if let Some(mon) = monitor_containing(&w, tray_pos.x, tray_pos.y) {
                         let mon_x = mon.position().x as f64;
                         let mon_w = mon.size().width as f64;
                         let min_x = mon_x + EDGE_MARGIN;
@@ -112,6 +163,11 @@ pub(crate) fn show_main_under_tray(app: &tauri::AppHandle) {
                     #[cfg(not(target_os = "macos"))]
                     let y = tray_pos.y - win_size.height as f64;
                     let _ = w.set_position(PhysicalPosition::new(x as i32, y as i32));
+                    tracing::info!(
+                        "main: positioned under tray at ({x},{y}) [tray=({},{} {}x{}), win={}x{}]",
+                        tray_pos.x, tray_pos.y, tray_size.width, tray_size.height,
+                        win_size.width, win_size.height,
+                    );
                 }
             }
         }
@@ -702,6 +758,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::query::get_summary,
+            commands::quota::set_limit_hidden_items,
             commands::query::get_breakdown,
             commands::query::get_detail_breakdown,
             commands::query::get_trends,

@@ -166,6 +166,11 @@ pub struct Config {
     /// Turn off to pin the panel to one display.
     #[serde(default = "default_true")]
     pub pulse_follow_screen: bool,
+    /// Per-vendor hidden quota-card rows (stores the HIDDEN half — rows
+    /// added by future adapter updates default to visible). Item ids:
+    /// "balance" | "window:<label>".
+    #[serde(default)]
+    pub limit_hidden_items: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// Hand-rolled `Default` so `Config::default()` agrees with the serde defaults
@@ -217,6 +222,7 @@ impl Default for Config {
             pulse_opacity: default_pulse_opacity(),
             pulse_topmost: default_true(),
             pulse_follow_screen: default_true(),
+            limit_hidden_items: Default::default(),
             pulse_display_mode: default_pulse_display_mode(),
         }
     }

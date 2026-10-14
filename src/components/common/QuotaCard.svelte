@@ -23,6 +23,8 @@
     nowMs = 0,
     currency = "cny" as Currency,
     cnyRate = 7.2,
+    hiddenItems = [],
+    onHiddenItemsChange,
     onQuotaChanged,
   }: {
     quota: Quota;
@@ -30,6 +32,10 @@
     nowMs: number;
     currency?: Currency;
     cnyRate?: number;
+    /** Hidden row ids for THIS vendor ("balance" | "window:<label>") —
+     *  the caller derives them from config and persists changes. */
+    hiddenItems?: string[];
+    onHiddenItemsChange?: (hidden: string[]) => void;
     /** Called after a credential change so the parent can reload fresh quota
      *  data and pass it down as a new `quota` prop. More reliable than relying
      *  on the `quota:updated` Tauri event, which can be missed by a hidden /
@@ -40,6 +46,24 @@
   
   function l(zh: string, en: string): string { return getLang() === "en" ? en : zh; }
   let _lang = $derived(getLang());
+
+  // ── Row visibility (per-vendor hidden checklist) ──
+  // Only for vendors with MULTIPLE display rows (e.g. balance + several
+  // usage windows) — single-row cards gain nothing from the checklist.
+  let managingRows = $state(false);
+  let hiddenSet = $derived(new Set(hiddenItems));
+  let rowCount = $derived(
+    (quota.balance ? 1 : 0) + quota.windows.length,
+  );
+  let rowsManageable = $derived(rowCount >= 2);
+  function toggleItem(id: string): void {
+    const next = new Set(hiddenSet);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onHiddenItemsChange?.([...next]);
+  }
+  function resetItems(): void {
+    onHiddenItemsChange?.([]);
+  }
 
   // ── Inline cookie editor (per-card state) ──
   // `null` = not editing, string = vendor being edited (supports per-vendor
@@ -167,6 +191,16 @@
     <div class="qhead-line">
       <div class="qhead-name-row">
         <span class="q-vendor"><ToolIcon vendor={quota.vendor} badge={false} size={11} />{VENDOR_LABELS[quota.vendor] ?? quota.vendor}</span>
+        {#if rowsManageable}
+          <button
+            type="button"
+            class="qrows-btn"
+            class:on={managingRows || hiddenItems.length > 0}
+            title={l("管理条目", "Rows")}
+            aria-label={l("管理条目", "Rows")}
+            onclick={(e) => { e.stopPropagation(); managingRows = !managingRows; }}
+          >⋯</button>
+        {/if}
       </div>
       {#if quota.plan_label}
         <span class="qplan-tag">{quota.plan_label}</span>
@@ -182,6 +216,24 @@
       {/if}
     </div>
   </div>
+
+  {#if managingRows && rowsManageable}
+    <div class="qrows-panel">
+      {#if quota.balance}
+        <label class="qrows-item">
+          <input type="checkbox" checked={!hiddenSet.has("balance")} onchange={() => toggleItem("balance")} />
+          <span>{l("余额", "Balance")}</span>
+        </label>
+      {/if}
+      {#each quota.windows.filter((w) => !hiddenSet.has(`window:${w.label}`)) as w (w.label)}
+        <label class="qrows-item">
+          <input type="checkbox" checked={!hiddenSet.has(`window:${w.label}`)} onchange={() => toggleItem(`window:${w.label}`)} />
+          <span>{windowLabel(w.label, _lang)}</span>
+        </label>
+      {/each}
+      <button type="button" class="qrows-reset" onclick={resetItems}>{l("恢复默认", "Reset")}</button>
+    </div>
+  {/if}
 
   {#if quota.cookie_error}
   {#if editingCookie === quota.vendor}
@@ -238,7 +290,7 @@
   {/if}
 {/if}
 
-{#if quota.balance}
+{#if quota.balance && !hiddenSet.has("balance")}
   <div class="qitem-balance">
     <span class="qibl-label">{l("余额","Balance")}</span>
     <span class="qibl-amount"><span class="qb-cu" aria-hidden="true">{splitBalance(quota.balance.currency ?? "USD", quota.balance.amount).unit}</span>{splitBalance(quota.balance.currency ?? "USD", quota.balance.amount).value}</span>
@@ -863,4 +915,52 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+  .qrows-btn {
+    margin-left: auto;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--text-faint);
+    font-size: 0.7rem;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .qcard:hover .qrows-btn { opacity: 1; }
+  .qrows-btn.on { opacity: 1; color: var(--amber); border-color: var(--border-dim); }
+  .qrows-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    background: var(--glass-subtle);
+    border: 1px dashed var(--border-dim);
+    border-radius: 8px;
+  }
+  .qrows-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .qrows-item input { accent-color: var(--amber); }
+  .qrows-reset {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-size: 0.7rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .qrows-reset:hover { color: var(--amber); }
 </style>

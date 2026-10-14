@@ -58,6 +58,42 @@ pub async fn test_credential(vendor: String, credential: String) -> Result<Strin
     }
 }
 
+/// Atomic single-field update of a vendor's hidden quota-card rows (the
+/// settings list "stores the hidden half" — future rows default visible).
+/// Emits config:changed so the main window's quota cards re-render.
+#[tauri::command]
+pub fn set_limit_hidden_items(
+    vendor: String,
+    hidden: Vec<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conn = state.db_read();
+    let vendor = vendor.trim().to_string();
+    if vendor.is_empty() {
+        return Err("vendor must not be empty".into());
+    }
+    // Sanitize: dedupe + drop empties; sort for stable diffs.
+    let mut items: Vec<String> = hidden
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    items.sort();
+    items.dedup();
+    config::with_config(&conn, |cfg| {
+        if items.is_empty() {
+            cfg.limit_hidden_items.remove(&vendor);
+        } else {
+            cfg.limit_hidden_items.insert(vendor.clone(), items);
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    use tauri::Emitter;
+    let _ = app.emit("config:changed", ());
+    Ok(())
+}
+
 /// Read cached quotas from `quota_cache` table, filtered by config's
 /// `quota_active_vendors`. Fast — no network calls.
 ///

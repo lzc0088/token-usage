@@ -408,6 +408,10 @@ const DICT: Record<string, Record<string, string>> = {
 
   // ── BreakdownList ──
   "breakdown.noData": { zh: "暂无数据", en: "No data" },
+  "sessions.cacheHit": { zh: "缓存命中率", en: "Cache hit" },
+  "limits.manageItems": { zh: "管理条目", en: "Rows" },
+  "limits.balanceRow": { zh: "余额", en: "Balance" },
+  "limits.resetRows": { zh: "恢复默认", en: "Reset" },
   // ── Hero detail ──
   "hero.vs": { zh: "vs", en: "vs" },
   "detail.input": { zh: "输入", en: "Input" },

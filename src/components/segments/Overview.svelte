@@ -276,7 +276,9 @@ import ToolIcon from "../ui/ToolIcon.svelte";
   }
   .list-area {
     background: var(--glass-3);
-    padding: 6px 10px 8px;
+    /* No horizontal padding: the rows' hover background must span the full
+       card width. The rows re-add the content inset themselves. */
+    padding: 6px 0 8px;
   }
   .sec-h .title-dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -310,7 +312,9 @@ import ToolIcon from "../ui/ToolIcon.svelte";
   .v.tok-cw { color: var(--tok-cache-w) !important; }
   .crow {
     display: flex; align-items: center; gap: 10px;
-    padding: 8px 0; cursor: pointer;
+    /* Horizontal padding here (not on .list-area) so the hover background
+       covers the full card width while the content keeps its inset. */
+    padding: 8px 12px; cursor: pointer;
     background: none; border: none; font-family: inherit; text-align: left; width: 100%;
     border-bottom: 1px dashed var(--border-dim);
   }
